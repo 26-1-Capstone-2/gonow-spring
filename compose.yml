@@ -1,0 +1,9 @@
+services:
+  my-db:
+    image: mysql:8.4
+    environment: # -e MYSQL_ROOT_PASSWORD=password 역할
+      MYSQL_ROOT_PASSWORD: pwd1234
+    volumes: # v {호스트 경로}:/var/lib/mysql 역할
+      - ./mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"

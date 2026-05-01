@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: gonow
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/mydb
+    username: root
+    password: pwd1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    # 1. 데이터베이스 테이블 자동 생성/수정 설정
+    hibernate:
+      ddl-auto: create
+
+    # 2. 추가적인 하이버네이트 세부 설정
+    properties:
+      hibernate:
+        format_sql: true          # SQL을 보기 좋게 정렬
+        highlight_sql: true       # SQL 문법에 색상 표시 (가독성 향상)
+        use_sql_comments: true    # SQL 뒤에 어떤 로직인지 주석 추가
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG           # SQL 문 출력
+    org.hibernate.orm.jdbc.bind: TRACE # SQL에 들어가는 실제 값까지 확인
+
+jwt:
+  # 32 글자 이상의 문자열을 인코딩해야 에러 X
+  secret: SL21AtKG1c3LRN2KKfhBcrc0Tlrxj6ACifgADCcT7VO5H+y7XrUoo/CLK/PME7sflGtc7eFvv55N4pq4vf43VQ==
+  expiration: 3000 # 분단위
