@@ -1,0 +1,50 @@
+package com.timemate.gonow.global.config;
+
+import com.timemate.gonow.global.auth.JwtTokenFilter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+@Configuration
+@RequiredArgsConstructor
+public class SecurityConfig {
+    private final JwtTokenFilter jwtTokenFilter;
+
+    @Bean
+    public PasswordEncoder makePassword() {
+        return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+    @Bean
+    public SecurityFilterChain myFilter(HttpSecurity httpsecurity) {
+        return httpsecurity
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .csrf(AbstractHttpConfigurer::disable) // csrf 비활성화
+                // 안드로이드나 iOS 네이티브 앱 은 브라우저의 '동일 출처 정책(CORS)' 제약을 받지 않음
+                .cors(AbstractHttpConfigurer::disable)
+                // 세션을 사용하지 않으므로 상태를 유지하지 않겠다고 설정
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers(
+                                "/health",                      // 헬스체크 (GET)
+                                "/api/auth/login",              // 로그인 (POST)
+                                "/api/members/email/check",     // 중복 이메일 체크 (GET)
+                                "/api/members/nickname/check",  // 중복 닉네임 체크 (GET)
+                                "/error").permitAll()           // 에러 핸들링 ANY
+                        .requestMatchers(HttpMethod.POST, "/api/members").permitAll() // 회원가입 (POST)
+                        .anyRequest().authenticated() // 그 외 모든 요청은 반드시 우리 서비스의 JWT 토큰이 있어야 함
+                )
+                // 기존 로그인 필터가 실행되기 전에 우리 JWT 필터를 먼저 실행!
+                .addFilterBefore(jwtTokenFilter, UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+}

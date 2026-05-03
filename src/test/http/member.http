@@ -1,0 +1,104 @@
+### ================================================================
+### [사전 준비] 서버 기동 확인
+### ================================================================
+
+### 0. 헬스 체크 → 200 "OK"
+GET http://localhost:8080/health
+
+
+### ================================================================
+### [STEP 1] 회원가입 전 중복 확인 (가입 전에 앱에서 먼저 호출하는 흐름)
+### ================================================================
+
+### 1-1. 이메일 사용 가능 확인 → { data: true }
+GET http://localhost:8080/api/members/email/check?email=hero@cau.ac.kr
+
+### 1-2. 닉네임 사용 가능 확인 → { data: true }
+GET http://localhost:8080/api/members/nickname/check?nickname=영웅개발자
+
+
+### ================================================================
+### [STEP 2] 회원가입
+### ================================================================
+
+### 2. 회원가입 → 200, { data: memberId }
+POST http://localhost:8080/api/members
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "영웅개발자"
+}
+
+
+### ================================================================
+### [STEP 3] 로그인 (이후 모든 요청에 토큰 필요)
+### ================================================================
+
+### 3. 로그인 → 200, { data: { id, jwtToken } }
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    // SuccessResult<LoginResponse> 포맷: { message, data: { id, jwtToken } }
+    client.global.set("jwtToken", response.body.data.jwtToken);
+%}
+
+
+### ================================================================
+### [STEP 4] 인증 확인 및 내 정보 조회
+### ================================================================
+
+### 4. 내 정보 조회 → 200, { data: memberId }
+GET http://localhost:8080/api/members/me
+Authorization: Bearer {{jwtToken}}
+
+
+### ================================================================
+### [STEP 5] 회원 정보 수정
+### ================================================================
+
+### 5-1. 닉네임 변경 → 200
+PATCH http://localhost:8080/api/members/me/nickname
+Content-Type: application/json
+Authorization: Bearer {{jwtToken}}
+
+{
+  "nickname": "새닉네임"
+}
+
+### 5-2. 비밀번호 변경 → 200
+PATCH http://localhost:8080/api/members/me/password
+Content-Type: application/json
+Authorization: Bearer {{jwtToken}}
+
+{
+  "currentPassword": "password123!",
+  "newPassword": "newPassword123!",
+  "newPasswordConfirm": "newPassword123!"
+}
+
+
+### ================================================================
+### [STEP 6] 로그아웃
+### ================================================================
+
+### 6. 로그아웃 → 200 (서버는 껍데기, 클라이언트가 토큰 삭제)
+POST http://localhost:8080/api/auth/logout
+Authorization: Bearer {{jwtToken}}
+
+
+### ================================================================
+### [STEP 7] 회원탈퇴 (현재 껍데기 — 로그만 찍힘)
+### ================================================================
+
+### 7. 회원탈퇴 → 200
+### (탈퇴 전 3번을 다시 실행해서 토큰을 재발급받아야 함 — 5-2에서 비밀번호가 바뀌었으므로)
+DELETE http://localhost:8080/api/members/me
+Authorization: Bearer {{jwtToken}}

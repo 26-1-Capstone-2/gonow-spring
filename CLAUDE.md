@@ -1,0 +1,179 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## 프로젝트 개요
+
+**GoNow** (TimeMate) — 실시간 위치 기반 약속/여정 관리 플랫폼. 모바일 앱(안드로이드/iOS)을 대상으로 하는 Spring Boot REST API 서버.
+
+## 빌드 및 실행 명령어
+
+```bash
+# 빌드
+./gradlew build
+
+# 테스트 실행
+./gradlew test
+
+# 단일 테스트 클래스 실행
+./gradlew test --tests "com.timemate.gonow.GonowApplicationTests"
+
+# 애플리케이션 실행 (MySQL 먼저 기동 필요)
+./gradlew bootRun
+
+# MySQL 컨테이너 기동
+docker compose up -d
+
+# MySQL 컨테이너 종료
+docker compose down
+```
+
+## 기술 스택
+
+- **Java 21** / **Spring Boot 4.0.6** / **Gradle**
+- **인증**: Spring Security + JWT (JJWT 0.13)
+- **ORM**: JPA/Hibernate + QueryDSL 7.1
+- **DB**: MySQL 8.4 (Docker), Redis
+- **외부 API 호출**: Spring RestClient
+
+## 아키텍처
+
+### 계층 구조
+```
+Controller → Service → Repository → Entity → MySQL
+```
+
+### 패키지 구조
+```
+com.timemate.gonow/
+├── GonowApplication.java
+├── domain/
+│   ├── common/       # 공용 Embeddable 값 타입 (Location, Point)
+│   ├── member/       # 회원 (Controller, Service, Repository, Entity, DTO, Constant 포함)
+│   ├── appointment/  # 약속 및 참여자 (Entity, Constant)
+│   ├── journey/      # 여정 (Entity, Constant)
+│   └── place/        # 장소 (Entity, Constant)
+└── global/
+    ├── auth/         # JWT 필터(JwtTokenFilter) 및 토큰 프로바이더(JwtTokenProvider)
+    ├── config/       # SecurityConfig, RestClientConfig
+    ├── controller/   # AuthController, HealthController
+    ├── dto/          # LoginRequest, LoginResponse
+    ├── exception/    # GlobalExceptionHandler
+    ├── response/     # SuccessResult, ErrorResult
+    └── service/      # AuthService
+```
+
+### 보안 흐름
+
+모든 요청은 `JwtTokenFilter`를 통과한다. 필터는 `Authorization: Bearer {token}` 헤더를 파싱하여 `JwtTokenProvider`로 검증하고, 유효하면 `SecurityContext`에 인증 정보를 주입한다. 무효 토큰은 즉시 401을 반환한다.
+
+**공개 엔드포인트** (인증 불필요):
+- `GET /health`
+- `POST /api/auth/login`
+- `POST /api/members` (회원가입)
+- `GET /api/members/email/check`
+- `GET /api/members/nickname/check`
+
+### 현재 구현된 API 엔드포인트
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/health` | 불필요 | 헬스 체크 |
+| POST | `/api/auth/login` | 불필요 | 로그인 (JWT 발급) |
+| POST | `/api/auth/logout` | 필요 | 로그아웃 (클라이언트 토큰 삭제) |
+| POST | `/api/members` | 불필요 | 회원가입 |
+| GET | `/api/members/email/check` | 불필요 | 이메일 중복 확인 |
+| GET | `/api/members/nickname/check` | 불필요 | 닉네임 중복 확인 |
+| GET | `/api/members/me` | 필요 | 내 정보 조회 |
+| PATCH | `/api/members/me/nickname` | 필요 | 닉네임 변경 |
+| PATCH | `/api/members/me/password` | 필요 | 비밀번호 변경 |
+| DELETE | `/api/members/me` | 필요 | 회원 탈퇴 (스켈레톤) |
+
+### API 응답 형식
+
+모든 응답은 `SuccessResult` 또는 `ErrorResult`로 일관된 형식을 유지한다.
+
+```java
+// 성공: SuccessResult<T>
+// 실패: ErrorResult (GlobalExceptionHandler에서 자동 처리)
+```
+
+**GlobalExceptionHandler 처리 케이스:**
+- `MethodArgumentNotValidException` → 400 Bad Request (Bean Validation 실패)
+- `IllegalArgumentException` → 400 Bad Request (비즈니스 규칙 위반)
+- `Exception` → 500 Internal Server Error
+
+### 도메인 설계 원칙
+
+- **단방향 연관관계**: 모든 엔티티는 단방향 참조만 사용 (역방향 참조 없음)
+- **Embeddable 값 타입**: `Location`(address + Point), `Point`(lat + lng)를 엔티티에 재사용
+- **Enum 상태 관리**: `AppointmentStatus`, `JourneyStatus`, `ParticipantStatus` 등
+- **Record DTO**: Java Record 타입으로 불변 DTO 정의
+
+### 엔티티 현황
+
+| 엔티티 | 위치 | 주요 필드 | Controller/Service 존재 |
+|--------|------|-----------|------------------------|
+| Member | domain/member/entity | email, password, nickname, location | O |
+| MemberSetting | domain/member/entity | transitType, priorityType | O (MemberService 통합) |
+| Appointment | domain/appointment/entity | title, destination, targetTime, appointmentStatus | X |
+| Participant | domain/appointment/entity | member_id, appointment_id, isHost, participantStatus | X |
+| Journey | domain/journey/entity | member_id, journeyType, destination, targetTime, journeyStatus | X |
+| Place | domain/place/entity | member_id, name, placeType, location | X |
+
+### Enum 상수 목록
+
+- `TransitType`: ALL, SUBWAY, BUS (회원 선호 교통수단)
+- `PriorityType`: FASTEST, MIN_TRANSFER, MIN_WALK (경로 우선순위)
+- `AppointmentStatus`: READY, ACTIVE, FINISHED
+- `ParticipantStatus`: READY, MOVING, ARRIVED
+- `JourneyStatus`: READY, MOVING, ARRIVED
+- `JourneyType`: HOME, PERSONAL
+- `PlaceType`: HOME, DEST
+
+## 개발 환경 설정
+
+### DB 연결 정보 (로컬)
+- URL: `jdbc:mysql://localhost:3306/mydb`
+- User: `root` / Password: `pwd1234`
+- DDL: `create` (서버 기동 시 테이블 재생성됨 — 데이터 초기화 주의)
+
+### JWT 설정
+- 만료 시간: 3000분 (50시간)
+- Subject: Member ID (Long)
+- 알고리즘: HMAC SHA
+
+### HTTP 테스트 파일
+`src/test/http/` 디렉토리에 IntelliJ HTTP Client용 시나리오 파일이 있다.
+- `member.http`: 회원가입 → 이메일/닉네임 중복 확인 → 정보 변경 시나리오
+- `member-error.http`: 회원 관련 에러 케이스
+
+## 구현 현황
+
+### 완료
+- JWT 기반 인증 시스템 (JwtTokenProvider, JwtTokenFilter)
+- Spring Security 통합 (STATELESS, CORS/CSRF 비활성화)
+- 글로벌 예외 처리 (GlobalExceptionHandler)
+- 표준화된 API 응답 포맷 (SuccessResult, ErrorResult)
+- 회원(Member) 전체 CRUD: 회원가입, 로그인, 정보 조회, 닉네임/비밀번호 변경, 탈퇴(스켈레톤)
+- 이메일/닉네임 중복 확인
+
+### 미구현 (엔티티만 존재)
+- Appointment(약속), Participant(참여자) — Controller/Service/Repository 없음
+- Journey(여정) — Controller/Service/Repository 없음
+- Place(장소) — Controller/Service/Repository 없음
+- Refresh Token
+- Redis 캐싱 활용
+- QueryDSL 복잡 쿼리
+- 외부 API 연동 (지도, 경로 최적화 등)
+- 회원 탈퇴 실제 삭제 로직
+
+## 새 도메인 추가 시 체크리스트
+
+1. `domain/{도메인명}/entity/` — JPA Entity 작성
+2. `domain/{도메인명}/constant/` — Enum 상수 작성
+3. `domain/{도메인명}/repository/` — Spring Data JPA Repository
+4. `domain/{도메인명}/service/` — 비즈니스 로직 (`@Transactional` 필수)
+5. `domain/{도메인명}/dto/` — 요청/응답 DTO (Record 또는 일반 클래스)
+6. `domain/{도메인명}/controller/` — REST Controller
+7. 인증이 필요 없는 엔드포인트는 `SecurityConfig`의 `permitAll()` 목록에 추가

@@ -11,7 +11,10 @@ import lombok.NoArgsConstructor;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
-@Table(uniqueConstraints = @UniqueConstraint(columnNames = "email", name = "uk_member_email"))
+@Table(uniqueConstraints = {
+        @UniqueConstraint(columnNames = "email", name = "uk_member_email"),
+        @UniqueConstraint(columnNames = "nickname", name = "uk_member_nickname")
+})
 public class Member {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -25,7 +28,7 @@ public class Member {
     private String password; // 비밀번호(NOT NULL)
 
     @Column(nullable = false)
-    private String nickname; // 닉네임(NOT NULL)
+    private String nickname; // 닉네임(NOT NULL, UNIQUE)
 
     // 귀가지 주소: NULL 허용
     @Embedded
@@ -42,6 +45,15 @@ public class Member {
         this.email = email;
         this.password = password;
         this.location = location;
+    }
+
+
+    public void updateNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    public void updatePassword(String encodedPassword) {
+        this.password = encodedPassword;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

@@ -38,3 +38,6 @@ out/
 
 ### Docker ###
 mysql_data/
+
+### Claude Code ###
+.claude/settings.local.json
