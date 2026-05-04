@@ -3,7 +3,7 @@ package com.timemate.gonow.global.dto;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 
-// 일반 JWT 로그인
+// 최초 로그인 시 사용
 public record LoginRequest(
         @NotBlank(message = "이메일을 입력해주세요.")
         @Email(message = "올바른 이메일 형식이 아닙니다.")

@@ -49,7 +49,7 @@ com.timemate.gonow/
 ├── GonowApplication.java
 ├── domain/
 │   ├── common/       # 공용 Embeddable 값 타입 (Location, Point)
-│   ├── member/       # 회원 (Controller, Service, Repository, Entity, DTO, Constant 포함)
+│   ├── member/       # 회원/설정 (Controller, Service, Repository, Entity, DTO, Constant 포함)
 │   ├── appointment/  # 약속 및 참여자 (Entity, Constant)
 │   ├── journey/      # 여정 (Entity, Constant)
 │   └── place/        # 장소 (Entity, Constant)
@@ -80,18 +80,22 @@ com.timemate.gonow/
 |--------|------|------|------|
 | GET | `/health` | 불필요 | 헬스 체크 |
 | POST | `/api/auth/login` | 불필요 | 로그인 (JWT 발급) |
-| POST | `/api/auth/logout` | 필요 | 로그아웃 (클라이언트 토큰 삭제) |
-| POST | `/api/members` | 불필요 | 회원가입 |
+| POST | `/api/auth/logout` | 필요 | 로그아웃 (클라이언트 토큰 삭제, 스켈레톤) |
+| POST | `/api/members` | 불필요 | 회원가입 (MemberSetting 기본값 동시 생성) |
 | GET | `/api/members/email/check` | 불필요 | 이메일 중복 확인 |
 | GET | `/api/members/nickname/check` | 불필요 | 닉네임 중복 확인 |
-| GET | `/api/members/me` | 필요 | 내 정보 조회 |
+| GET | `/api/members/me` | 필요 | 내 프로필 조회 (Member + MemberSetting 통합) |
 | PATCH | `/api/members/me/nickname` | 필요 | 닉네임 변경 |
 | PATCH | `/api/members/me/password` | 필요 | 비밀번호 변경 |
+| PATCH | `/api/members/me/home` | 필요 | 귀가지 등록/수정 |
+| DELETE | `/api/members/me/home` | 필요 | 귀가지 삭제 (null 초기화) |
+| PATCH | `/api/members/me/setting` | 필요 | 멤버 설정 변경 (transitType, priorityType) |
 | DELETE | `/api/members/me` | 필요 | 회원 탈퇴 (스켈레톤) |
 
 ### API 응답 형식
 
 모든 응답은 `SuccessResult` 또는 `ErrorResult`로 일관된 형식을 유지한다.
+JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 설정으로 snake_case 변환된다.
 
 ```java
 // 성공: SuccessResult<T>
@@ -101,6 +105,7 @@ com.timemate.gonow/
 **GlobalExceptionHandler 처리 케이스:**
 - `MethodArgumentNotValidException` → 400 Bad Request (Bean Validation 실패)
 - `IllegalArgumentException` → 400 Bad Request (비즈니스 규칙 위반)
+- `IllegalStateException` → 400 Bad Request (비즈니스 규칙 위반)
 - `Exception` → 500 Internal Server Error
 
 ### 도메인 설계 원칙
@@ -109,17 +114,29 @@ com.timemate.gonow/
 - **Embeddable 값 타입**: `Location`(address + Point), `Point`(lat + lng)를 엔티티에 재사용
 - **Enum 상태 관리**: `AppointmentStatus`, `JourneyStatus`, `ParticipantStatus` 등
 - **Record DTO**: Java Record 타입으로 불변 DTO 정의
+- **생성자 기본값**: `@Builder` 생성자에서 `Objects.requireNonNullElse`로 기본값 처리 — 필드 초기화 대신 생성자 초기화를 사용한다. 파라미터는 래퍼 타입(Boolean, Integer 등)으로 받고 필드는 원시 타입(boolean, int)으로 유지한다.
 
 ### 엔티티 현황
 
 | 엔티티 | 위치 | 주요 필드 | Controller/Service 존재 |
 |--------|------|-----------|------------------------|
-| Member | domain/member/entity | email, password, nickname, location | O |
-| MemberSetting | domain/member/entity | transitType, priorityType | O (MemberService 통합) |
+| Member | domain/member/entity | email, password, nickname, location(귀가지) | O (MemberController, MemberService) |
+| MemberSetting | domain/member/entity | transitType, priorityType | O (MemberSettingController, MemberSettingService) |
 | Appointment | domain/appointment/entity | title, destination, targetTime, appointmentStatus | X |
 | Participant | domain/appointment/entity | member_id, appointment_id, isHost, participantStatus | X |
 | Journey | domain/journey/entity | member_id, journeyType, destination, targetTime, journeyStatus | X |
 | Place | domain/place/entity | member_id, name, placeType, location | X |
+
+### MemberSetting 생성 규칙
+
+- 회원가입(`signUp()`) 시 `MemberSetting`이 기본값(transitType=ALL, priorityType=FASTEST)으로 **자동 생성**된다.
+- 클라이언트가 별도로 설정 생성 요청을 보낼 필요 없음.
+- `PATCH /api/members/me/setting`은 항상 수정(update)만 수행한다.
+
+### MemberSettingRepository 조회 메서드
+
+- `findByMemberId(Long memberId)` — 기본 조회 (Member LAZY 로드)
+- `findWithMemberByMemberId(Long memberId)` — `@EntityGraph`로 Member까지 한 번에 조회 (N+1 방지). `getMyProfile()`에서 사용.
 
 ### Enum 상수 목록
 
@@ -145,8 +162,8 @@ com.timemate.gonow/
 
 ### HTTP 테스트 파일
 `src/test/http/` 디렉토리에 IntelliJ HTTP Client용 시나리오 파일이 있다.
-- `member.http`: 회원가입 → 이메일/닉네임 중복 확인 → 정보 변경 시나리오
-- `member-error.http`: 회원 관련 에러 케이스
+- `member.http`: 각 API를 독립적으로 테스트 가능한 시나리오 (회원가입, 로그인, 프로필 조회, 정보 변경, 귀가지, 설정 등)
+- `member-error.http`: 회원 관련 에러 케이스 (E-1 ~ E-20)
 
 ## 구현 현황
 
@@ -154,8 +171,10 @@ com.timemate.gonow/
 - JWT 기반 인증 시스템 (JwtTokenProvider, JwtTokenFilter)
 - Spring Security 통합 (STATELESS, CORS/CSRF 비활성화)
 - 글로벌 예외 처리 (GlobalExceptionHandler)
-- 표준화된 API 응답 포맷 (SuccessResult, ErrorResult)
-- 회원(Member) 전체 CRUD: 회원가입, 로그인, 정보 조회, 닉네임/비밀번호 변경, 탈퇴(스켈레톤)
+- 표준화된 API 응답 포맷 (SuccessResult, ErrorResult) + SNAKE_CASE JSON 직렬화
+- 회원(Member): 회원가입, 로그인, 프로필 조회, 닉네임/비밀번호 변경, 탈퇴(스켈레톤)
+- 귀가지: 등록/수정, 삭제(null 초기화)
+- 멤버 설정(MemberSetting): 회원가입 시 자동 생성, 설정 변경
 - 이메일/닉네임 중복 확인
 
 ### 미구현 (엔티티만 존재)
@@ -174,6 +193,6 @@ com.timemate.gonow/
 2. `domain/{도메인명}/constant/` — Enum 상수 작성
 3. `domain/{도메인명}/repository/` — Spring Data JPA Repository
 4. `domain/{도메인명}/service/` — 비즈니스 로직 (`@Transactional` 필수)
-5. `domain/{도메인명}/dto/` — 요청/응답 DTO (Record 또는 일반 클래스)
+5. `domain/{도메인명}/dto/` — 요청/응답 DTO (Record 타입)
 6. `domain/{도메인명}/controller/` — REST Controller
 7. 인증이 필요 없는 엔드포인트는 `SecurityConfig`의 `permitAll()` 목록에 추가

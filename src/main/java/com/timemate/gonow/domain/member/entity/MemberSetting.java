@@ -10,6 +10,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.ColumnDefault;
 
+import java.util.Objects;
+
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
@@ -28,17 +30,25 @@ public class MemberSetting {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    @ColumnDefault("'ALL'") // DEFAULT 'ALL'
-    private TransitType transitType = TransitType.ALL;        // 선호 교통수단
+    @ColumnDefault("'ALL'")             // DEFAULT 'ALL'
+    private TransitType transitType;    // 선호 교통수단
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    @ColumnDefault("'FASTEST'") // DEFAULT 'FASTEST'
-    private PriorityType priorityType = PriorityType.FASTEST; // 경로 우선순위
+    @ColumnDefault("'FASTEST'")         // DEFAULT 'FASTEST'
+    private PriorityType priorityType;  // 경로 우선순위
 
+    // 생성자 ----------------------------------------------------------------------------------
     @Builder
     public MemberSetting(Member member, TransitType transitType, PriorityType priorityType) {
         this.member = member;
+        this.transitType = Objects.requireNonNullElse(transitType, TransitType.ALL);
+        this.priorityType = Objects.requireNonNullElse(priorityType, PriorityType.FASTEST);
+    }
+
+    // 변경 메소드 ----------------------------------------------------------------------------------
+    // 설정 변경
+    public void updateSetting(TransitType transitType, PriorityType priorityType) {
         this.transitType = transitType;
         this.priorityType = priorityType;
     }

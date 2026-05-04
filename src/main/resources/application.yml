@@ -20,6 +20,9 @@ spring:
         highlight_sql: true       # SQL 문법에 색상 표시 (가독성 향상)
         use_sql_comments: true    # SQL 뒤에 어떤 로직인지 주석 추가
 
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
 logging:
   level:
     org.hibernate.SQL: DEBUG           # SQL 문 출력

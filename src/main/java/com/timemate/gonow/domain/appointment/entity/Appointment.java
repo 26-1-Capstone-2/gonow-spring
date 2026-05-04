@@ -9,6 +9,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.ColumnDefault;
 
+import java.util.Objects;
 import java.time.LocalDateTime;
 
 @Getter
@@ -35,20 +36,20 @@ public class Appointment {
 
     @Column(nullable = false)
     @ColumnDefault("TRUE")
-    private boolean isActive = true; // 약속 알람 스위치 (NOT NULL, DEFAULT TRUE)
+    private boolean isActive; // 약속 알람 스위치 (NOT NULL, DEFAULT TRUE)
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @ColumnDefault("'READY'")
-    private AppointmentStatus appointmentStatus = AppointmentStatus.READY; // 약속 상태 (NOT NULL, DEFAULT 'READY')
+    private AppointmentStatus appointmentStatus; // 약속 상태 (NOT NULL, DEFAULT 'READY')
 
     @Builder
-    private Appointment(String title, Location destination, LocalDateTime targetTime, boolean isActive, AppointmentStatus appointmentStatus) {
+    private Appointment(String title, Location destination, LocalDateTime targetTime, Boolean isActive, AppointmentStatus appointmentStatus) {
         this.title = title;
         this.destination = destination;
         this.targetTime = targetTime;
-        this.isActive = isActive;
-        this.appointmentStatus = appointmentStatus;
+        this.isActive = Objects.requireNonNullElse(isActive, true);
+        this.appointmentStatus = Objects.requireNonNullElse(appointmentStatus, AppointmentStatus.READY);
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

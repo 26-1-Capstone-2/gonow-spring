@@ -12,6 +12,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.ColumnDefault;
 
+import java.util.Objects;
 import java.time.LocalDateTime;
 
 @Getter
@@ -52,7 +53,7 @@ public class Journey {
 
     @Column(nullable = false)
     @ColumnDefault("FALSE")
-    private boolean isLastMode = false; // 막차 여부 (NOT NULL, DEFAULT FALSE)
+    private boolean isLastMode; // 막차 여부 (NOT NULL, DEFAULT FALSE)
 
     @Column(nullable = false)
     private LocalDateTime targetTime; // 목표 시간 (NOT NULL)
@@ -61,30 +62,30 @@ public class Journey {
 
     @Column(nullable = false)
     @ColumnDefault("0")
-    private int repeatDays = 0; // 반복 요일 (NOT NULL, DEFAULT 0)
+    private int repeatDays; // 반복 요일 (NOT NULL, DEFAULT 0)
 
     @Column(nullable = false)
     @ColumnDefault("TRUE")
-    private boolean isActive = true; // 여정 알람 스위치 (NOT NULL, DEFAULT TRUE)
+    private boolean isActive; // 여정 알람 스위치 (NOT NULL, DEFAULT TRUE)
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @ColumnDefault("'READY'")
-    private JourneyStatus journeyStatus = JourneyStatus.READY; // 이동 상태 (NOT NULL, DEFAULT 'READY')
+    private JourneyStatus journeyStatus; // 이동 상태 (NOT NULL, DEFAULT 'READY')
 
     @Builder
-    private Journey(Member member, String title, JourneyType journeyType, Point currentPoint, Location destination, boolean isLastMode, LocalDateTime targetTime, LocalDateTime estimatedArrival, int repeatDays, boolean isActive, JourneyStatus journeyStatus) {
+    private Journey(Member member, String title, JourneyType journeyType, Point currentPoint, Location destination, Boolean isLastMode, LocalDateTime targetTime, LocalDateTime estimatedArrival, Integer repeatDays, Boolean isActive, JourneyStatus journeyStatus) {
         this.member = member;
         this.title = title;
         this.journeyType = journeyType;
         this.currentPoint = currentPoint;
         this.destination = destination;
-        this.isLastMode = isLastMode;
+        this.isLastMode = Objects.requireNonNullElse(isLastMode, false);
         this.targetTime = targetTime;
         this.estimatedArrival = estimatedArrival;
-        this.repeatDays = repeatDays;
-        this.isActive = isActive;
-        this.journeyStatus = journeyStatus;
+        this.repeatDays = Objects.requireNonNullElse(repeatDays, 0);
+        this.isActive = Objects.requireNonNullElse(isActive, true);
+        this.journeyStatus = Objects.requireNonNullElse(journeyStatus, JourneyStatus.READY);
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

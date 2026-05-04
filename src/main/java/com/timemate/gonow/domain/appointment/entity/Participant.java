@@ -10,6 +10,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.ColumnDefault;
 
+import java.util.Objects;
 import java.time.LocalDateTime;
 
 @Getter
@@ -34,7 +35,7 @@ public class Participant {
 
     @Column(nullable = false)
     @ColumnDefault("FALSE")
-    private boolean isHost = false; // 방장 여부 (NOT NULL, DEFAULT FALSE)
+    private boolean isHost; // 방장 여부 (NOT NULL, DEFAULT FALSE)
 
     @Embedded
     @AttributeOverrides({
@@ -55,22 +56,23 @@ public class Participant {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @ColumnDefault("'READY'")
-    private ParticipantStatus participantStatus = ParticipantStatus.READY; // 참여자 상태 (NOT NULL, DEFAULT 'READY')
+    private ParticipantStatus participantStatus;
+    /// 참여자 상태 (NOT NULL, DEFAULT 'READY')
 
-//    @Column(nullable = false) // 임시 컬럼이므로 NULL로 허용하자
+    //FIXME @Column(nullable = false) // 임시 컬럼이므로 NULL로 허용하자
     @ColumnDefault("TRUE")
-    private Boolean isAlarmOn = true; // 확정 컬럼이 되면 NOT NULL, boolean으로 바꾸자
+    private Boolean isAlarmOn; //FIXME 확정 컬럼이 되면 NOT NULL, boolean으로 바꾸자
 
     @Builder
-    private Participant(Member member, Appointment appointment, boolean isHost, Point originPos, Point currentPos, LocalDateTime estimatedArrival, ParticipantStatus participantStatus, boolean isAlarmOn) {
+    private Participant(Member member, Appointment appointment, Boolean isHost, Point originPos, Point currentPos, LocalDateTime estimatedArrival, ParticipantStatus participantStatus, Boolean isAlarmOn) {
         this.member = member;
         this.appointment = appointment;
-        this.isHost = isHost;
+        this.isHost = Objects.requireNonNullElse(isHost, false);
         this.originPos = originPos;
         this.currentPos = currentPos;
         this.estimatedArrival = estimatedArrival;
-        this.participantStatus = participantStatus;
-        this.isAlarmOn = isAlarmOn;
+        this.participantStatus = Objects.requireNonNullElse(participantStatus, ParticipantStatus.READY);
+        this.isAlarmOn = Objects.requireNonNullElse(isAlarmOn, true);
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

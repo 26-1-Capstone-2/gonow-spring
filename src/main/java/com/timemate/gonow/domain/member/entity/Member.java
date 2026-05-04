@@ -39,6 +39,7 @@ public class Member {
     })
     private Location location; // 집 주소, 집 위도, 집 경도
 
+    // 생성자 ------------------------------------------------------------------------------
     @Builder
     private Member(String nickname, String email, String password, Location location) {
         this.nickname = nickname;
@@ -47,13 +48,22 @@ public class Member {
         this.location = location;
     }
 
-
+    // 변경 메소드 ------------------------------------------------------------------------------
+    // 닉네임 변경
     public void updateNickname(String nickname) {
         this.nickname = nickname;
     }
-
+    // 비밀번호 변경
     public void updatePassword(String encodedPassword) {
         this.password = encodedPassword;
+    }
+    // home 변경
+    public void updateHome(Location location) {
+        this.location = location;
+    }
+    // home 삭제
+    public void clearHome() {
+        this.location = null;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

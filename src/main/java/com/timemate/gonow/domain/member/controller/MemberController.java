@@ -1,8 +1,6 @@
 package com.timemate.gonow.domain.member.controller;
 
-import com.timemate.gonow.domain.member.dto.SignupRequest;
-import com.timemate.gonow.domain.member.dto.UpdateNicknameRequest;
-import com.timemate.gonow.domain.member.dto.UpdatePasswordRequest;
+import com.timemate.gonow.domain.member.dto.*;
 import com.timemate.gonow.domain.member.service.MemberService;
 import com.timemate.gonow.global.response.SuccessResult;
 import jakarta.validation.Valid;
@@ -47,7 +45,7 @@ public class MemberController {
     // 닉네임 변경
     @PatchMapping("/me/nickname")
     public SuccessResult<Void> updateNickname(@AuthenticationPrincipal UserDetails userDetails,
-                                              @Valid @RequestBody UpdateNicknameRequest request) {
+                                              @Valid @RequestBody NicknameUpdateRequest request) {
         Long memberId = Long.parseLong(userDetails.getUsername());
         memberService.updateNickname(memberId, request);
 
@@ -57,13 +55,44 @@ public class MemberController {
     // 비밀번호 변경
     @PatchMapping("/me/password")
     public SuccessResult<Void> updatePassword(@AuthenticationPrincipal UserDetails userDetails,
-                                              @Valid @RequestBody UpdatePasswordRequest request) {
+                                              @Valid @RequestBody PasswordUpdateRequest request) {
         Long memberId = Long.parseLong(userDetails.getUsername());
         memberService.updatePassword(memberId, request);
 
         return SuccessResult.of("비밀번호가 변경되었습니다.");
     }
 
+    // home 등록/변경
+    @PatchMapping("/me/home")
+    public SuccessResult<HomeUpdateResponse> updateHome(@AuthenticationPrincipal UserDetails userDetails,
+                                                        @Valid @RequestBody HomeUpdateRequest request) {
+        Long memberId = Long.parseLong(userDetails.getUsername());
+
+        HomeUpdateResponse response = memberService.updateHome(memberId, request);
+
+        return SuccessResult.of("귀가지 설정이 완료되었습니다.", response);
+    }
+
+    // home 삭제
+    @DeleteMapping("/me/home")
+    public SuccessResult<Void> deleteHome(@AuthenticationPrincipal UserDetails userDetails) {
+        Long memberId = Long.parseLong(userDetails.getUsername());
+
+        memberService.deleteHome(memberId);
+
+        return SuccessResult.of("귀가지가 삭제되었습니다.");
+    }
+
+
+    // 내 프로필 조회
+    @GetMapping("/me")
+    public SuccessResult<MyProfileResponse> getMyProfile(@AuthenticationPrincipal UserDetails userDetails) {
+        Long memberId = Long.parseLong(userDetails.getUsername());
+
+        MyProfileResponse response = memberService.getMyProfile(memberId);
+
+        return SuccessResult.of("내 프로필 조회", response);
+    }
 
     // 회원탈퇴
     // 현재는 껍데기 — 로그만 찍고 성공 응답 반환.
@@ -78,13 +107,5 @@ public class MemberController {
 
         // 3. 지금은 껍데기이므로 성공 메시지만 반환
         return SuccessResult.of("회원 탈퇴가 정상적으로 처리되었습니다.");
-    }
-
-    // 내 정보 조회
-    @GetMapping("/me")
-    public SuccessResult<Long> getMyInfo(@AuthenticationPrincipal UserDetails userDetails) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
-
-        return SuccessResult.of(memberId);
     }
 }

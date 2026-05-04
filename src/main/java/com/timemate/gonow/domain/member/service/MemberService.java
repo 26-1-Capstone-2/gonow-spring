@@ -1,10 +1,12 @@
 package com.timemate.gonow.domain.member.service;
 
-import com.timemate.gonow.domain.member.dto.SignupRequest;
-import com.timemate.gonow.domain.member.dto.UpdateNicknameRequest;
-import com.timemate.gonow.domain.member.dto.UpdatePasswordRequest;
+import com.timemate.gonow.domain.common.Location;
+import com.timemate.gonow.domain.common.Point;
+import com.timemate.gonow.domain.member.dto.*;
 import com.timemate.gonow.domain.member.entity.Member;
+import com.timemate.gonow.domain.member.entity.MemberSetting;
 import com.timemate.gonow.domain.member.repository.MemberRepository;
+import com.timemate.gonow.domain.member.repository.MemberSettingRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class MemberService {
     private final MemberRepository memberRepository;
+    private final MemberSettingRepository memberSettingRepository;
+
     private final PasswordEncoder passwordEncoder;
 
     // 회원가입
@@ -33,7 +37,7 @@ public class MemberService {
                     throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
                 });
 
-        // 3. 모든 검사를 통과하면 비로소 저장!
+        // 3. 모든 검사를 통과하면 저장
         Member member = Member.builder()
                 .email(request.email())
                 .password(passwordEncoder.encode(request.password()))
@@ -41,6 +45,12 @@ public class MemberService {
                 .build();
 
         memberRepository.save(member);
+
+        // 회원가입 시 MemberSetting도 함께 저장
+        MemberSetting setting = MemberSetting.builder()
+                .member(member)
+                .build();
+        memberSettingRepository.save(setting);
 
         return member.getId();
     }
@@ -57,7 +67,7 @@ public class MemberService {
 
     // 닉네임 변경
     @Transactional
-    public void updateNickname(Long memberId, UpdateNicknameRequest request) {
+    public void updateNickname(Long memberId, NicknameUpdateRequest request) {
         // 1. 회원 조회
         Member member = memberRepository.findById(memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 회원입니다.")
@@ -73,7 +83,7 @@ public class MemberService {
 
         // 3. 다른 자신과 동일한 닉네임이면 예외 발생
         if (!isNicknameAvailable(newNickname)) {
-            throw new IllegalStateException("이미 사용 중인 닉네임입니다.");
+            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
         }
 
         // 4. 닉네임 변경
@@ -82,7 +92,7 @@ public class MemberService {
 
     // 비밀번호 변경
     @Transactional
-    public void updatePassword(Long memberId, UpdatePasswordRequest request) {
+    public void updatePassword(Long memberId, PasswordUpdateRequest request) {
         // 1. 회원 조회
         Member member = memberRepository.findById(memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 회원입니다.")
@@ -110,5 +120,44 @@ public class MemberService {
         // 4. 새 비밀번호 암호화 후 변경
         String encryptedPassword = passwordEncoder.encode(request.newPassword());
         member.updatePassword(encryptedPassword);
+    }
+
+    // home 등록/변경
+    @Transactional
+    public HomeUpdateResponse updateHome(Long memberId, HomeUpdateRequest request) {
+        // 1. 회원 조회
+        Member member = memberRepository.findById(memberId).orElseThrow(
+                () -> new IllegalArgumentException("존재하지 않는 회원입니다.")
+        );
+
+        // 2. request -> Location 객체 생성
+        Location location = new Location(request.address(), new Point(request.lat(), request.lng()));
+
+        // 3. Home 변경
+        member.updateHome(location);
+
+        // 4. 업데이트된 정보 반환
+        return HomeUpdateResponse.from(member.getLocation());
+    }
+
+    // 내 프로필 조회
+    public MyProfileResponse getMyProfile(Long memberId) {
+        // 역방향 조회: MemberSetting -> Member
+        MemberSetting setting = memberSettingRepository.findWithMemberByMemberId(memberId).orElseThrow(
+                () -> new IllegalArgumentException("사용자 정보를 찾을 수 없습니다"));
+
+        return MyProfileResponse.from(setting.getMember(), setting);
+    }
+
+    // home 삭제
+    @Transactional
+    public void deleteHome(Long memberId) {
+        // 1. 회원 조회
+        Member member = memberRepository.findById(memberId).orElseThrow(
+                () -> new IllegalArgumentException("존재하지 않는 회원입니다.")
+        );
+
+        // 2. Home 정보 비우기(null)
+        member.clearHome();
     }
 }
