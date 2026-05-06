@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 public class MemberSettingController {
     private final MemberSettingService memberSettingService;
 
-    // 멤버 설정 등록/수정
+    // 멤버 설정 변경
     @PatchMapping("/me/setting")
     public SuccessResult<SettingUpdateResponse> updateSetting(@AuthenticationPrincipal UserDetails userDetails,
                                                               @Valid @RequestBody SettingUpdateRequest request) {

@@ -11,6 +11,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Date;
 
@@ -31,7 +32,9 @@ public class JwtTokenProvider {
         // 유효 기간 계산 (현재 시간 + 설정된 N분)
         long nowTime = System.currentTimeMillis();
         Date now = new Date(nowTime);
-        Date validity = new Date(nowTime + (expiration * 60 * 1000L));
+
+        long expirationMs  = Duration.ofMinutes(expiration).toMillis();
+        Date validity = new Date(nowTime + expirationMs);
 
         return Jwts.builder()
                 .subject(String.valueOf(id))  // 토큰 주인의 이름(PK 등의 식별자)

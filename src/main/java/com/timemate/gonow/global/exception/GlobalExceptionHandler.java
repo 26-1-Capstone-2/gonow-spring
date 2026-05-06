@@ -3,6 +3,7 @@ package com.timemate.gonow.global.exception;
 import com.timemate.gonow.global.response.ErrorResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -24,6 +25,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ErrorResult handleIllegalArgument(IllegalArgumentException e) {
         return ErrorResult.of(e.getMessage());
+    }
+
+    // 잘못된 Enum 값, JSON 파싱 오류 등 역직렬화 실패
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ErrorResult handleHttpMessageNotReadable(HttpMessageNotReadableException e) {
+        return ErrorResult.of("요청 값이 올바르지 않습니다.");
     }
 
     // 그 외 예상치 못한 서버 에러

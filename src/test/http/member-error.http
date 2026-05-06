@@ -3,7 +3,7 @@
 ### ================================================================
 
 ### E-1. 이메일 누락 → 400
-POST http://localhost:8080/api/members
+POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
@@ -13,7 +13,7 @@ Content-Type: application/json
 }
 
 ### E-2. 이메일 형식 오류 → 400
-POST http://localhost:8080/api/members
+POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
@@ -23,7 +23,7 @@ Content-Type: application/json
 }
 
 ### E-3. 비밀번호 누락 → 400
-POST http://localhost:8080/api/members
+POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
@@ -33,7 +33,7 @@ Content-Type: application/json
 }
 
 ### E-4. 닉네임 누락 → 400
-POST http://localhost:8080/api/members
+POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
@@ -44,7 +44,7 @@ Content-Type: application/json
 
 ### E-5. 이메일 중복 → 400 "이미 가입된 이메일입니다."
 # 사전 조건: hero@cau.ac.kr 계정이 DB에 존재해야 함 (member.http의 1번 실행 필요)
-POST http://localhost:8080/api/members
+POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
@@ -55,7 +55,7 @@ Content-Type: application/json
 
 ### E-6. 닉네임 중복 → 400 "이미 사용 중인 닉네임입니다."
 # 사전 조건: 영웅개발자 닉네임이 DB에 존재해야 함 (member.http의 1번 실행 필요)
-POST http://localhost:8080/api/members
+POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
@@ -70,7 +70,7 @@ Content-Type: application/json
 ### ================================================================
 
 ### E-7. 존재하지 않는 이메일 → 400
-POST http://localhost:8080/api/auth/login
+POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
@@ -80,7 +80,7 @@ Content-Type: application/json
 
 ### E-8. 비밀번호 불일치 → 400
 # 사전 조건: hero@cau.ac.kr 계정이 DB에 존재해야 함 (member.http의 1번 실행 필요)
-POST http://localhost:8080/api/auth/login
+POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
@@ -89,7 +89,7 @@ Content-Type: application/json
 }
 
 ### E-9. 이메일 형식 오류 → 400
-POST http://localhost:8080/api/auth/login
+POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
@@ -103,10 +103,10 @@ Content-Type: application/json
 ### ================================================================
 
 ### E-10. 토큰 없이 인증 필요 API 호출 → 403
-GET http://localhost:8080/api/members/me
+GET {{baseUrl}}/api/members/me
 
 ### E-11. 위조 토큰으로 인증 필요 API 호출 → 401
-GET http://localhost:8080/api/members/me
+GET {{baseUrl}}/api/members/me
 Authorization: Bearer this.is.a.fake.token
 
 
@@ -116,7 +116,7 @@ Authorization: Bearer this.is.a.fake.token
 
 ### E-12. 현재 비밀번호 불일치 → 400 "현재 비밀번호가 일치하지 않습니다."
 # 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH http://localhost:8080/api/members/me/password
+PATCH {{baseUrl}}/api/members/me/password
 Content-Type: application/json
 Authorization: Bearer {{jwtToken}}
 
@@ -128,7 +128,7 @@ Authorization: Bearer {{jwtToken}}
 
 ### E-13. 새 비밀번호 불일치 → 400 "새 비밀번호가 서로 일치하지 않습니다."
 # 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH http://localhost:8080/api/members/me/password
+PATCH {{baseUrl}}/api/members/me/password
 Content-Type: application/json
 Authorization: Bearer {{jwtToken}}
 
@@ -140,7 +140,7 @@ Authorization: Bearer {{jwtToken}}
 
 ### E-14. 기존과 동일한 비밀번호 → 400 "기존 비밀번호와 다른 비밀번호를 입력해주세요."
 # 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH http://localhost:8080/api/members/me/password
+PATCH {{baseUrl}}/api/members/me/password
 Content-Type: application/json
 Authorization: Bearer {{jwtToken}}
 
@@ -153,7 +153,7 @@ Authorization: Bearer {{jwtToken}}
 ### E-15. 다른 사람이 이미 사용 중인 닉네임으로 변경 시도 → 400 "이미 사용 중인 닉네임입니다."
 # 사전 조건: member.http의 3번(로그인) 실행 필요
 # 사전 조건: "다른유저" 닉네임을 가진 다른 계정이 DB에 존재해야 함
-PATCH http://localhost:8080/api/members/me/nickname
+PATCH {{baseUrl}}/api/members/me/nickname
 Content-Type: application/json
 Authorization: Bearer {{jwtToken}}
 
@@ -168,7 +168,7 @@ Authorization: Bearer {{jwtToken}}
 
 ### E-16. transitType 누락 → 400 "선호 대중교통은 필수입니다."
 # 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH http://localhost:8080/api/members/me/setting
+PATCH {{baseUrl}}/api/members/me/setting
 Content-Type: application/json
 Authorization: Bearer {{jwtToken}}
 
@@ -178,7 +178,7 @@ Authorization: Bearer {{jwtToken}}
 
 ### E-17. priorityType 누락 → 400 "경로 우선순위는 필수입니다."
 # 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH http://localhost:8080/api/members/me/setting
+PATCH {{baseUrl}}/api/members/me/setting
 Content-Type: application/json
 Authorization: Bearer {{jwtToken}}
 
@@ -188,7 +188,7 @@ Authorization: Bearer {{jwtToken}}
 
 ### E-18. 잘못된 Enum 값 → 400
 # 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH http://localhost:8080/api/members/me/setting
+PATCH {{baseUrl}}/api/members/me/setting
 Content-Type: application/json
 Authorization: Bearer {{jwtToken}}
 
@@ -204,7 +204,7 @@ Authorization: Bearer {{jwtToken}}
 
 ### E-19. 주소 누락 → 400
 # 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH http://localhost:8080/api/members/me/home
+PATCH {{baseUrl}}/api/members/me/home
 Content-Type: application/json
 Authorization: Bearer {{jwtToken}}
 
@@ -215,7 +215,7 @@ Authorization: Bearer {{jwtToken}}
 
 ### E-20. 위도 누락 → 400
 # 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH http://localhost:8080/api/members/me/home
+PATCH {{baseUrl}}/api/members/me/home
 Content-Type: application/json
 Authorization: Bearer {{jwtToken}}
 

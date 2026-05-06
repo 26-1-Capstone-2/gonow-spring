@@ -3,13 +3,14 @@ package com.timemate.gonow.domain.place.entity;
 import com.timemate.gonow.domain.common.Location;
 import com.timemate.gonow.domain.member.entity.Member;
 import com.timemate.gonow.domain.place.constant.PlaceType;
+import com.timemate.gonow.global.entity.BaseTimeEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
 @Getter
 @Entity
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Place {
+public class Place extends BaseTimeEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "place_id", nullable = false)
@@ -23,6 +24,7 @@ public class Place {
     private String name; // 장소 이름
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private PlaceType placeType; // 귀가지, 목적지
 
     // 관심지 주소: NOT NULL
