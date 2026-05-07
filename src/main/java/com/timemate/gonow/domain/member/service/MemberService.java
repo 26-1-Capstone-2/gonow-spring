@@ -100,7 +100,6 @@ public class MemberService {
 
         String currentPassword = request.currentPassword();
         String newPassword = request.newPassword();
-        String newPasswordConfirm = request.newPasswordConfirm();
 
         // 2. 현재 비밀번호 일치 여부 확인 (BCryptPasswordEncoder 활용)
         if (!passwordEncoder.matches(currentPassword, member.getPassword())) {
@@ -112,13 +111,8 @@ public class MemberService {
             throw new IllegalArgumentException("기존 비밀번호와 다른 비밀번호를 입력해주세요.");
         }
 
-        // 3. 새 비밀번호와 새 비밀번호 확인 일치 여부
-        if (!newPassword.equals(newPasswordConfirm)) {
-            throw new IllegalArgumentException("새 비밀번호가 서로 일치하지 않습니다.");
-        }
-
         // 4. 새 비밀번호 암호화 후 변경
-        String encryptedPassword = passwordEncoder.encode(request.newPassword());
+        String encryptedPassword = passwordEncoder.encode(newPassword);
         member.updatePassword(encryptedPassword);
     }
 

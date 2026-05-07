@@ -37,8 +37,7 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/health",                      // 헬스체크 (GET)
                                 "/api/auth/login",              // 로그인 (POST)
-                                "/api/members/email/check",     // 중복 이메일 체크 (GET)
-                                "/api/members/nickname/check",  // 중복 닉네임 체크 (GET)
+                                "/api/members/check",           // 이메일/닉네임 중복 확인 (GET)
                                 "/error").permitAll()           // 에러 핸들링 ANY
                         .requestMatchers(HttpMethod.POST, "/api/members").permitAll() // 회원가입 (POST)
                         .anyRequest().authenticated() // 그 외 모든 요청은 반드시 우리 서비스의 JWT 토큰이 있어야 함

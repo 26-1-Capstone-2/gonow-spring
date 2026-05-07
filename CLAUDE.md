@@ -72,8 +72,8 @@ com.timemate.gonow/
 - `GET /health`
 - `POST /api/auth/login`
 - `POST /api/members` (회원가입)
-- `GET /api/members/email/check`
-- `GET /api/members/nickname/check`
+- `GET /api/members/check?email=` (이메일 중복 확인)
+- `GET /api/members/check?nickname=` (닉네임 중복 확인)
 
 ### 현재 구현된 API 엔드포인트
 
@@ -83,8 +83,8 @@ com.timemate.gonow/
 | POST | `/api/auth/login` | 불필요 | 로그인 (JWT 발급) |
 | POST | `/api/auth/logout` | 필요 | 로그아웃 (클라이언트 토큰 삭제, 스켈레톤) |
 | POST | `/api/members` | 불필요 | 회원가입 (MemberSetting 기본값 동시 생성) |
-| GET | `/api/members/email/check` | 불필요 | 이메일 중복 확인 |
-| GET | `/api/members/nickname/check` | 불필요 | 닉네임 중복 확인 |
+| GET | `/api/members/check?email=` | 불필요 | 이메일 중복 확인 |
+| GET | `/api/members/check?nickname=` | 불필요 | 닉네임 중복 확인 |
 | GET | `/api/members/me` | 필요 | 내 프로필 조회 (Member + MemberSetting 통합) |
 | PATCH | `/api/members/me/nickname` | 필요 | 닉네임 변경 |
 | PATCH | `/api/members/me/password` | 필요 | 비밀번호 변경 |

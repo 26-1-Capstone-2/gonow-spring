@@ -26,16 +26,16 @@ Content-Type: application/json
 ### ================================================================
 
 ### 2-1. 이메일 사용 가능 확인 → { data: true }
-GET {{baseUrl}}/api/members/email/check?email=new@cau.ac.kr
+GET {{baseUrl}}/api/members/check?email=new@cau.ac.kr
 
 ### 2-2. 이메일 사용 불가 확인 → { data: false }
-GET {{baseUrl}}/api/members/email/check?email=hero@cau.ac.kr
+GET {{baseUrl}}/api/members/check?email=hero@cau.ac.kr
 
 ### 2-3. 닉네임 사용 가능 확인 → { data: true }
-GET {{baseUrl}}/api/members/nickname/check?nickname=새닉네임
+GET {{baseUrl}}/api/members/check?nickname=새닉네임
 
 ### 2-4. 닉네임 사용 불가 확인 → { data: false }
-GET {{baseUrl}}/api/members/nickname/check?nickname=영웅개발자
+GET {{baseUrl}}/api/members/check?nickname=영웅개발자
 
 
 ### ================================================================
@@ -53,7 +53,7 @@ Content-Type: application/json
 }
 
 > {%
-    client.global.set("jwtToken", response.body.data.jwt_token);
+    client.global.set("accessToken", response.body.data.access_token);
 %}
 
 
@@ -64,7 +64,7 @@ Content-Type: application/json
 ### 4. 내 프로필 조회 → 200, { data: { member_id, email, nickname, home_address, home_lat, home_lng, transit_type, priority_type } }
 # 사전 조건: 3번(로그인) 실행 필요
 GET {{baseUrl}}/api/members/me
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
@@ -75,7 +75,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/nickname
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "nickname": "새닉네임"
@@ -85,12 +85,11 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/password
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "current_password": "password123!",
-  "new_password": "newPassword123!",
-  "new_password_confirm": "newPassword123!"
+  "new_password": "newPassword123!"
 }
 
 
@@ -102,7 +101,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/home
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "address": "서울특별시 동작구 흑석로 84",
@@ -113,20 +112,20 @@ Authorization: Bearer {{jwtToken}}
 ### 6-2. 귀가지 삭제 → 200
 # 사전 조건: 3번(로그인) 실행 필요
 DELETE {{baseUrl}}/api/members/me/home
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
 ### 멤버 설정 변경
 ### ================================================================
 
-### 7. 멤버 설정 변경 → 200, { data: { transit_type, priority_type } }
+### 7. 멤버 설정 변경 → 200
 # 사전 조건: 3번(로그인) 실행 필요
 # transit_type: ALL | SUBWAY | BUS
 # priority_type: FASTEST | MIN_TRANSFER | MIN_WALK
 PATCH {{baseUrl}}/api/members/me/setting
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "transit_type": "SUBWAY",
@@ -141,9 +140,9 @@ Authorization: Bearer {{jwtToken}}
 ### 8. 로그아웃 → 200 (서버는 껍데기, 클라이언트가 토큰 삭제)
 # 사전 조건: 3번(로그인) 실행 필요
 POST {{baseUrl}}/api/auth/logout
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 ### 9. 회원탈퇴 → 200 (현재 껍데기 — 로그만 찍힘)
 # 사전 조건: 3번(로그인) 실행 필요
 DELETE {{baseUrl}}/api/members/me
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}

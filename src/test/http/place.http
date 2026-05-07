@@ -1,5 +1,5 @@
 ### ================================================================
-### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 jwtToken을 발급받아야 함
+### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 accessToken을 발급받아야 함
 ### ================================================================
 
 
@@ -11,7 +11,7 @@
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/places
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "name": "중앙대학교",
@@ -25,7 +25,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/places
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "name": "강남역",
@@ -39,7 +39,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: 1-1번 실행 필요 (동일 주소로 재요청)
 POST {{baseUrl}}/api/places
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "name": "중앙대학교",
@@ -57,17 +57,17 @@ Authorization: Bearer {{jwtToken}}
 ### 2-1. 전체 조회 (type 미지정) → 200, updatedAt DESC 정렬
 # 사전 조건: 로그인 필요
 GET {{baseUrl}}/api/places
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 ### 2-2. HOME 타입만 조회 → 200
 # 사전 조건: 로그인 필요
 GET {{baseUrl}}/api/places?place_type=HOME
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 ### 2-3. DEST 타입만 조회 → 200
 # 사전 조건: 로그인 필요
 GET {{baseUrl}}/api/places?place_type=DEST
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
@@ -77,4 +77,4 @@ Authorization: Bearer {{jwtToken}}
 ### 3. 특정 장소 삭제 → 200
 # 사전 조건: 로그인 필요, {placeId}를 실제 ID로 교체
 DELETE {{baseUrl}}/api/places/1
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}

@@ -7,8 +7,5 @@ public record PasswordUpdateRequest(
         String currentPassword,
 
         @NotBlank(message = "새 비밀번호 필수")
-        String newPassword,
-
-        @NotBlank(message = "새 비밀번호 확인 필수")
-        String newPasswordConfirm
+        String newPassword
 ) {}

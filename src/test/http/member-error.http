@@ -118,36 +118,22 @@ Authorization: Bearer this.is.a.fake.token
 # 사전 조건: member.http의 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/password
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "current_password": "wrongpassword!",
-  "new_password": "newPassword123!",
-  "new_password_confirm": "newPassword123!"
+  "new_password": "newPassword123!"
 }
 
-### E-13. 새 비밀번호 불일치 → 400 "새 비밀번호가 서로 일치하지 않습니다."
+### E-13. 기존과 동일한 비밀번호 → 400 "기존 비밀번호와 다른 비밀번호를 입력해주세요."
 # 사전 조건: member.http의 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/password
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "current_password": "password123!",
-  "new_password": "newPassword123!",
-  "new_password_confirm": "differentPassword!"
-}
-
-### E-14. 기존과 동일한 비밀번호 → 400 "기존 비밀번호와 다른 비밀번호를 입력해주세요."
-# 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH {{baseUrl}}/api/members/me/password
-Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
-
-{
-  "current_password": "password123!",
-  "new_password": "password123!",
-  "new_password_confirm": "password123!"
+  "new_password": "password123!"
 }
 
 ### E-15. 다른 사람이 이미 사용 중인 닉네임으로 변경 시도 → 400 "이미 사용 중인 닉네임입니다."
@@ -155,7 +141,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: "다른유저" 닉네임을 가진 다른 계정이 DB에 존재해야 함
 PATCH {{baseUrl}}/api/members/me/nickname
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "nickname": "다른유저"
@@ -170,7 +156,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: member.http의 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/setting
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "priority_type": "FASTEST"
@@ -180,7 +166,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: member.http의 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/setting
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "transit_type": "ALL"
@@ -190,7 +176,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: member.http의 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/setting
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "transit_type": "TAXI",
@@ -206,7 +192,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: member.http의 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/home
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "lat": 37.50490,
@@ -217,7 +203,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: member.http의 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/home
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "address": "서울특별시 동작구 흑석로 84",

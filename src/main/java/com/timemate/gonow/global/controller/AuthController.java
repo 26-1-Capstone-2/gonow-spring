@@ -2,7 +2,7 @@ package com.timemate.gonow.global.controller;
 
 import com.timemate.gonow.global.dto.LoginRequest;
 import com.timemate.gonow.global.dto.LoginResponse;
-import com.timemate.gonow.global.response.SuccessResult;
+import com.timemate.gonow.global.response.ApiResult;
 import com.timemate.gonow.global.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,26 +23,22 @@ public class AuthController {
 
     // 로그인
     @PostMapping("/login")
-    public SuccessResult<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+    public ApiResult<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         LoginResponse response = authService.login(request);
 
-        return SuccessResult.of("로그인이 완료되었습니다", response);
+        return ApiResult.success("로그인이 완료되었습니다", response);
     }
-
 
     // 미완성 -----------------------------------------------------------------------------------
     // 로그아웃
     // 현재는 AT만 사용하므로 실제 서버 처리 없음 — 클라이언트가 토큰을 삭제하는 것으로 로그아웃 처리.
     // 추후 RT 도입 시 이 메서드에 RT 무효화 로직을 추가하면 됨.
     @PostMapping("/logout")
-    public SuccessResult<Void> logout(@AuthenticationPrincipal UserDetails userDetails) {
-        // 1. 로그 남기기 (나중에 디버깅할 때 유용)
+    public ApiResult<Void> logout(@AuthenticationPrincipal UserDetails userDetails) {
         log.info("회원 로그아웃 - memberId: {}", userDetails.getUsername());
 
-        // 2. 추후 RT(Refresh Token) 도입 시 이곳에 DB 삭제 로직이 들어갈 예정.
         // TODO: RT 만료 로직 추가 예정 (RT 도입 시)
 
-        // 3. 현재는 무조건 성공 응답을 보냅니다.
-        return SuccessResult.of("로그아웃되었습니다.");
+        return ApiResult.success("로그아웃되었습니다");
     }
 }

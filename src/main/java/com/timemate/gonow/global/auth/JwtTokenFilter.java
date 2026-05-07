@@ -43,7 +43,7 @@ public class JwtTokenFilter extends OncePerRequestFilter {
             // 5. 프론트엔드(CSR)가 에러를 알아듣고 대처할 수 있도록, 직접 JSON 에러를 만들어서 쏴줍니다.
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
-            response.getWriter().write("invalid jwtToken");
+            response.getWriter().write("invalid accessToken");
 
             return; // 🌟 제일 중요! 에러를 뱉었으니 여기서 검문소를 아예 닫아버리고 로직을 끝냅니다.
         }

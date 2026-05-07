@@ -1,5 +1,5 @@
 ### ================================================================
-### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 jwtToken을 발급받아야 함
+### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 accessToken을 발급받아야 함
 ### ================================================================
 
 
@@ -11,7 +11,7 @@
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/places
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "name": "중앙대학교",
@@ -24,7 +24,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/places
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "name": "중앙대학교",
@@ -37,7 +37,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/places
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "name": "중앙대학교",
@@ -50,7 +50,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/places
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "name": "중앙대학교",
@@ -63,7 +63,7 @@ Authorization: Bearer {{jwtToken}}
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/places
 Content-Type: application/json
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 {
   "name": "중앙대학교",
@@ -81,12 +81,12 @@ Authorization: Bearer {{jwtToken}}
 ### E-6. 존재하지 않는 placeId → 400 "장소를 찾을 수 없거나 삭제 권한이 없습니다."
 # 사전 조건: 로그인 필요
 DELETE {{baseUrl}}/api/places/99999
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 ### E-7. 다른 유저의 장소 삭제 시도 → 400 "장소를 찾을 수 없거나 삭제 권한이 없습니다."
 # 사전 조건: 로그인 필요, {placeId}를 다른 유저 소유의 실제 ID로 교체
 DELETE {{baseUrl}}/api/places/2
-Authorization: Bearer {{jwtToken}}
+Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
