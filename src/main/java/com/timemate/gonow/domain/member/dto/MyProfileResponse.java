@@ -13,13 +13,15 @@ public record MyProfileResponse(
         Long memberId,
         String email,
         String nickname,
+        String homeName,
         String homeAddress,
         BigDecimal homeLat,
         BigDecimal homeLng,
 
         // MemberSetting 정보
         TransitType transitType,
-        PriorityType priorityType
+        PriorityType priorityType,
+        int preparationTime
 ) {
     // Member + MemberSetting -> MyProfileResponse
     public static MyProfileResponse from(Member member, MemberSetting setting) {
@@ -29,12 +31,14 @@ public record MyProfileResponse(
                 member.getId(),
                 member.getEmail(),
                 member.getNickname(),
+                location != null ? location.name() : null,
                 location != null ? location.address() : null,
                 location != null ? location.point().lat() : null,
                 location != null ? location.point().lng() : null,
 
                 setting.getTransitType(),
-                setting.getPriorityType()
+                setting.getPriorityType(),
+                setting.getPreparationTime()
         );
     }
 }

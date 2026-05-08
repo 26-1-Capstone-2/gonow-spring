@@ -35,22 +35,27 @@ public class MemberSetting {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    @ColumnDefault("'FASTEST'")         // DEFAULT 'FASTEST'
-    private PriorityType priorityType;  // 경로 우선순위
+    @ColumnDefault("'MIN_TIME'")         // DEFAULT 'MIN_TIME'
+    private PriorityType priorityType;   // 경로 우선순위
+
+    @Column(nullable = false)
+    private int preparationTime;         // 여유시간(준비 시간, 단위: 분)
 
     // 생성자 ----------------------------------------------------------------------------------
     @Builder
-    public MemberSetting(Member member, TransitType transitType, PriorityType priorityType) {
+    public MemberSetting(Member member, TransitType transitType, PriorityType priorityType, int preparationTime) {
         this.member = member;
         this.transitType = Objects.requireNonNullElse(transitType, TransitType.ALL);
-        this.priorityType = Objects.requireNonNullElse(priorityType, PriorityType.FASTEST);
+        this.priorityType = Objects.requireNonNullElse(priorityType, PriorityType.MIN_TIME);
+        this.preparationTime = preparationTime;
     }
 
     // 변경 메소드 ----------------------------------------------------------------------------------
     // 설정 변경
-    public void updateSetting(TransitType transitType, PriorityType priorityType) {
+    public void updateSetting(TransitType transitType, PriorityType priorityType, int preparationTime) {
         this.transitType = transitType;
         this.priorityType = priorityType;
+        this.preparationTime = preparationTime;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

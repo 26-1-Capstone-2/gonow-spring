@@ -10,14 +10,19 @@ GET {{baseUrl}}/health
 ### 회원가입
 ### ================================================================
 
-### 1. 회원가입 → 200, { data: memberId }
+### 1. 회원가입 → 200, { data: null }
 POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
   "email": "hero@cau.ac.kr",
   "password": "password123!",
-  "nickname": "영웅개발자"
+  "nickname": "영웅개발자",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
 }
 
 
@@ -25,16 +30,16 @@ Content-Type: application/json
 ### 이메일 / 닉네임 중복 확인
 ### ================================================================
 
-### 2-1. 이메일 사용 가능 확인 → { data: true }
+### 2-1. 이메일 사용 가능 확인 → 200 "사용 가능한 이메일"
 GET {{baseUrl}}/api/members/check?email=new@cau.ac.kr
 
-### 2-2. 이메일 사용 불가 확인 → { data: false }
+### 2-2. 이메일 사용 불가 확인 → 400 "이미 사용 중인 이메일입니다."
 GET {{baseUrl}}/api/members/check?email=hero@cau.ac.kr
 
-### 2-3. 닉네임 사용 가능 확인 → { data: true }
+### 2-3. 닉네임 사용 가능 확인 → 200 "사용 가능한 닉네임"
 GET {{baseUrl}}/api/members/check?nickname=새닉네임
 
-### 2-4. 닉네임 사용 불가 확인 → { data: false }
+### 2-4. 닉네임 사용 불가 확인 → 400 "이미 사용 중인 닉네임입니다."
 GET {{baseUrl}}/api/members/check?nickname=영웅개발자
 
 
@@ -61,7 +66,7 @@ Content-Type: application/json
 ### 내 프로필 조회
 ### ================================================================
 
-### 4. 내 프로필 조회 → 200, { data: { member_id, email, nickname, home_address, home_lat, home_lng, transit_type, priority_type } }
+### 4. 내 프로필 조회 → 200, { data: { member_id, email, nickname, home_name, home_address, home_lat, home_lng, transit_type, priority_type, preparation_time } }
 # 사전 조건: 3번(로그인) 실행 필요
 GET {{baseUrl}}/api/members/me
 Authorization: Bearer {{accessToken}}
@@ -94,25 +99,21 @@ Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
-### 귀가지(홈) 등록/수정/삭제
+### 귀가지(홈) 등록/수정
 ### ================================================================
 
-### 6-1. 귀가지 등록/수정 → 200, { data: { home_address, home_lat, home_lng } }
+### 6. 귀가지 등록/수정 → 200, { data: null }
 # 사전 조건: 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/home
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
+  "name": "우리집",
   "address": "서울특별시 동작구 흑석로 84",
   "lat": 37.50490,
   "lng": 126.96147
 }
-
-### 6-2. 귀가지 삭제 → 200
-# 사전 조건: 3번(로그인) 실행 필요
-DELETE {{baseUrl}}/api/members/me/home
-Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
@@ -122,14 +123,15 @@ Authorization: Bearer {{accessToken}}
 ### 7. 멤버 설정 변경 → 200
 # 사전 조건: 3번(로그인) 실행 필요
 # transit_type: ALL | SUBWAY | BUS
-# priority_type: FASTEST | MIN_TRANSFER | MIN_WALK
+# priority_type: MIN_TIME | MIN_TRANSFER | MIN_WALK
 PATCH {{baseUrl}}/api/members/me/setting
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
   "transit_type": "SUBWAY",
-  "priority_type": "MIN_TRANSFER"
+  "priority_type": "MIN_TRANSFER",
+  "preparation_time": 15
 }
 
 

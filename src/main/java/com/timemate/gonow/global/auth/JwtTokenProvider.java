@@ -55,7 +55,7 @@ public class JwtTokenProvider {
                 .parseSignedClaims(token)
                 .getPayload();
 
-        // 2. 알맹이에서 유저 정보(id, 권한) 추출
+        // 2. 알맹이에서 유저 정보(memberId, 권한) 추출
         String id = claims.getSubject();
 
         // 3. 스프링 시큐리티가 알아들을 수 있는 공식 신분증(UserDetails) 규격으로 포장합니다.

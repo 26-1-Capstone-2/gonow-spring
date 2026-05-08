@@ -30,14 +30,14 @@ public class Member {
     @Column(nullable = false)
     private String nickname; // 닉네임(NOT NULL, UNIQUE)
 
-    // 귀가지 주소: NULL 허용
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "address", column = @Column(name = "home_address")),
-            @AttributeOverride(name = "point.lat", column = @Column(name = "home_lat", precision = 10, scale = 8)),
-            @AttributeOverride(name = "point.lng", column = @Column(name = "home_lng", precision = 11, scale = 8))
+            @AttributeOverride(name = "name",      column = @Column(name = "home_name",    nullable = false)),
+            @AttributeOverride(name = "address",   column = @Column(name = "home_address", nullable = false)),
+            @AttributeOverride(name = "point.lat", column = @Column(name = "home_lat",     nullable = false, precision = 10, scale = 8)),
+            @AttributeOverride(name = "point.lng", column = @Column(name = "home_lng",     nullable = false, precision = 11, scale = 8))
     })
-    private Location location; // 집 주소, 집 위도, 집 경도
+    private Location location; // 집 이름, 집 주소, 집 위도, 집 경도
 
     // 생성자 ------------------------------------------------------------------------------
     @Builder
@@ -60,10 +60,6 @@ public class Member {
     // home 변경
     public void updateHome(Location location) {
         this.location = location;
-    }
-    // home 삭제
-    public void clearHome() {
-        this.location = null;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

@@ -3,6 +3,7 @@ package com.timemate.gonow.domain.place.controller;
 import com.timemate.gonow.domain.place.constant.PlaceType;
 import com.timemate.gonow.domain.place.dto.PlaceResponse;
 import com.timemate.gonow.domain.place.dto.PlaceUpsertRequest;
+import com.timemate.gonow.domain.place.dto.PlaceUpsertResponse;
 import com.timemate.gonow.domain.place.service.PlaceService;
 import com.timemate.gonow.global.response.ApiResult;
 import jakarta.validation.Valid;
@@ -32,10 +33,10 @@ public class PlaceController {
 
     // 장소 저장 (동일 주소이면 updatedAt만 갱신)
     @PostMapping
-    public ApiResult<PlaceResponse> upsertPlace(@AuthenticationPrincipal UserDetails userDetails,
-                                                @Valid @RequestBody PlaceUpsertRequest request) {
+    public ApiResult<PlaceUpsertResponse> upsertPlace(@AuthenticationPrincipal UserDetails userDetails,
+                                                      @Valid @RequestBody PlaceUpsertRequest request) {
         Long memberId = Long.parseLong(userDetails.getUsername());
-        PlaceResponse response = placeService.upsertPlace(memberId, request);
+        PlaceUpsertResponse response = placeService.upsertPlace(memberId, request);
 
         return ApiResult.success("장소 저장 완료", response);
     }

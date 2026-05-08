@@ -7,6 +7,7 @@ import com.timemate.gonow.domain.member.repository.MemberRepository;
 import com.timemate.gonow.domain.place.constant.PlaceType;
 import com.timemate.gonow.domain.place.dto.PlaceResponse;
 import com.timemate.gonow.domain.place.dto.PlaceUpsertRequest;
+import com.timemate.gonow.domain.place.dto.PlaceUpsertResponse;
 import com.timemate.gonow.domain.place.entity.Place;
 import com.timemate.gonow.domain.place.repository.PlaceRepository;
 import lombok.RequiredArgsConstructor;
@@ -35,14 +36,14 @@ public class PlaceService {
 
     // Upsert용 조회 메서드 (동일 주소 중복 확인용)
     @Transactional
-    public PlaceResponse upsertPlace(Long memberId, PlaceUpsertRequest request) {
+    public PlaceUpsertResponse upsertPlace(Long memberId, PlaceUpsertRequest request) {
         // 1. 동일한 유저가 동일한 주소를 이미 저장했는지 확인 (Optional 활용)
         return placeRepository.findByMemberAndAddress(memberId, request.address())
                 .map(existingPlace -> {
                     // [Case 1] 이미 존재한다면: 시간만 갱신 (touch)
                     existingPlace.touch();
                     // JPA의 변경 감지(Dirty Checking)에 의해 자동으로 업데이트 쿼리가 나감
-                    return PlaceResponse.from(existingPlace);
+                    return PlaceUpsertResponse.from(existingPlace.getId());
                 })
                 .orElseGet(() -> {
                     // [Case 2] 존재하지 않는다면: 새로 생성 및 저장
@@ -51,12 +52,11 @@ public class PlaceService {
 
                     Place newPlace = Place.builder()
                             .member(member)
-                            .name(request.name())
                             .placeType(request.placeType())
-                            .location(new Location(request.address(), new Point(request.lat(), request.lng())))
+                            .location(new Location(request.name(), request.address(), new Point(request.lat(), request.lng())))
                             .build();
 
-                    return PlaceResponse.from(placeRepository.save(newPlace));
+                    return PlaceUpsertResponse.from(placeRepository.save(newPlace).getId());
                 });
     }
 

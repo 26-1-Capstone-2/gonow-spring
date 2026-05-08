@@ -6,6 +6,9 @@ import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 
 public record HomeUpdateRequest(
+        @NotBlank(message = "장소 이름 필수")
+        String name,
+
         @NotBlank(message = "주소 필수")
         String address,
 

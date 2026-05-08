@@ -7,15 +7,15 @@
 ### 장소 저장 (Upsert)
 ### ================================================================
 
-### 1-1. 신규 장소 저장 (HOME) → 200, { data: { place_id, name, place_type, address, lat, lng } }
+### 1-1. 신규 장소 저장 (HOME) → 200, { data: { place_id } }
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/places
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "name": "중앙대학교",
   "place_type": "HOME",
+  "name": "중앙대학교",
   "address": "서울특별시 동작구 흑석로 84",
   "lat": 37.50490,
   "lng": 126.96147
@@ -28,8 +28,8 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "name": "강남역",
   "place_type": "DEST",
+  "name": "강남역",
   "address": "서울특별시 강남구 강남대로 396",
   "lat": 37.49794,
   "lng": 127.02759
@@ -42,8 +42,8 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "name": "중앙대학교",
   "place_type": "HOME",
+  "name": "중앙대학교",
   "address": "서울특별시 동작구 흑석로 84",
   "lat": 37.50490,
   "lng": 126.96147

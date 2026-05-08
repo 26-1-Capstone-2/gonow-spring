@@ -7,8 +7,9 @@ import java.math.BigDecimal;
 
 @Embeddable
 public record Point(
-        @Column(precision = 10, scale = 8)
-        BigDecimal lat,     // 위도
-        @Column(precision = 11, scale = 8)
-        BigDecimal lng      // 경도
+        @Column(nullable = false, precision = 10, scale = 8)
+        BigDecimal lat,
+
+        @Column(nullable = false, precision = 11, scale = 8)
+        BigDecimal lng
 ) {}

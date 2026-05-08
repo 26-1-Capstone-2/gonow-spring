@@ -60,7 +60,7 @@ com.timemate.gonow/
     ├── dto/          # LoginRequest, LoginResponse
     ├── entity/       # BaseTimeEntity (createdAt, updatedAt, touch())
     ├── exception/    # GlobalExceptionHandler
-    ├── response/     # SuccessResult, ErrorResult
+    ├── response/     # ApiResult (success/fail 팩토리 메서드)
     └── service/      # AuthService
 ```
 
@@ -89,8 +89,7 @@ com.timemate.gonow/
 | PATCH | `/api/members/me/nickname` | 필요 | 닉네임 변경 |
 | PATCH | `/api/members/me/password` | 필요 | 비밀번호 변경 |
 | PATCH | `/api/members/me/home` | 필요 | 귀가지 등록/수정 |
-| DELETE | `/api/members/me/home` | 필요 | 귀가지 삭제 (null 초기화) |
-| PATCH | `/api/members/me/setting` | 필요 | 멤버 설정 변경 (transitType, priorityType) |
+| PATCH | `/api/members/me/setting` | 필요 | 멤버 설정 변경 (transitType, priorityType, preparationTime) |
 | DELETE | `/api/members/me` | 필요 | 회원 탈퇴 (스켈레톤) |
 | GET | `/api/places` | 필요 | 장소 목록 조회 (`?place_type=HOME\|DEST`, 미전달 시 전체) |
 | POST | `/api/places` | 필요 | 장소 저장 (동일 주소 존재 시 updatedAt만 갱신 — Upsert) |
@@ -98,13 +97,18 @@ com.timemate.gonow/
 
 ### API 응답 형식
 
-모든 응답은 `SuccessResult` 또는 `ErrorResult`로 일관된 형식을 유지한다.
+모든 응답은 `ApiResult<T>`로 일관된 형식을 유지한다.
 JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 설정으로 snake_case 변환된다.
 
 ```java
-// 성공: SuccessResult<T>
-// 실패: ErrorResult (GlobalExceptionHandler에서 자동 처리)
+// 성공(데이터 있음): ApiResult.success(message, data)
+// 성공(데이터 없음): ApiResult.success(message)   → data: null
+// 실패: GlobalExceptionHandler가 ApiResult.fail(message) 자동 반환
 ```
+
+**API 응답 data 반환 원칙:**
+- **data 반환**: 조회(GET) API, 또는 서버가 생성한 ID처럼 클라이언트가 알 수 없는 값 (예: 장소 저장 → place_id)
+- **data: null**: 변경(PATCH/DELETE) API — 클라이언트가 입력값을 이미 알고 있으므로 불필요
 
 **GlobalExceptionHandler 처리 케이스:**
 - `MethodArgumentNotValidException` → 400 Bad Request (Bean Validation 실패)
@@ -112,10 +116,14 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `IllegalStateException` → 400 Bad Request (비즈니스 규칙 위반)
 - `Exception` → 500 Internal Server Error
 
+### 알람 메커니즘 (Universal Journey State Machine)
+
+@.claude/universal_journey_state_machine.md
+
 ### 도메인 설계 원칙
 
 - **단방향 연관관계**: 모든 엔티티는 단방향 참조만 사용 (역방향 참조 없음)
-- **Embeddable 값 타입**: `Location`(address + Point), `Point`(lat + lng)를 엔티티에 재사용
+- **Embeddable 값 타입**: `Location`(name + address + Point), `Point`(lat + lng)를 엔티티에 재사용. `Location`의 `@Column` 제약은 Location/Point 선언부에 정의하고, 컬럼명 변경이 필요한 경우(Member의 home_*)에만 `@AttributeOverride` 사용.
 - **Enum 상태 관리**: `AppointmentStatus`, `JourneyStatus`, `ParticipantStatus` 등
 - **Record DTO**: Java Record 타입으로 불변 DTO 정의
 - **생성자 기본값**: `@Builder` 생성자에서 `Objects.requireNonNullElse`로 기본값 처리 — 필드 초기화 대신 생성자 초기화를 사용한다. 파라미터는 래퍼 타입(Boolean, Integer 등)으로 받고 필드는 원시 타입(boolean, int)으로 유지한다.
@@ -126,16 +134,16 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 
 | 엔티티 | 위치 | 주요 필드 | Controller/Service 존재 |
 |--------|------|-----------|------------------------|
-| Member | domain/member/entity | email, password, nickname, location(귀가지) | O (MemberController, MemberService) |
-| MemberSetting | domain/member/entity | transitType, priorityType | O (MemberSettingController, MemberSettingService) |
+| Member | domain/member/entity | email, password, nickname, location(name+address+Point, NOT NULL) | O (MemberController, MemberService) |
+| MemberSetting | domain/member/entity | transitType, priorityType, preparationTime | O (MemberSettingController, MemberSettingService) |
 | Appointment | domain/appointment/entity | title, destination, targetTime, appointmentStatus | X |
 | Participant | domain/appointment/entity | member_id, appointment_id, isHost, participantStatus | X |
 | Journey | domain/journey/entity | member_id, journeyType, destination, targetTime, journeyStatus | X |
-| Place | domain/place/entity | member_id, name, placeType, location | O (PlaceController, PlaceService, PlaceRepository) |
+| Place | domain/place/entity | member_id, placeType, location(name+address+Point) | O (PlaceController, PlaceService, PlaceRepository) |
 
 ### MemberSetting 생성 규칙
 
-- 회원가입(`signUp()`) 시 `MemberSetting`이 기본값(transitType=ALL, priorityType=FASTEST)으로 **자동 생성**된다.
+- 회원가입(`signUp()`) 시 `MemberSetting`이 기본값(transitType=ALL, priorityType=MIN_TIME)으로 **자동 생성**된다. 단, `preparationTime`은 회원가입 시 클라이언트가 직접 입력하므로 기본값 없음.
 - 클라이언트가 별도로 설정 생성 요청을 보낼 필요 없음.
 - `PATCH /api/members/me/setting`은 항상 수정(update)만 수행한다.
 
@@ -154,7 +162,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 ### Enum 상수 목록
 
 - `TransitType`: ALL, SUBWAY, BUS (회원 선호 교통수단)
-- `PriorityType`: FASTEST, MIN_TRANSFER, MIN_WALK (경로 우선순위)
+- `PriorityType`: MIN_TIME, MIN_TRANSFER, MIN_WALK (경로 우선순위)
 - `AppointmentStatus`: READY, ACTIVE, FINISHED
 - `ParticipantStatus`: READY, MOVING, ARRIVED
 - `JourneyStatus`: READY, MOVING, ARRIVED
@@ -176,7 +184,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 ### HTTP 테스트 파일
 `src/test/http/` 디렉토리에 IntelliJ HTTP Client용 시나리오 파일이 있다.
 - `member.http`: 각 API를 독립적으로 테스트 가능한 시나리오 (회원가입, 로그인, 프로필 조회, 정보 변경, 귀가지, 설정 등)
-- `member-error.http`: 회원 관련 에러 케이스 (E-1 ~ E-20)
+- `member-error.http`: 회원 관련 에러 케이스 (E-1 ~ E-18)
 - `place.http`: 장소 API 시나리오 (목록 조회, 저장, 삭제)
 - `place-error.http`: 장소 관련 에러 케이스
 
@@ -189,7 +197,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 표준화된 API 응답 포맷 (SuccessResult, ErrorResult) + SNAKE_CASE JSON 직렬화
 - BaseTimeEntity (createdAt, updatedAt JPA Auditing + touch() 메서드)
 - 회원(Member): 회원가입, 로그인, 프로필 조회, 닉네임/비밀번호 변경, 탈퇴(스켈레톤)
-- 귀가지: 등록/수정, 삭제(null 초기화)
+- 귀가지: 등록/수정
 - 멤버 설정(MemberSetting): 회원가입 시 자동 생성, 설정 변경
 - 이메일/닉네임 중복 확인
 - 장소(Place): 목록 조회(타입 필터링), Upsert 저장(동일 주소 시 touch), 삭제(소유자 검증)
@@ -212,3 +220,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 5. `domain/{도메인명}/dto/` — 요청/응답 DTO (Record 타입)
 6. `domain/{도메인명}/controller/` — REST Controller
 7. 인증이 필요 없는 엔드포인트는 `SecurityConfig`의 `permitAll()` 목록에 추가
+
+## 데이터베이스 스키마
+
+@.claude/db-schema.md

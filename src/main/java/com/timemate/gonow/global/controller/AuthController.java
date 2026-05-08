@@ -26,7 +26,7 @@ public class AuthController {
     public ApiResult<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         LoginResponse response = authService.login(request);
 
-        return ApiResult.success("로그인이 완료되었습니다", response);
+        return ApiResult.success("로그인 완료", response);
     }
 
     // 미완성 -----------------------------------------------------------------------------------
@@ -39,6 +39,6 @@ public class AuthController {
 
         // TODO: RT 만료 로직 추가 예정 (RT 도입 시)
 
-        return ApiResult.success("로그아웃되었습니다");
+        return ApiResult.success("로그아웃 완료");
     }
 }

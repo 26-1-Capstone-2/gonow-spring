@@ -19,6 +19,6 @@ public class MemberSettingService {
         MemberSetting setting = memberSettingRepository.findByMemberId(memberId).orElseThrow(
                 () -> new IllegalArgumentException("사용자 정보 또는 설정 정보를 찾을 수 없습니다."));
 
-        setting.updateSetting(request.transitType(), request.priorityType());
+        setting.updateSetting(request.transitType(), request.priorityType(), request.preparationTime());
     }
 }

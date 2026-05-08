@@ -9,7 +9,12 @@ Content-Type: application/json
 {
   "email": "",
   "password": "password123!",
-  "nickname": "테스트유저"
+  "nickname": "테스트유저",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
 }
 
 ### E-2. 이메일 형식 오류 → 400
@@ -19,7 +24,12 @@ Content-Type: application/json
 {
   "email": "not-an-email",
   "password": "password123!",
-  "nickname": "테스트유저"
+  "nickname": "테스트유저",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
 }
 
 ### E-3. 비밀번호 누락 → 400
@@ -29,7 +39,12 @@ Content-Type: application/json
 {
   "email": "test@cau.ac.kr",
   "password": "",
-  "nickname": "테스트유저"
+  "nickname": "테스트유저",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
 }
 
 ### E-4. 닉네임 누락 → 400
@@ -39,10 +54,59 @@ Content-Type: application/json
 {
   "email": "test@cau.ac.kr",
   "password": "password123!",
-  "nickname": ""
+  "nickname": "",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
 }
 
-### E-5. 이메일 중복 → 400 "이미 가입된 이메일입니다."
+### E-4-1. 집 이름 누락 → 400
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "test@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "테스트유저",
+  "home_name": "",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+### E-4-2. 집 주소 누락 → 400
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "test@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "테스트유저",
+  "home_name": "우리집",
+  "home_address": "",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+### E-4-3. 여유시간 누락 → 400
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "test@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "테스트유저",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147
+}
+
+### E-5. 이메일 중복 → 400 "이미 사용 중인 이메일입니다."
 # 사전 조건: hero@cau.ac.kr 계정이 DB에 존재해야 함 (member.http의 1번 실행 필요)
 POST {{baseUrl}}/api/members
 Content-Type: application/json
@@ -50,7 +114,12 @@ Content-Type: application/json
 {
   "email": "hero@cau.ac.kr",
   "password": "password123!",
-  "nickname": "다른닉네임"
+  "nickname": "다른닉네임",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
 }
 
 ### E-6. 닉네임 중복 → 400 "이미 사용 중인 닉네임입니다."
@@ -61,7 +130,12 @@ Content-Type: application/json
 {
   "email": "other@cau.ac.kr",
   "password": "password123!",
-  "nickname": "영웅개발자"
+  "nickname": "영웅개발자",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
 }
 
 
@@ -159,7 +233,8 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "priority_type": "FASTEST"
+  "priority_type": "MIN_TIME",
+  "preparation_time": 10
 }
 
 ### E-17. priorityType 누락 → 400 "경로 우선순위는 필수입니다."
@@ -169,7 +244,19 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "transit_type": "ALL"
+  "transit_type": "ALL",
+  "preparation_time": 10
+}
+
+### E-17-1. preparationTime 누락 → 400 "여유시간 필수"
+# 사전 조건: member.http의 3번(로그인) 실행 필요
+PATCH {{baseUrl}}/api/members/me/setting
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "transit_type": "ALL",
+  "priority_type": "MIN_TIME"
 }
 
 ### E-18. 잘못된 Enum 값 → 400
@@ -180,7 +267,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "transit_type": "TAXI",
-  "priority_type": "FASTEST"
+  "priority_type": "MIN_TIME",
+  "preparation_time": 10
 }
 
 

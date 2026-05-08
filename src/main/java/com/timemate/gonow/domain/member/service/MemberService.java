@@ -24,24 +24,21 @@ public class MemberService {
     // 회원가입
     // 비밀번호를 암호화해서 DB에 저장한다.
     @Transactional
-    public Long signUp(SignupRequest request) {
-        // 1. 이메일 중복 체크 (신분증 확인 1)
-        memberRepository.findByEmail(request.email())
-                .ifPresent(m -> {
-                    throw new IllegalArgumentException("이미 가입된 이메일입니다.");
-                });
+    public void signUp(SignupRequest request) {
+        // 1. 이메일 중복 체크
+        checkEmailAvailable(request.email());
 
-        // 2. 닉네임 중복 체크 (신분증 확인 2)
-        memberRepository.findByNickname(request.nickname())
-                .ifPresent(m -> {
-                    throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
-                });
+        // 2. 닉네임 중복 체크
+        checkNicknameAvailable(request.nickname());
 
         // 3. 모든 검사를 통과하면 저장
+        Location location = new Location(request.homeName(), request.homeAddress(), new Point(request.homeLat(), request.homeLng()));
+
         Member member = Member.builder()
                 .email(request.email())
                 .password(passwordEncoder.encode(request.password()))
                 .nickname(request.nickname())
+                .location(location)
                 .build();
 
         memberRepository.save(member);
@@ -49,20 +46,23 @@ public class MemberService {
         // 회원가입 시 MemberSetting도 함께 저장
         MemberSetting setting = MemberSetting.builder()
                 .member(member)
+                .preparationTime(request.preparationTime())
                 .build();
         memberSettingRepository.save(setting);
-
-        return member.getId();
     }
 
-    // 이메일 중복 확인 (true = 사용 가능, false = 이미 사용 중)
-    public boolean isEmailAvailable(String email) {
-        return !memberRepository.existsByEmail(email);
+    // 이메일 중복 확인 (중복 시 예외 발생)
+    public void checkEmailAvailable(String email) {
+        if (memberRepository.existsByEmail(email)) {
+            throw new IllegalArgumentException("이미 사용 중인 이메일입니다.");
+        }
     }
 
-    // 닉네임 중복 확인 (true = 사용 가능, false = 이미 사용 중)
-    public boolean isNicknameAvailable(String nickname) {
-        return !memberRepository.existsByNickname(nickname);
+    // 닉네임 중복 확인 (중복 시 예외 발생)
+    public void checkNicknameAvailable(String nickname) {
+        if (memberRepository.existsByNickname(nickname)) {
+            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
+        }
     }
 
     // 닉네임 변경
@@ -81,10 +81,8 @@ public class MemberService {
             return;
         }
 
-        // 3. 다른 자신과 동일한 닉네임이면 예외 발생
-        if (!isNicknameAvailable(newNickname)) {
-            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
-        }
+        // 3. 다른 사람이 사용 중인 닉네임이면 예외 발생
+        checkNicknameAvailable(newNickname);
 
         // 4. 닉네임 변경
         member.updateNickname(newNickname);
@@ -118,20 +116,17 @@ public class MemberService {
 
     // home 등록/변경
     @Transactional
-    public HomeUpdateResponse updateHome(Long memberId, HomeUpdateRequest request) {
+    public void updateHome(Long memberId, HomeUpdateRequest request) {
         // 1. 회원 조회
         Member member = memberRepository.findById(memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 회원입니다.")
         );
 
         // 2. request -> Location 객체 생성
-        Location location = new Location(request.address(), new Point(request.lat(), request.lng()));
+        Location location = new Location(request.name(), request.address(), new Point(request.lat(), request.lng()));
 
         // 3. Home 변경
         member.updateHome(location);
-
-        // 4. 업데이트된 정보 반환
-        return HomeUpdateResponse.from(member.getLocation());
     }
 
     // 내 프로필 조회
@@ -143,15 +138,4 @@ public class MemberService {
         return MyProfileResponse.from(setting.getMember(), setting);
     }
 
-    // home 삭제
-    @Transactional
-    public void deleteHome(Long memberId) {
-        // 1. 회원 조회
-        Member member = memberRepository.findById(memberId).orElseThrow(
-                () -> new IllegalArgumentException("존재하지 않는 회원입니다.")
-        );
-
-        // 2. Home 정보 비우기(null)
-        member.clearHome();
-    }
 }

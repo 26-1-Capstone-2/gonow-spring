@@ -4,7 +4,6 @@ import com.timemate.gonow.domain.member.dto.*;
 import com.timemate.gonow.domain.member.service.MemberService;
 import com.timemate.gonow.global.response.ApiResult;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -20,26 +19,27 @@ public class MemberController {
 
     // 회원가입
     @PostMapping
-    public ApiResult<Long> signUp(@Valid @RequestBody SignupRequest request) {
-        Long memberId = memberService.signUp(request);
+    public ApiResult<Void> signUp(@Valid @RequestBody SignupRequest request) {
+        memberService.signUp(request);
 
-        return ApiResult.success("회원가입 완료", memberId);
+        return ApiResult.success("회원가입 완료");
     }
+
 
     // 이메일 중복 확인
     @GetMapping(value = "/check", params = "email")
-    public ApiResult<Boolean> isEmailAvailable(@RequestParam String email) {
-        boolean isAvailable = memberService.isEmailAvailable(email);
+    public ApiResult<Void> checkEmailAvailable(@RequestParam String email) {
+        memberService.checkEmailAvailable(email);
 
-        return ApiResult.success("이메일 중복 확인", isAvailable);
+        return ApiResult.success("사용 가능한 이메일");
     }
 
     // 닉네임 중복 확인
     @GetMapping(value = "/check", params = "nickname")
-    public ApiResult<Boolean> isNicknameAvailable(@RequestParam String nickname) {
-        boolean isAvailable = memberService.isNicknameAvailable(nickname);
+    public ApiResult<Void> checkNicknameAvailable(@RequestParam String nickname) {
+        memberService.checkNicknameAvailable(nickname);
 
-        return ApiResult.success("닉네임 중복 확인", isAvailable);
+        return ApiResult.success("사용 가능한 닉네임");
     }
 
     // 닉네임 변경
@@ -49,7 +49,7 @@ public class MemberController {
         Long memberId = Long.parseLong(userDetails.getUsername());
         memberService.updateNickname(memberId, request);
 
-        return ApiResult.success("닉네임이 변경 완료");
+        return ApiResult.success("닉네임 변경 완료");
     }
 
     // 비밀번호 변경
@@ -64,24 +64,12 @@ public class MemberController {
 
     // 귀가지 등록/변경
     @PatchMapping("/me/home")
-    public ApiResult<HomeUpdateResponse> updateHome(@AuthenticationPrincipal UserDetails userDetails,
-                                                    @Valid @RequestBody HomeUpdateRequest request) {
+    public ApiResult<Void> updateHome(@AuthenticationPrincipal UserDetails userDetails,
+                                      @Valid @RequestBody HomeUpdateRequest request) {
         Long memberId = Long.parseLong(userDetails.getUsername());
+        memberService.updateHome(memberId, request);
 
-        HomeUpdateResponse response = memberService.updateHome(memberId, request);
-
-        return ApiResult.success("귀가지 설정 완료", response);
-    }
-
-    // 귀가지 삭제
-    // 아마 안 쓰일 거 같음
-    @DeleteMapping("/me/home")
-    public ApiResult<Void> deleteHome(@AuthenticationPrincipal UserDetails userDetails) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
-
-        memberService.deleteHome(memberId);
-
-        return ApiResult.success("귀가지가 삭제되었습니다");
+        return ApiResult.success("귀가지 설정 완료");
     }
 
     // 내 프로필 조회
