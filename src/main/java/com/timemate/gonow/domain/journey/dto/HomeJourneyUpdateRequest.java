@@ -35,18 +35,6 @@ public record HomeJourneyUpdateRequest(
         @NotNull(message = "목적지 경도 필수")
         BigDecimal destLng,
 
-        @NotBlank(message = "출발지 이름 필수")
-        String originName,
-
-        @NotBlank(message = "출발지 주소 필수")
-        String originAddress,
-
-        @NotNull(message = "출발지 위도 필수")
-        BigDecimal originLat,
-
-        @NotNull(message = "출발지 경도 필수")
-        BigDecimal originLng,
-
         // 막차 모드(isLastMode=true)면 생략 가능 — 서버가 TRANSIT으로 강제
         // 데드라인 모드(isLastMode=false)면 필수
         TransportType transportType,

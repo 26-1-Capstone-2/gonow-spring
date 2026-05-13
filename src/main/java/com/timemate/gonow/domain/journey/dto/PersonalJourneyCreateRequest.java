@@ -32,18 +32,6 @@ public record PersonalJourneyCreateRequest(
         @NotNull(message = "목적지 경도 필수")
         BigDecimal destLng,
 
-        @NotBlank(message = "출발지 이름 필수")
-        String originName,
-
-        @NotBlank(message = "출발지 주소 필수")
-        String originAddress,
-
-        @NotNull(message = "출발지 위도 필수")
-        BigDecimal originLat,
-
-        @NotNull(message = "출발지 경도 필수")
-        BigDecimal originLng,
-
         @NotNull(message = "이동 수단 필수")
         TransportType transportType,
 

@@ -1,7 +1,6 @@
 package com.timemate.gonow.domain.appointment.entity;
 
 import com.timemate.gonow.domain.appointment.constant.ParticipantStatus;
-import com.timemate.gonow.domain.common.Location;
 import com.timemate.gonow.domain.common.Point;
 import com.timemate.gonow.domain.common.constant.TransportType;
 import com.timemate.gonow.domain.member.entity.Member;
@@ -45,15 +44,6 @@ public class Participant {
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "name",      column = @Column(name = "origin_name",    nullable = false)),
-            @AttributeOverride(name = "address",   column = @Column(name = "origin_address", nullable = false)),
-            @AttributeOverride(name = "point.lat", column = @Column(name = "origin_lat",     nullable = false, precision = 10, scale = 8)),
-            @AttributeOverride(name = "point.lng", column = @Column(name = "origin_lng",     nullable = false, precision = 11, scale = 8))
-    })
-    private Location origin; // 출발지 이름/주소/위도/경도 (NOT NULL)
-
-    @Embedded
-    @AttributeOverrides({
             @AttributeOverride(name = "lat", column = @Column(name = "current_lat", precision = 10, scale = 8)),
             @AttributeOverride(name = "lng", column = @Column(name = "current_lng", precision = 11, scale = 8))
     })
@@ -74,11 +64,10 @@ public class Participant {
     private boolean isActive; // 개인 알람 ON/OFF (NOT NULL, DEFAULT TRUE)
 
     @Builder
-    private Participant(Member member, Appointment appointment, Boolean isHost, Location origin, Point currentPos, LocalDateTime estimatedArrival, LocalDateTime departureAlarmTime, TransportType transportType, ParticipantStatus participantStatus, Boolean isActive) {
+    private Participant(Member member, Appointment appointment, Boolean isHost, Point currentPos, LocalDateTime estimatedArrival, LocalDateTime departureAlarmTime, TransportType transportType, ParticipantStatus participantStatus, Boolean isActive) {
         this.member = member;
         this.appointment = appointment;
         this.isHost = Objects.requireNonNullElse(isHost, false);
-        this.origin = origin;
         this.currentPos = currentPos;
         this.estimatedArrival = estimatedArrival;
         this.departureAlarmTime = departureAlarmTime;

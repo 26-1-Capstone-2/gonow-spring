@@ -56,15 +56,6 @@ public class Journey {
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "name",      column = @Column(name = "origin_name",    nullable = false)),
-            @AttributeOverride(name = "address",   column = @Column(name = "origin_address", nullable = false)),
-            @AttributeOverride(name = "point.lat", column = @Column(name = "origin_lat",     nullable = false, precision = 10, scale = 8)),
-            @AttributeOverride(name = "point.lng", column = @Column(name = "origin_lng",     nullable = false, precision = 11, scale = 8))
-    })
-    private Location origin; // 출발지 이름/주소/위도/경도 (NOT NULL)
-
-    @Embedded
-    @AttributeOverrides({
             @AttributeOverride(name = "name",      column = @Column(name = "dest_name",    nullable = false)),
             @AttributeOverride(name = "address",   column = @Column(name = "dest_address", nullable = false)),
             @AttributeOverride(name = "point.lat", column = @Column(name = "dest_lat",     nullable = false, precision = 10, scale = 8)),
@@ -93,7 +84,7 @@ public class Journey {
     private JourneyStatus journeyStatus; // 이동 상태 (NOT NULL, DEFAULT 'SCHEDULED')
 
     @Builder
-    private Journey(Member member, String title, JourneyType journeyType, Point currentPoint, Location destination, TransportType transportType, LocalDate planDate, Location origin, boolean isLastMode, LocalDateTime targetTime, LocalDateTime estimatedArrival, LocalDateTime departureAlarmTime, int repeatDays, Boolean isActive, JourneyStatus journeyStatus) {
+    private Journey(Member member, String title, JourneyType journeyType, Point currentPoint, Location destination, TransportType transportType, LocalDate planDate, boolean isLastMode, LocalDateTime targetTime, LocalDateTime estimatedArrival, LocalDateTime departureAlarmTime, int repeatDays, Boolean isActive, JourneyStatus journeyStatus) {
         this.member = member;
         this.title = title;
         this.journeyType = journeyType;
@@ -101,7 +92,6 @@ public class Journey {
         this.destination = destination;
         this.transportType = transportType;
         this.planDate = planDate;
-        this.origin = origin;
         this.isLastMode = isLastMode;
         this.targetTime = targetTime;
         this.estimatedArrival = estimatedArrival;
@@ -113,11 +103,10 @@ public class Journey {
 
     // 변경 메소드 ------------------------------------------------------------------------------
     // 개인 여정 수정
-    public void updatePersonal(String title, LocalDate planDate, LocalDateTime targetTime, Location origin, Location destination, TransportType transportType, int repeatDays, JourneyStatus journeyStatus) {
+    public void updatePersonal(String title, LocalDate planDate, LocalDateTime targetTime, Location destination, TransportType transportType, int repeatDays, JourneyStatus journeyStatus) {
         this.title = title;
         this.planDate = planDate;
         this.targetTime = targetTime;
-        this.origin = origin;
         this.destination = destination;
         this.transportType = transportType;
         this.repeatDays = repeatDays;
@@ -130,12 +119,11 @@ public class Journey {
     }
 
     // 귀가 여정 수정
-    public void updateHome(String title, boolean isLastMode, LocalDate planDate, LocalDateTime targetTime, Location origin, Location destination, TransportType transportType, int repeatDays, JourneyStatus journeyStatus) {
+    public void updateHome(String title, boolean isLastMode, LocalDate planDate, LocalDateTime targetTime, Location destination, TransportType transportType, int repeatDays, JourneyStatus journeyStatus) {
         this.title = title;
         this.isLastMode = isLastMode;
         this.planDate = planDate;
         this.targetTime = targetTime;
-        this.origin = origin;
         this.destination = destination;
         this.transportType = transportType;
         this.repeatDays = repeatDays;

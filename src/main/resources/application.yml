@@ -19,6 +19,7 @@ spring:
   jackson:
     property-naming-strategy: SNAKE_CASE
 
+
 logging:
   level:
     org.hibernate.SQL: DEBUG

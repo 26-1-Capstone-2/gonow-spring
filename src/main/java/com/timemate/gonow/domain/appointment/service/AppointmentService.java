@@ -52,18 +52,11 @@ public class AppointmentService {
 
         appointmentRepository.save(appointment);
 
-        Location origin = new Location(
-                request.originName(),
-                request.originAddress(),
-                new Point(request.originLat(), request.originLng())
-        );
-
         // 방장 Participant 동시 생성
         Participant host = Participant.builder()
                 .member(member)
                 .appointment(appointment)
                 .isHost(true)
-                .origin(origin)
                 .transportType(request.transportType())
                 .participantStatus(resolveInitialStatus(request.planDate()))
                 .build();

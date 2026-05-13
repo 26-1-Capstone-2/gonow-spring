@@ -70,10 +70,6 @@
 | 멤버 ID | member_id | BIGINT | FK(member), NOT NULL, 복합 UK | 약속 ID랑 복합 UK를 이룸 |
 | 약속 ID | appointment_id | BIGINT | FK(meeting), NOT NULL, 복합 UK | 멤버 ID랑 복합 UK를 이룸 |
 | 방장 여부 | is_host | BOOLEAN | NOT NULL, DEFAULT FALSE | TRUE면 방장(권한 있음), FALSE면 일반 참여자 |
-| 출발지 이름 | origin_name | VARCHAR(255) | NOT NULL | 알람 생성 시 선택한 출발지 이름 |
-| 출발지 주소 | origin_address | VARCHAR(255) | NOT NULL | 알람 생성 시 선택한 출발지 주소 |
-| 출발지 위도 | origin_lat | DECIMAL(10, 8) | NOT NULL | DEPARTING→MOVING 전환 시 실제 좌표로 덮어씀 |
-| 출발지 경도 | origin_lng | DECIMAL(11, 8) | NOT NULL | DEPARTING→MOVING 전환 시 실제 좌표로 덮어씀 |
 | 현재 위도 | current_lat | DECIMAL(10, 8) | - | 유저의 실시간 위도 |
 | 현재 경도 | current_lng | DECIMAL(11, 8) | - | 유저의 실시간 경도 |
 | 도착 예정 시간 | estimated_arrival | DATETIME | - | 서버가 계산한 도착 예정 시간 |
@@ -98,10 +94,6 @@
 | 여정 타입 | journey_type | ENUM | NOT NULL | HOME(귀가 모드), PERSONAL(개인 모드) |
 | 현재 위도 | current_lat | DECIMAL(10, 8) | - | 유저의 실시간 위도 |
 | 현재 경도 | current_lng | DECIMAL(11, 8) | - | 유저의 실시간 경도 |
-| 출발지 이름 | origin_name | VARCHAR(255) | NOT NULL | 알람 생성 시 선택한 출발지 이름 |
-| 출발지 주소 | origin_address | VARCHAR(255) | NOT NULL | 알람 생성 시 선택한 출발지 주소 |
-| 출발지 위도 | origin_lat | DECIMAL(10, 8) | NOT NULL | DEPARTING→MOVING 전환 시 실제 좌표로 덮어씀 |
-| 출발지 경도 | origin_lng | DECIMAL(11, 8) | NOT NULL | DEPARTING→MOVING 전환 시 실제 좌표로 덮어씀 |
 | 목적지 이름 | dest_name | VARCHAR(255) | NOT NULL | - |
 | 목적지 주소 | dest_address | VARCHAR(255) | NOT NULL | - |
 | 목적지 위도 | dest_lat | DECIMAL(10, 8) | NOT NULL | - |

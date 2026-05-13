@@ -20,11 +20,6 @@ public record AppointmentCreateRequest(
         @FutureOrPresent(message = "목표 시간은 현재 시각 이후여야 합니다.")
         LocalDateTime targetTime,
 
-        @NotBlank(message = "출발지 이름 필수") String originName,
-        @NotBlank(message = "출발지 주소 필수") String originAddress,
-        @NotNull(message = "출발지 위도 필수") BigDecimal originLat,
-        @NotNull(message = "출발지 경도 필수") BigDecimal originLng,
-
         @NotBlank(message = "목적지 이름 필수") String destName,
         @NotBlank(message = "목적지 주소 필수") String destAddress,
         @NotNull(message = "목적지 위도 필수") BigDecimal destLat,

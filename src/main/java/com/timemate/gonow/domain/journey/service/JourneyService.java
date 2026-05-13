@@ -36,12 +36,6 @@ public class JourneyService {
         Member member = memberRepository.findById(memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 회원입니다."));
 
-        Location origin = new Location(
-                request.originName(),
-                request.originAddress(),
-                new Point(request.originLat(), request.originLng())
-        );
-
         Location destination = new Location(
                 request.destName(),
                 request.destAddress(),
@@ -53,7 +47,6 @@ public class JourneyService {
                 .title(request.title())
                 .journeyType(JourneyType.PERSONAL)
                 .planDate(request.planDate())
-                .origin(origin)
                 .destination(destination)
                 .transportType(request.transportType())
                 .isLastMode(false)
@@ -71,19 +64,13 @@ public class JourneyService {
         Journey journey = journeyRepository.findByIdAndMemberId(journeyId, memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 여정이거나 수정 권한이 없습니다."));
 
-        Location origin = new Location(
-                request.originName(),
-                request.originAddress(),
-                new Point(request.originLat(), request.originLng())
-        );
-
         Location destination = new Location(
                 request.destName(),
                 request.destAddress(),
                 new Point(request.destLat(), request.destLng())
         );
 
-        journey.updatePersonal(request.title(), request.planDate(), request.targetTime(), origin, destination, request.transportType(), request.repeatDays(), resolveInitialStatus(request.planDate()));
+        journey.updatePersonal(request.title(), request.planDate(), request.targetTime(), destination, request.transportType(), request.repeatDays(), resolveInitialStatus(request.planDate()));
         return JourneyResponse.from(journey);
     }
 
@@ -94,12 +81,6 @@ public class JourneyService {
                 () -> new IllegalArgumentException("존재하지 않는 회원입니다."));
 
         TransportType transportType = resolveTransportType(request.isLastMode(), request.transportType());
-
-        Location origin = new Location(
-                request.originName(),
-                request.originAddress(),
-                new Point(request.originLat(), request.originLng())
-        );
 
         Location destination = new Location(
                 request.destName(),
@@ -112,7 +93,6 @@ public class JourneyService {
                 .title(request.title())
                 .journeyType(JourneyType.HOME)
                 .planDate(request.planDate())
-                .origin(origin)
                 .destination(destination)
                 .transportType(transportType)
                 .isLastMode(request.isLastMode())
@@ -132,19 +112,13 @@ public class JourneyService {
 
         TransportType transportType = resolveTransportType(request.isLastMode(), request.transportType());
 
-        Location origin = new Location(
-                request.originName(),
-                request.originAddress(),
-                new Point(request.originLat(), request.originLng())
-        );
-
         Location destination = new Location(
                 request.destName(),
                 request.destAddress(),
                 new Point(request.destLat(), request.destLng())
         );
 
-        journey.updateHome(request.title(), request.isLastMode(), request.planDate(), request.targetTime(), origin, destination, transportType, request.repeatDays(), resolveInitialStatus(request.planDate()));
+        journey.updateHome(request.title(), request.isLastMode(), request.planDate(), request.targetTime(), destination, transportType, request.repeatDays(), resolveInitialStatus(request.planDate()));
         return JourneyResponse.from(journey);
     }
 
