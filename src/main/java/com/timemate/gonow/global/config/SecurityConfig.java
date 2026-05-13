@@ -35,7 +35,11 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
-                                "/docs",                        // 헬스체크 (GET)
+                                "/health",                      // 헬스체크 (GET)
+                                "/docs",                        // Swagger UI 진입
+                                "/docs/**",                     // Swagger UI 리소스
+                                "/swagger-ui/**",               // Swagger UI 리다이렉트 경로
+                                "/v3/api-docs/**",              // OpenAPI 스펙 JSON
                                 "/api/auth/login",              // 로그인 (POST)
                                 "/api/members/check",           // 이메일/닉네임 중복 확인 (GET)
                                 "/error").permitAll()           // 에러 핸들링 ANY

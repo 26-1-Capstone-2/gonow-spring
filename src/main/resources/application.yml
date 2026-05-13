@@ -28,6 +28,10 @@ jwt:
   secret: SL21AtKG1c3LRN2KKfhBcrc0Tlrxj6ACifgADCcT7VO5H+y7XrUoo/CLK/PME7sflGtc7eFvv55N4pq4vf43VQ==
   expiration: 10080 # 7일
 
+springdoc:
+  swagger-ui:
+    path: /docs
+
 ---
 spring:
   config:
