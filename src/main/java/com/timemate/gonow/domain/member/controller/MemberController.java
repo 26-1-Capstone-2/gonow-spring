@@ -6,8 +6,7 @@ import com.timemate.gonow.global.response.ApiResult;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
+import com.timemate.gonow.global.auth.MemberId;
 import org.springframework.web.bind.annotation.*;
 
 @Slf4j
@@ -44,9 +43,8 @@ public class MemberController {
 
     // 닉네임 변경
     @PatchMapping("/me/nickname")
-    public ApiResult<Void> updateNickname(@AuthenticationPrincipal UserDetails userDetails,
+    public ApiResult<Void> updateNickname(@MemberId Long memberId,
                                           @Valid @RequestBody NicknameUpdateRequest request) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
         memberService.updateNickname(memberId, request);
 
         return ApiResult.success("닉네임 변경 완료");
@@ -54,9 +52,8 @@ public class MemberController {
 
     // 비밀번호 변경
     @PatchMapping("/me/password")
-    public ApiResult<Void> updatePassword(@AuthenticationPrincipal UserDetails userDetails,
+    public ApiResult<Void> updatePassword(@MemberId Long memberId,
                                           @Valid @RequestBody PasswordUpdateRequest request) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
         memberService.updatePassword(memberId, request);
 
         return ApiResult.success("비밀번호 변경 완료");
@@ -64,9 +61,8 @@ public class MemberController {
 
     // 귀가지 등록/변경
     @PatchMapping("/me/home")
-    public ApiResult<Void> updateHome(@AuthenticationPrincipal UserDetails userDetails,
+    public ApiResult<Void> updateHome(@MemberId Long memberId,
                                       @Valid @RequestBody HomeUpdateRequest request) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
         memberService.updateHome(memberId, request);
 
         return ApiResult.success("귀가지 설정 완료");
@@ -74,9 +70,7 @@ public class MemberController {
 
     // 내 프로필 조회
     @GetMapping("/me")
-    public ApiResult<MyProfileResponse> getMyProfile(@AuthenticationPrincipal UserDetails userDetails) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
-
+    public ApiResult<MyProfileResponse> getMyProfile(@MemberId Long memberId) {
         MyProfileResponse response = memberService.getMyProfile(memberId);
 
         return ApiResult.success("프로필 조회 완료", response);
@@ -87,8 +81,8 @@ public class MemberController {
     // 현재는 껍데기 — 로그만 찍고 성공 응답 반환.
     // 추후 연관 테이블 확정 후 Hard Delete 로직 채울 예정.
     @DeleteMapping("/me")
-    public ApiResult<Void> withdraw(@AuthenticationPrincipal UserDetails userDetails) {
-        log.info("회원 탈퇴 요청 - memberId: {}", userDetails.getUsername());
+    public ApiResult<Void> withdraw(@MemberId Long memberId) {
+        log.info("회원 탈퇴 요청 - memberId: {}", memberId);
 
         // TODO: 추후에 연관 데이터 수동 삭제 로직(Hard Delete)이 들어갈 자리입니다.
 

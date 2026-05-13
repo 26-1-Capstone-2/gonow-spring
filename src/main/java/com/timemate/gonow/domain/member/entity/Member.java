@@ -7,7 +7,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-// role은 안 쓸거므로 과감하게 지움
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity

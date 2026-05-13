@@ -2,6 +2,7 @@ package com.timemate.gonow.domain.journey.entity;
 
 import com.timemate.gonow.domain.common.Location;
 import com.timemate.gonow.domain.common.Point;
+import com.timemate.gonow.domain.common.constant.TransportType;
 import com.timemate.gonow.domain.journey.constant.JourneyStatus;
 import com.timemate.gonow.domain.journey.constant.JourneyType;
 import com.timemate.gonow.domain.member.entity.Member;
@@ -12,8 +13,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.ColumnDefault;
 
-import java.util.Objects;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -35,34 +37,51 @@ public class Journey {
     @Column(nullable = false)
     private JourneyType journeyType; // 여정 타입 (NOT NULL)
 
+    @Column(nullable = false)
+    private boolean isLastMode; // 막차 여부 (NOT NULL)
+
+    @Column(nullable = false)
+    private LocalDate planDate; // 여정 예정 날짜 (NOT NULL)
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private TransportType transportType; // 이동 수단 (NOT NULL)
+
     @Embedded
     @AttributeOverrides({
             @AttributeOverride(name = "lat", column = @Column(name = "current_lat", precision = 10, scale = 8)),
             @AttributeOverride(name = "lng", column = @Column(name = "current_lng", precision = 11, scale = 8))
     })
-    private Point currentPoint; // 현재 위치 위도/경도 (nullable)
+    private Point currentPoint; // 현재 위치 위도/경도
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "address", column = @Column(name = "dest_address", nullable = false)),
-            @AttributeOverride(name = "point.lat", column = @Column(name = "dest_lat", nullable = false, precision = 10, scale = 8)),
-            @AttributeOverride(name = "point.lng", column = @Column(name = "dest_lng", nullable = false, precision = 11, scale = 8))
+            @AttributeOverride(name = "name",      column = @Column(name = "origin_name",    nullable = false)),
+            @AttributeOverride(name = "address",   column = @Column(name = "origin_address", nullable = false)),
+            @AttributeOverride(name = "point.lat", column = @Column(name = "origin_lat",     nullable = false, precision = 10, scale = 8)),
+            @AttributeOverride(name = "point.lng", column = @Column(name = "origin_lng",     nullable = false, precision = 11, scale = 8))
     })
-    private Location destination; // 목적지 주소/위치/경도 (NOT NULL)
+    private Location origin; // 출발지 이름/주소/위도/경도 (NOT NULL)
 
-
-    @Column(nullable = false)
-    @ColumnDefault("FALSE")
-    private boolean isLastMode; // 막차 여부 (NOT NULL, DEFAULT FALSE)
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "name",      column = @Column(name = "dest_name",    nullable = false)),
+            @AttributeOverride(name = "address",   column = @Column(name = "dest_address", nullable = false)),
+            @AttributeOverride(name = "point.lat", column = @Column(name = "dest_lat",     nullable = false, precision = 10, scale = 8)),
+            @AttributeOverride(name = "point.lng", column = @Column(name = "dest_lng",     nullable = false, precision = 11, scale = 8))
+    })
+    private Location destination; // 목적지 이름/주소/위도/경도 (NOT NULL)
 
     @Column(nullable = false)
     private LocalDateTime targetTime; // 목표 시간 (NOT NULL)
 
+    // TODO: 플라스크 연동 후 NOT NULL로 변경 예정
+    private LocalDateTime departureAlarmTime; // 출발 알람 시각
+
     private LocalDateTime estimatedArrival; // 도착 예정 시간
 
     @Column(nullable = false)
-    @ColumnDefault("0")
-    private int repeatDays; // 반복 요일 (NOT NULL, DEFAULT 0)
+    private int repeatDays; // 반복 요일 (NOT NULL)
 
     @Column(nullable = false)
     @ColumnDefault("TRUE")
@@ -70,22 +89,57 @@ public class Journey {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    @ColumnDefault("'READY'")
-    private JourneyStatus journeyStatus; // 이동 상태 (NOT NULL, DEFAULT 'READY')
+    @ColumnDefault("'SCHEDULED'")
+    private JourneyStatus journeyStatus; // 이동 상태 (NOT NULL, DEFAULT 'SCHEDULED')
 
     @Builder
-    private Journey(Member member, String title, JourneyType journeyType, Point currentPoint, Location destination, Boolean isLastMode, LocalDateTime targetTime, LocalDateTime estimatedArrival, Integer repeatDays, Boolean isActive, JourneyStatus journeyStatus) {
+    private Journey(Member member, String title, JourneyType journeyType, Point currentPoint, Location destination, TransportType transportType, LocalDate planDate, Location origin, boolean isLastMode, LocalDateTime targetTime, LocalDateTime estimatedArrival, LocalDateTime departureAlarmTime, int repeatDays, Boolean isActive, JourneyStatus journeyStatus) {
         this.member = member;
         this.title = title;
         this.journeyType = journeyType;
         this.currentPoint = currentPoint;
         this.destination = destination;
-        this.isLastMode = Objects.requireNonNullElse(isLastMode, false);
+        this.transportType = transportType;
+        this.planDate = planDate;
+        this.origin = origin;
+        this.isLastMode = isLastMode;
         this.targetTime = targetTime;
         this.estimatedArrival = estimatedArrival;
-        this.repeatDays = Objects.requireNonNullElse(repeatDays, 0);
+        this.departureAlarmTime = departureAlarmTime;
+        this.repeatDays = repeatDays;
         this.isActive = Objects.requireNonNullElse(isActive, true);
-        this.journeyStatus = Objects.requireNonNullElse(journeyStatus, JourneyStatus.READY);
+        this.journeyStatus = Objects.requireNonNullElse(journeyStatus, JourneyStatus.SCHEDULED);
+    }
+
+    // 변경 메소드 ------------------------------------------------------------------------------
+    // 개인 여정 수정
+    public void updatePersonal(String title, LocalDate planDate, LocalDateTime targetTime, Location origin, Location destination, TransportType transportType, int repeatDays, JourneyStatus journeyStatus) {
+        this.title = title;
+        this.planDate = planDate;
+        this.targetTime = targetTime;
+        this.origin = origin;
+        this.destination = destination;
+        this.transportType = transportType;
+        this.repeatDays = repeatDays;
+        this.journeyStatus = journeyStatus;
+    }
+
+    // 알람 스위치 ON/OFF
+    public void updateActive(boolean isActive) {
+        this.isActive = isActive;
+    }
+
+    // 귀가 여정 수정
+    public void updateHome(String title, boolean isLastMode, LocalDate planDate, LocalDateTime targetTime, Location origin, Location destination, TransportType transportType, int repeatDays, JourneyStatus journeyStatus) {
+        this.title = title;
+        this.isLastMode = isLastMode;
+        this.planDate = planDate;
+        this.targetTime = targetTime;
+        this.origin = origin;
+        this.destination = destination;
+        this.transportType = transportType;
+        this.repeatDays = repeatDays;
+        this.journeyStatus = journeyStatus;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

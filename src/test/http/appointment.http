@@ -1,0 +1,106 @@
+### ================================================================
+### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 accessToken을 발급받아야 함
+### ================================================================
+
+
+### ================================================================
+### 그룹 약속 생성
+### ================================================================
+
+### 1. 그룹 알람 생성 → 200, { data: { appointment_id, invite_code, participant_status, departure_alarm_time } }
+# 사전 조건: 로그인 필요
+# departure_alarm_time: 플라스크 연동 전까지 null 반환
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "면접 스터디",
+  "plan_date": "2026-05-15",
+  "target_time": "2026-05-15T19:00:00",
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "origin_name": "우리집",
+  "origin_address": "서울특별시 동작구 흑석로 84",
+  "origin_lat": 37.50490,
+  "origin_lng": 126.96147,
+  "transport_type": "TRANSIT"
+}
+
+
+### ================================================================
+### 약속 알람 스위치 ON/OFF (방장 전용)
+### ================================================================
+
+### 2. 약속 알람 OFF → 200, { data: null }
+# 사전 조건: 로그인 필요, 방장만 가능
+PATCH {{baseUrl}}/api/appointments/1/active
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_active": false
+}
+
+### 3. 약속 알람 ON → 200, { data: null }
+PATCH {{baseUrl}}/api/appointments/1/active
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_active": true
+}
+
+
+### ================================================================
+### 개인 알람 ON/OFF (본인만)
+### ================================================================
+
+### 4. 개인 알람 OFF → 200, { data: null }
+# 사전 조건: 로그인 필요, 해당 약속 참여자만 가능
+PATCH {{baseUrl}}/api/appointments/1/participants/alarm
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_alarm_on": false
+}
+
+### 5. 개인 알람 ON → 200, { data: null }
+PATCH {{baseUrl}}/api/appointments/1/participants/alarm
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_alarm_on": true
+}
+
+
+### ================================================================
+### 참여자 탈퇴 & 추방 (공통)
+### ================================================================
+
+### 6. 본인 탈퇴 → 200, { data: null }
+# 사전 조건: 로그인 필요, 방장은 탈퇴 불가
+# targetMemberId = 본인 memberId
+DELETE {{baseUrl}}/api/appointments/1/participants/2
+Authorization: Bearer {{accessToken}}
+
+### 7. 참여자 추방 (방장 전용) → 200, { data: null }
+# 사전 조건: 로그인 필요, 방장만 가능
+# targetMemberId = 추방할 참여자의 memberId
+DELETE {{baseUrl}}/api/appointments/1/participants/3
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### 그룹 알람 삭제 (방장 전용)
+### ================================================================
+
+### 8. 그룹 알람 삭제 → 200, { data: null }
+# 사전 조건: 로그인 필요, 방장만 가능
+# Appointment + 모든 Participant 삭제
+DELETE {{baseUrl}}/api/appointments/1
+Authorization: Bearer {{accessToken}}

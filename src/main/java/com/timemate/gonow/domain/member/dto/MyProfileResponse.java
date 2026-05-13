@@ -26,16 +26,14 @@ public record MyProfileResponse(
     // Member + MemberSetting -> MyProfileResponse
     public static MyProfileResponse from(Member member, MemberSetting setting) {
         Location location = member.getLocation();
-
         return new MyProfileResponse(
                 member.getId(),
                 member.getEmail(),
                 member.getNickname(),
-                location != null ? location.name() : null,
-                location != null ? location.address() : null,
-                location != null ? location.point().lat() : null,
-                location != null ? location.point().lng() : null,
-
+                location.name(),
+                location.address(),
+                location.point().lat(),
+                location.point().lng(),
                 setting.getTransitType(),
                 setting.getPriorityType(),
                 setting.getPreparationTime()

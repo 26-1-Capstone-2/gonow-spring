@@ -1,7 +1,9 @@
 package com.timemate.gonow.domain.appointment.entity;
 
 import com.timemate.gonow.domain.appointment.constant.ParticipantStatus;
+import com.timemate.gonow.domain.common.Location;
 import com.timemate.gonow.domain.common.Point;
+import com.timemate.gonow.domain.common.constant.TransportType;
 import com.timemate.gonow.domain.member.entity.Member;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -35,14 +37,20 @@ public class Participant {
 
     @Column(nullable = false)
     @ColumnDefault("FALSE")
-    private boolean isHost; // 방장 여부 (NOT NULL, DEFAULT FALSE)
+    private boolean isHost = false; // 방장 여부 (NOT NULL, DEFAULT FALSE)
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private TransportType transportType; // 이동 수단 (NOT NULL)
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "lat", column = @Column(name = "origin_lat", precision = 10, scale = 8)),
-            @AttributeOverride(name = "lng", column = @Column(name = "origin_lng", precision = 11, scale = 8))
+            @AttributeOverride(name = "name",      column = @Column(name = "origin_name",    nullable = false)),
+            @AttributeOverride(name = "address",   column = @Column(name = "origin_address", nullable = false)),
+            @AttributeOverride(name = "point.lat", column = @Column(name = "origin_lat",     nullable = false, precision = 10, scale = 8)),
+            @AttributeOverride(name = "point.lng", column = @Column(name = "origin_lng",     nullable = false, precision = 11, scale = 8))
     })
-    private Point originPos; // 출발지 위도/경도
+    private Location origin; // 출발지 이름/주소/위도/경도 (NOT NULL)
 
     @Embedded
     @AttributeOverrides({
@@ -51,28 +59,37 @@ public class Participant {
     })
     private Point currentPos; // 현재 위치 위도/경도
 
+    // TODO: 플라스크 연동 후 NOT NULL로 변경 예정
+    private LocalDateTime departureAlarmTime; // 출발 알람 시각
+
     private LocalDateTime estimatedArrival; // 도착 예정 시간
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    @ColumnDefault("'READY'")
-    private ParticipantStatus participantStatus;
-    /// 참여자 상태 (NOT NULL, DEFAULT 'READY')
+    @ColumnDefault("'SCHEDULED'")
+    private ParticipantStatus participantStatus; // 참여자 상태 (NOT NULL, DEFAULT 'SCHEDULED')
 
-    //FIXME @Column(nullable = false) // 임시 컬럼이므로 NULL로 허용하자
+    @Column(nullable = false)
     @ColumnDefault("TRUE")
-    private Boolean isAlarmOn; //FIXME 확정 컬럼이 되면 NOT NULL, boolean으로 바꾸자
+    private boolean isActive; // 개인 알람 ON/OFF (NOT NULL, DEFAULT TRUE)
 
     @Builder
-    private Participant(Member member, Appointment appointment, Boolean isHost, Point originPos, Point currentPos, LocalDateTime estimatedArrival, ParticipantStatus participantStatus, Boolean isAlarmOn) {
+    private Participant(Member member, Appointment appointment, Boolean isHost, Location origin, Point currentPos, LocalDateTime estimatedArrival, LocalDateTime departureAlarmTime, TransportType transportType, ParticipantStatus participantStatus, Boolean isActive) {
         this.member = member;
         this.appointment = appointment;
         this.isHost = Objects.requireNonNullElse(isHost, false);
-        this.originPos = originPos;
+        this.origin = origin;
         this.currentPos = currentPos;
         this.estimatedArrival = estimatedArrival;
-        this.participantStatus = Objects.requireNonNullElse(participantStatus, ParticipantStatus.READY);
-        this.isAlarmOn = Objects.requireNonNullElse(isAlarmOn, true);
+        this.departureAlarmTime = departureAlarmTime;
+        this.transportType = transportType;
+        this.participantStatus = Objects.requireNonNullElse(participantStatus, ParticipantStatus.SCHEDULED);
+        this.isActive = Objects.requireNonNullElse(isActive, true);
+    }
+
+    // 개인 알람 ON/OFF
+    public void updateActive(boolean isActive) {
+        this.isActive = isActive;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

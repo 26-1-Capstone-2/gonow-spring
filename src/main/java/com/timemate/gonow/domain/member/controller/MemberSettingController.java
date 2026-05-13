@@ -5,8 +5,7 @@ import com.timemate.gonow.domain.member.service.MemberSettingService;
 import com.timemate.gonow.global.response.ApiResult;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
+import com.timemate.gonow.global.auth.MemberId;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -17,12 +16,10 @@ public class MemberSettingController {
 
     // 멤버 설정 변경
     @PatchMapping("/me/setting")
-    public ApiResult<Void> updateSetting(@AuthenticationPrincipal UserDetails userDetails,
+    public ApiResult<Void> updateSetting(@MemberId Long memberId,
                                          @Valid @RequestBody SettingUpdateRequest request) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
-
         memberSettingService.updateSetting(memberId, request);
 
-        return ApiResult.success("멤버 설정 완료");
+        return ApiResult.success("설정 완료");
     }
 }

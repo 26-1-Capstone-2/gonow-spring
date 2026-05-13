@@ -1,0 +1,214 @@
+### ================================================================
+### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 accessToken을 발급받아야 함
+### ================================================================
+
+
+### ================================================================
+### 개인 여정 생성
+### ================================================================
+
+### 1. 개인 여정 생성 (반복 없음) → 200, { data: { journey_id, journey_status, departure_alarm_time } }
+# 사전 조건: 로그인 필요
+# departure_alarm_time: 플라스크 연동 전까지 null 반환
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "알바 가는 길",
+  "plan_date": "2026-05-15",
+  "target_time": "2026-05-15T22:00:00",
+  "origin_name": "우리집",
+  "origin_address": "서울특별시 동작구 흑석로 84",
+  "origin_lat": 37.50490,
+  "origin_lng": 126.96147,
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+### 2. 개인 여정 생성 (평일 반복) → 200, { data: { journey_id, journey_status, departure_alarm_time } }
+# 사전 조건: 로그인 필요
+# repeat_days: 월(1) + 화(2) + 수(4) + 목(8) + 금(16) = 31
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "출근",
+  "plan_date": "2026-05-15",
+  "target_time": "2026-05-15T09:00:00",
+  "origin_name": "우리집",
+  "origin_address": "서울특별시 동작구 흑석로 84",
+  "origin_lat": 37.50490,
+  "origin_lng": 126.96147,
+  "dest_name": "회사",
+  "dest_address": "서울특별시 중구 세종대로 110",
+  "dest_lat": 37.56648,
+  "dest_lng": 126.97797,
+  "transport_type": "TRANSIT",
+  "repeat_days": 31
+}
+
+
+### ================================================================
+### 개인 여정 수정
+### ================================================================
+
+### 3. 개인 여정 수정 → 200, { data: null }
+# 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
+PUT {{baseUrl}}/api/journeys/personal/1
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "알바 가는 길 (수정)",
+  "plan_date": "2026-05-15",
+  "target_time": "2026-05-15T23:00:00",
+  "origin_name": "우리집",
+  "origin_address": "서울특별시 동작구 흑석로 84",
+  "origin_lat": 37.50490,
+  "origin_lng": 126.96147,
+  "dest_name": "홍대입구역",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+
+### ================================================================
+### 귀가 여정 생성
+### ================================================================
+
+### 4. 귀가 여정 생성 (데드라인 모드) → 200, { data: { journey_id, journey_status, departure_alarm_time } }
+# 사전 조건: 로그인 필요
+POST {{baseUrl}}/api/journeys/home
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_last_mode": false,
+  "plan_date": "2026-05-15",
+  "target_time": "2026-05-15T23:30:00",
+  "origin_name": "회사",
+  "origin_address": "서울특별시 중구 세종대로 110",
+  "origin_lat": 37.56648,
+  "origin_lng": 126.97797,
+  "dest_name": "우리집",
+  "dest_address": "서울특별시 동작구 흑석로 84",
+  "dest_lat": 37.50490,
+  "dest_lng": 126.96147,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+### 5. 귀가 여정 생성 (막차 모드) → 200, { data: { journey_id, journey_status, departure_alarm_time } }
+# 사전 조건: 로그인 필요
+# target_time: 플라스크에서 계산된 막차 시각을 프론트가 전달
+# transport_type 생략 가능 — 서버가 TRANSIT으로 강제
+POST {{baseUrl}}/api/journeys/home
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_last_mode": true,
+  "plan_date": "2026-05-15",
+  "target_time": "2026-05-15T23:58:00",
+  "origin_name": "회사",
+  "origin_address": "서울특별시 중구 세종대로 110",
+  "origin_lat": 37.56648,
+  "origin_lng": 126.97797,
+  "dest_name": "우리집",
+  "dest_address": "서울특별시 동작구 흑석로 84",
+  "dest_lat": 37.50490,
+  "dest_lng": 126.96147,
+  "repeat_days": 0
+}
+
+
+### ================================================================
+### 귀가 여정 수정
+### ================================================================
+
+### 6. 귀가 여정 수정 (데드라인 모드) → 200, { data: null }
+# 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
+PUT {{baseUrl}}/api/journeys/home/1
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_last_mode": false,
+  "plan_date": "2026-05-16",
+  "target_time": "2026-05-16T23:00:00",
+  "origin_name": "우리집",
+  "origin_address": "서울특별시 동작구 흑석로 84",
+  "origin_lat": 37.50490,
+  "origin_lng": 126.96147,
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+### 7. 귀가 여정 수정 (막차 모드) → 200, { data: null }
+# 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
+# transport_type 생략 가능 — 서버가 TRANSIT으로 강제
+PUT {{baseUrl}}/api/journeys/home/1
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_last_mode": true,
+  "plan_date": "2026-05-16",
+  "target_time": "2026-05-16T23:45:00",
+  "origin_name": "우리집",
+  "origin_address": "서울특별시 동작구 흑석로 84",
+  "origin_lat": 37.50490,
+  "origin_lng": 126.96147,
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "repeat_days": 0
+}
+
+
+### ================================================================
+### 알람 스위치 ON/OFF (개인/귀가 공통)
+### ================================================================
+
+### 8. 알람 OFF → 200, { data: null }
+# 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
+PATCH {{baseUrl}}/api/journeys/1/active
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_active": false
+}
+
+### 9. 알람 ON → 200, { data: null }
+PATCH {{baseUrl}}/api/journeys/1/active
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_active": true
+}
+
+
+### ================================================================
+### 여정 삭제 (개인/귀가 공통)
+### ================================================================
+
+### 10. 여정 삭제 → 200, { data: null }
+# 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
+DELETE {{baseUrl}}/api/journeys/1
+Authorization: Bearer {{accessToken}}

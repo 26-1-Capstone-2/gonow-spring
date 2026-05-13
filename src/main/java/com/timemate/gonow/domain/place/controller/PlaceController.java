@@ -8,8 +8,7 @@ import com.timemate.gonow.domain.place.service.PlaceService;
 import com.timemate.gonow.global.response.ApiResult;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
+import com.timemate.gonow.global.auth.MemberId;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -22,10 +21,8 @@ public class PlaceController {
 
     // 장소 목록 조회 (type 필터링)
     @GetMapping
-    public ApiResult<List<PlaceResponse>> getPlaces(@AuthenticationPrincipal UserDetails userDetails,
+    public ApiResult<List<PlaceResponse>> getPlaces(@MemberId Long memberId,
                                                     @RequestParam(name = "place_type", required = false) PlaceType placeType) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
-
         List<PlaceResponse> responses = placeService.getPlaces(memberId, placeType);
 
         return ApiResult.success("장소 목록 조회 완료", responses);
@@ -33,9 +30,8 @@ public class PlaceController {
 
     // 장소 저장 (동일 주소이면 updatedAt만 갱신)
     @PostMapping
-    public ApiResult<PlaceUpsertResponse> upsertPlace(@AuthenticationPrincipal UserDetails userDetails,
+    public ApiResult<PlaceUpsertResponse> upsertPlace(@MemberId Long memberId,
                                                       @Valid @RequestBody PlaceUpsertRequest request) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
         PlaceUpsertResponse response = placeService.upsertPlace(memberId, request);
 
         return ApiResult.success("장소 저장 완료", response);
@@ -43,9 +39,8 @@ public class PlaceController {
 
     // 장소 삭제
     @DeleteMapping("/{placeId}")
-    public ApiResult<Void> deletePlace(@AuthenticationPrincipal UserDetails userDetails,
+    public ApiResult<Void> deletePlace(@MemberId Long memberId,
                                        @PathVariable Long placeId) {
-        Long memberId = Long.parseLong(userDetails.getUsername());
         placeService.deletePlace(placeId, memberId);
 
         return ApiResult.success("장소 삭제 완료");

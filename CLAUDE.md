@@ -43,18 +43,66 @@ docker compose down
 Controller → Service → Repository → Entity → MySQL
 ```
 
+### 서버 간 통신 구조 (C 방식)
+좌표 계산(ETA, 출발 알람 시각 역산)이 필요한 경우 아래 흐름을 따른다.
+
+```
+프론트 → 스프링(DB 저장) → 플라스크(지도 API 호출 + 계산) → 스프링(결과 저장) → 프론트
+```
+
+- **프론트**: GPS/지오코딩으로 현재 위치·목적지 좌표 획득 후 스프링에 전달
+- **스프링**: DB 저장 및 플라스크 요청/응답 중계 (게이트웨이 역할)
+- **플라스크**: ODsay/카카오맵 등 외부 지도 API 호출 + ETA·출발 알람 시각 계산
+- 플라스크는 스프링만 바라보고, 스프링은 프론트만 바라본다 (플라스크 ↔ 프론트 직접 통신 없음)
+
+### 출발 알람 시각 계산 정책
+
+#### 출발지 선택 (알람 생성 시)
+유저가 세 가지 중 하나를 직접 선택한다. 프론트가 선택된 좌표를 요청 DTO(`origin_name`, `origin_address`, `origin_lat`, `origin_lng`)에 담아 전달하고, 서버는 받은 좌표 그대로 플라스크에 전달한다.
+
+1. **집 주소** (디폴트) — DB의 `member.home` 좌표를 프론트가 채워서 전송
+2. **현재 위치** — GPS로 찍은 현재 좌표를 프론트가 채워서 전송
+3. **직접 검색** — 유저가 검색한 주소 좌표를 프론트가 채워서 전송
+
+> 서버는 출발지가 어떤 종류인지 알 필요 없고, 좌표만 받으면 된다.
+
+#### 출발지 기준 시점별 정책
+| 시점 | 출발지 기준 | GPS 사용 | 비고 |
+|---|---|---|---|
+| 알람 생성 시점 | 유저가 선택한 출발지 | 선택에 따라 다름 | 심리적 안정감용 임시값 |
+| 당일 이전 매 새벽 4시 | 생성 시 선택한 출발지 고정 | X | 플라스크 호출로 재계산, FCM 통보 |
+| 당일 새벽 4시 (READY 전환) | 실제 현재 위치 | O (1회) | 정확한 값으로 확정 |
+| READY 상태 500m 이탈마다 | 실제 현재 위치 | O (연속) | 실시간 재계산 |
+
+#### 이동 수단별 정확도
+- **대중교통**: `target_time` 기준 시간표로 계산 → 생성 시점부터 비교적 정확
+- **자가용**: 요청 시점의 실시간 교통 기반 (미래 시점은 통계 기반 예측) → 당일 READY 전환 시 재계산이 실질적 의미
+
+#### 스케줄러
+- **매일 새벽 4시** `@Scheduled` cron으로 실행
+- 당일(`plan_date = 오늘`) `SCHEDULED` 상태 여정/약속 → `READY` 일괄 전환 + 플라스크 호출 → `departure_alarm_time` 갱신 → FCM 통보
+- 당일 이전 `SCHEDULED` 상태 여정/약속 → 생성 시 선택한 출발지 기준으로 플라스크 재계산 → `departure_alarm_time` 갱신 → FCM 통보
+- **`isActive` 무관하게 항상 READY로 전환** — 스위치 OFF여도 상태는 오늘에 맞게 갱신
+
+#### status와 isActive 분리 원칙
+- **`status`** — 서버/스케줄러가 관리하는 팩트 ("오늘 있는 약속인가")
+- **`isActive`** — 사용자가 관리하는 의도 ("알람을 울릴 것인가")
+- **GPS/지오펜싱 작동 조건**: `status = READY AND isActive = true` — 앱이 두 값을 보고 판단
+- 사용자가 `isActive = false` → 상태는 스케줄러가 READY로 올려놓지만 앱은 GPS를 깨우지 않음
+- 사용자가 나중에 `isActive = true`로 켜면 → 이미 READY 상태이므로 앱이 즉시 GPS 가동 가능
+
 ### 패키지 구조
 ```
 com.timemate.gonow/
 ├── GonowApplication.java
 ├── domain/
-│   ├── common/       # 공용 Embeddable 값 타입 (Location, Point)
+│   ├── common/       # 공용 Embeddable 값 타입 (Location, Point), TransportType Enum
 │   ├── member/       # 회원/설정 (Controller, Service, Repository, Entity, DTO, Constant 포함)
-│   ├── appointment/  # 약속 및 참여자 (Entity, Constant)
-│   ├── journey/      # 여정 (Entity, Constant)
+│   ├── appointment/  # 약속/참여자 (Controller, Service, Repository, Entity, DTO, Constant 포함)
+│   ├── journey/      # 여정 (Controller, Service, Repository, Entity, DTO, Constant 포함)
 │   └── place/        # 장소 (Controller, Service, Repository, Entity, DTO, Constant 포함)
 └── global/
-    ├── auth/         # JWT 필터(JwtTokenFilter) 및 토큰 프로바이더(JwtTokenProvider)
+    ├── auth/         # JWT 필터(JwtTokenFilter), 토큰 프로바이더(JwtTokenProvider), @MemberId 어노테이션
     ├── config/       # SecurityConfig, RestClientConfig
     ├── controller/   # AuthController, HealthController
     ├── dto/          # LoginRequest, LoginResponse
@@ -94,6 +142,16 @@ com.timemate.gonow/
 | GET | `/api/places` | 필요 | 장소 목록 조회 (`?place_type=HOME\|DEST`, 미전달 시 전체) |
 | POST | `/api/places` | 필요 | 장소 저장 (동일 주소 존재 시 updatedAt만 갱신 — Upsert) |
 | DELETE | `/api/places/{placeId}` | 필요 | 장소 삭제 (소유자 검증 포함) |
+| POST | `/api/journeys/personal` | 필요 | 개인 여정 생성 |
+| PUT | `/api/journeys/personal/{journeyId}` | 필요 | 개인 여정 수정 (소유자 검증 포함) |
+| DELETE | `/api/journeys/{journeyId}` | 필요 | 여정 삭제 (소유자 검증 포함, PERSONAL/HOME 공통) |
+| PATCH | `/api/journeys/{journeyId}/active` | 필요 | 여정 알람 스위치 ON/OFF |
+| POST | `/api/journeys/home` | 필요 | 귀가 여정 생성 (막차/데드라인 공통, is_last_mode로 분기) |
+| PUT | `/api/journeys/home/{journeyId}` | 필요 | 귀가 여정 수정 (소유자 검증 포함) |
+| POST | `/api/appointments` | 필요 | 그룹 알람 생성 (방장 Participant 동시 생성, 초대코드 서버 자동 생성) |
+| DELETE | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 삭제 (방장 전용, 모든 Participant 벌크 삭제) |
+| PATCH | `/api/appointments/{appointmentId}/participants/active` | 필요 | 참가자 개인 알람 스위치 ON/OFF (본인만) |
+| DELETE | `/api/appointments/{appointmentId}/participants/{targetMemberId}` | 필요 | 참가자 탈퇴(본인) 또는 추방(방장) |
 
 ### API 응답 형식
 
@@ -134,12 +192,12 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 
 | 엔티티 | 위치 | 주요 필드 | Controller/Service 존재 |
 |--------|------|-----------|------------------------|
-| Member | domain/member/entity | email, password, nickname, location(name+address+Point, NOT NULL) | O (MemberController, MemberService) |
+| Member | domain/member/entity | email, password, nickname, home(Location, NOT NULL) | O (MemberController, MemberService) |
 | MemberSetting | domain/member/entity | transitType, priorityType, preparationTime | O (MemberSettingController, MemberSettingService) |
-| Appointment | domain/appointment/entity | title, destination, targetTime, appointmentStatus | X |
-| Participant | domain/appointment/entity | member_id, appointment_id, isHost, participantStatus | X |
-| Journey | domain/journey/entity | member_id, journeyType, destination, targetTime, journeyStatus | X |
-| Place | domain/place/entity | member_id, placeType, location(name+address+Point) | O (PlaceController, PlaceService, PlaceRepository) |
+| Appointment | domain/appointment/entity | inviteCode, title, destination(Location), planDate, targetTime, appointmentStatus | O (AppointmentController, AppointmentService) |
+| Participant | domain/appointment/entity | member, appointment, isHost, origin(Location), transportType, participantStatus, isActive | O (ParticipantController, ParticipantService) |
+| Journey | domain/journey/entity | member, journeyType, isLastMode, planDate, origin(Location), destination(Location), transportType, repeatDays, isActive, journeyStatus | O (JourneyController, JourneyService) |
+| Place | domain/place/entity | member, placeType, location(Location) | O (PlaceController, PlaceService) |
 
 ### MemberSetting 생성 규칙
 
@@ -163,9 +221,10 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 
 - `TransitType`: ALL, SUBWAY, BUS (회원 선호 교통수단)
 - `PriorityType`: MIN_TIME, MIN_TRANSFER, MIN_WALK (경로 우선순위)
-- `AppointmentStatus`: READY, ACTIVE, FINISHED
-- `ParticipantStatus`: READY, MOVING, ARRIVED
-- `JourneyStatus`: READY, MOVING, ARRIVED
+- `TransportType`: DRIVING, TRANSIT (여정/참여자 이동 수단, domain/common/constant)
+- `AppointmentStatus`: WAITING, ACTIVE, FINISHED
+- `ParticipantStatus`: SCHEDULED, READY, DEPARTING, MOVING, ARRIVED (기본값: SCHEDULED)
+- `JourneyStatus`: SCHEDULED, READY, DEPARTING, MOVING, ARRIVED (기본값: SCHEDULED)
 - `JourneyType`: HOME, PERSONAL
 - `PlaceType`: HOME, DEST
 
@@ -194,22 +253,37 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - JWT 기반 인증 시스템 (JwtTokenProvider, JwtTokenFilter)
 - Spring Security 통합 (STATELESS, CORS/CSRF 비활성화)
 - 글로벌 예외 처리 (GlobalExceptionHandler)
-- 표준화된 API 응답 포맷 (SuccessResult, ErrorResult) + SNAKE_CASE JSON 직렬화
+- 표준화된 API 응답 포맷 (ApiResult) + SNAKE_CASE JSON 직렬화
 - BaseTimeEntity (createdAt, updatedAt JPA Auditing + touch() 메서드)
+- `@MemberId` 커스텀 어노테이션 (JWT Subject → Long memberId 자동 추출)
 - 회원(Member): 회원가입, 로그인, 프로필 조회, 닉네임/비밀번호 변경, 탈퇴(스켈레톤)
 - 귀가지: 등록/수정
 - 멤버 설정(MemberSetting): 회원가입 시 자동 생성, 설정 변경
 - 이메일/닉네임 중복 확인
 - 장소(Place): 목록 조회(타입 필터링), Upsert 저장(동일 주소 시 touch), 삭제(소유자 검증)
+- 개인 여정(Journey): 생성, 수정, 삭제, 알람 스위치 ON/OFF
+- 귀가 여정(Journey): 생성, 수정 (is_last_mode=true 시 transportType 강제 TRANSIT)
+- 그룹 알람(Appointment): 생성(초대코드 서버 자동 생성), 삭제(방장 전용, 벌크 삭제)
+- 참가자(Participant): 개인 알람 스위치 ON/OFF, 탈퇴(본인)/추방(방장)
 
-### 미구현 (엔티티만 존재)
-- Appointment(약속), Participant(참여자) — Controller/Service/Repository 없음
-- Journey(여정) — Controller/Service/Repository 없음
+### 미구현
+- 알람 조회 3종: `GET /api/alarms?date=`, `GET /api/alarms?type=PERSONAL|HOME|GROUP`
+- 그룹 알람 수정
+- 초대코드로 참여
+- 도착 대시보드 조회
 - Refresh Token
-- Redis 캐싱 활용
-- QueryDSL 복잡 쿼리
-- 외부 API 연동 (지도, 경로 최적화 등)
+- Redis (현재 위치 실시간 저장, Refresh Token 저장 용도)
+- 외부 API 연동 (ODsay/카카오맵 — ETA, 출발 알람 시각 계산)
+- 스케줄러 (매일 새벽 4시 SCHEDULED → READY 전환 + 플라스크 재계산)
+- FCM 푸시 알림
 - 회원 탈퇴 실제 삭제 로직
+
+### 설계 확정 사항
+- `Appointment.isActive` 제거 — 방 전체 스위치 불필요, 삭제로 대체
+- `Participant.isActive` 유지 — 참가자 개인 알람 ON/OFF (참여 보류 용도)
+- FINISHED 상태 약속 재사용 없음 — 새 초대코드로 새 방 생성
+- 조회 시 `status != FINISHED` 필터링 (자동 삭제 없음, 이력 보존)
+- 현재 위치(current_lat/lng)는 향후 Redis로 이전 예정, 현재는 MySQL
 
 ## 새 도메인 추가 시 체크리스트
 

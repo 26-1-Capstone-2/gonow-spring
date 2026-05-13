@@ -35,7 +35,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(
-                                "/health",                      // 헬스체크 (GET)
+                                "/docs",                        // 헬스체크 (GET)
                                 "/api/auth/login",              // 로그인 (POST)
                                 "/api/members/check",           // 이메일/닉네임 중복 확인 (GET)
                                 "/error").permitAll()           // 에러 핸들링 ANY

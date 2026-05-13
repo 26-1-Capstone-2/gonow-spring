@@ -1,0 +1,55 @@
+package com.timemate.gonow.domain.journey.dto;
+
+import com.timemate.gonow.domain.common.constant.TransportType;
+import jakarta.validation.constraints.FutureOrPresent;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+public record HomeJourneyCreateRequest(
+        String title,
+
+        @NotNull(message = "막차 여부 필수")
+        Boolean isLastMode,
+
+        @NotNull(message = "여정 예정 날짜 필수")
+        @FutureOrPresent(message = "여정 예정 날짜는 오늘 이후여야 합니다.")
+        LocalDate planDate,
+
+        @NotNull(message = "목표 시간 필수")
+        @FutureOrPresent(message = "목표 시간은 현재 시각 이후여야 합니다.")
+        LocalDateTime targetTime,
+
+        @NotBlank(message = "목적지 이름 필수")
+        String destName,
+
+        @NotBlank(message = "목적지 주소 필수")
+        String destAddress,
+
+        @NotNull(message = "목적지 위도 필수")
+        BigDecimal destLat,
+
+        @NotNull(message = "목적지 경도 필수")
+        BigDecimal destLng,
+
+        @NotBlank(message = "출발지 이름 필수")
+        String originName,
+
+        @NotBlank(message = "출발지 주소 필수")
+        String originAddress,
+
+        @NotNull(message = "출발지 위도 필수")
+        BigDecimal originLat,
+
+        @NotNull(message = "출발지 경도 필수")
+        BigDecimal originLng,
+
+        // NOT NULL이지만, JourneyService에서 처리
+        TransportType transportType,
+
+        @NotNull(message = "반복 요일 필수")
+        Integer repeatDays
+) {}
