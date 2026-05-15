@@ -1,0 +1,224 @@
+### ================================================================
+### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 accessToken을 발급받아야 함
+### ================================================================
+
+
+### ================================================================
+### 그룹 알람 생성 오류
+### ================================================================
+
+### E-1. plan_date 누락 → 400
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "면접 스터디",
+  "target_time": "2026-05-20T19:00:00",
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "TRANSIT"
+}
+
+### E-2. target_time 누락 → 400
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "면접 스터디",
+  "plan_date": "2026-05-20",
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "TRANSIT"
+}
+
+### E-3. dest_name 누락 → 400
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "면접 스터디",
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T19:00:00",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "TRANSIT"
+}
+
+### E-4. transport_type 누락 → 400
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "면접 스터디",
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T19:00:00",
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525
+}
+
+
+### ================================================================
+### 초대코드로 참여 오류
+### ================================================================
+
+### E-5. 유효하지 않은 초대코드 → 400 "유효하지 않은 초대 코드입니다."
+POST {{baseUrl}}/api/appointments/join
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "invite_code": "ZZZZZZZZ",
+  "transport_type": "TRANSIT"
+}
+
+### E-6. 이미 종료된 약속 참여 시도 → 400 "이미 종료된 약속입니다."
+# 사전 조건: FINISHED 상태인 약속의 invite_code로 교체
+POST {{baseUrl}}/api/appointments/join
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "invite_code": "AB23CD45",
+  "transport_type": "TRANSIT"
+}
+
+### E-7. 중복 참여 시도 → 400 "이미 참여 중인 약속입니다."
+# 사전 조건: 이미 참여 중인 약속의 invite_code로 교체
+POST {{baseUrl}}/api/appointments/join
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "invite_code": "AB23CD45",
+  "transport_type": "TRANSIT"
+}
+
+
+### ================================================================
+### 그룹 알람 상세 조회 오류
+### ================================================================
+
+### E-8. 존재하지 않는 appointmentId → 400
+GET {{baseUrl}}/api/appointments/99999
+Authorization: Bearer {{accessToken}}
+
+### E-9. 참여자가 아닌 약속 조회 시도 → 400 "존재하지 않는 약속이거나 참여자가 아닙니다."
+# 사전 조건: {appointmentId}를 본인이 참여하지 않은 약속 ID로 교체
+GET {{baseUrl}}/api/appointments/2
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### 그룹 알람 수정 오류 (방장 전용)
+### ================================================================
+
+### E-10. 방장이 아닌 참가자가 수정 시도 → 400 "약속을 찾을 수 없거나 방장 권한이 없습니다."
+PATCH {{baseUrl}}/api/appointments/1
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "plan_date": "2026-05-21",
+  "target_time": "2026-05-21T19:00:00",
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "TRANSIT"
+}
+
+### E-11. plan_date 누락 → 400
+PATCH {{baseUrl}}/api/appointments/1
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "target_time": "2026-05-21T19:00:00",
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "TRANSIT"
+}
+
+
+### ================================================================
+### 이동 수단 변경 오류 (일반 참가자 전용)
+### ================================================================
+
+### E-12. 방장이 이동 수단 변경 API 호출 → 400 "방장은 그룹 알람 수정 API를 이용해주세요."
+PATCH {{baseUrl}}/api/appointments/1/participants/transport
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "transport_type": "DRIVING"
+}
+
+### E-13. transport_type 누락 → 400
+PATCH {{baseUrl}}/api/appointments/1/participants/transport
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{}
+
+
+### ================================================================
+### 참여자 탈퇴 & 추방 오류
+### ================================================================
+
+### E-14. 방장이 스스로 탈퇴 시도 → 400 "방장은 스스로 탈퇴할 수 없습니다. 알람을 삭제해 주세요."
+DELETE {{baseUrl}}/api/appointments/1/participants/1
+Authorization: Bearer {{accessToken}}
+
+### E-15. 방장 권한 없이 추방 시도 → 400 "방장 권한이 없습니다."
+# 사전 조건: targetMemberId를 다른 참가자 memberId로 교체
+DELETE {{baseUrl}}/api/appointments/1/participants/3
+Authorization: Bearer {{accessToken}}
+
+### E-16. 존재하지 않는 참가자 추방 시도 → 400 "참여자를 찾을 수 없습니다."
+DELETE {{baseUrl}}/api/appointments/1/participants/99999
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### 그룹 알람 삭제 오류
+### ================================================================
+
+### E-17. 방장이 아닌 참가자가 삭제 시도 → 400 "약속을 찾을 수 없거나 방장 권한이 없습니다."
+DELETE {{baseUrl}}/api/appointments/1
+Authorization: Bearer {{accessToken}}
+
+### E-18. 존재하지 않는 appointmentId 삭제 시도 → 400
+DELETE {{baseUrl}}/api/appointments/99999
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### JWT 인증 오류
+### ================================================================
+
+### E-19. 토큰 없이 그룹 알람 생성 → 403
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+
+{
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T19:00:00",
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "TRANSIT"
+}

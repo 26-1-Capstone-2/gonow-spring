@@ -2,6 +2,7 @@ package com.timemate.gonow.global.exception;
 
 import com.timemate.gonow.global.response.ApiResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -43,6 +44,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ApiResult<Void> handleMethodArgumentTypeMismatch(MethodArgumentTypeMismatchException e) {
         return ApiResult.fail("잘못된 요청 파라미터 값입니다: " + e.getValue());
+    }
+
+    // DB 제약 조건 위반 (UNIQUE, NOT NULL, FK 등)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ApiResult<Void> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        return ApiResult.fail("DB 제약 조건을 위반했습니다.");
     }
 
     // 그 외 예상치 못한 서버 에러

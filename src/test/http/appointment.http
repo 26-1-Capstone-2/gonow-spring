@@ -4,10 +4,10 @@
 
 
 ### ================================================================
-### 그룹 약속 생성
+### 그룹 알람 생성
 ### ================================================================
 
-### 1. 그룹 알람 생성 → 200, { data: { appointment_id, invite_code, participant_status } }
+### 1. 그룹 알람 생성 → 200, { data: { appointment_id, invite_code } }
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/appointments
 Content-Type: application/json
@@ -15,8 +15,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "title": "면접 스터디",
-  "plan_date": "2026-05-15",
-  "target_time": "2026-05-15T19:00:00",
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T19:00:00",
   "dest_name": "홍대입구역 2번 출구",
   "dest_address": "서울특별시 마포구 양화로 160",
   "dest_lat": 37.55763,
@@ -26,10 +26,85 @@ Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
+### 초대코드로 참여
+### ================================================================
+
+### 2. 초대코드로 참여 → 200, { data: { appointment_id } }
+# 사전 조건: 로그인 필요
+# FINISHED 상태 약속은 참여 불가, 중복 참여 불가
+POST {{baseUrl}}/api/appointments/join
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "invite_code": "AB23CD45",
+  "transport_type": "TRANSIT"
+}
+
+
+### ================================================================
+### 그룹 알람 상세 조회
+### ================================================================
+
+### 3. 그룹 알람 상세 조회 → 200, { data: { appointment_id, plan_date, target_time, dest_name, dest_address, invite_code, appointment_status, participants: [...] } }
+# 사전 조건: 로그인 필요, 참여자만 가능
+GET {{baseUrl}}/api/appointments/1
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### 도착 예정 대시보드 조회
+### ================================================================
+
+### 4. 도착 예정 대시보드 조회 → 200, { data: { target_time, dest_name, participants: [{ nickname, transport_type, estimated_arrival, is_me }] } }
+# 사전 조건: 로그인 필요, 참여자만 가능
+# estimated_arrival은 플라스크 연동 전 null
+GET {{baseUrl}}/api/appointments/1/dashboard
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### 그룹 알람 수정 (방장 전용)
+### ================================================================
+
+### 5. 그룹 알람 수정 → 200, { data: null }
+# 사전 조건: 로그인 필요, 방장만 가능
+# 목적지/날짜/시간/이동수단 수정 가능
+PATCH {{baseUrl}}/api/appointments/1
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "plan_date": "2026-05-21",
+  "target_time": "2026-05-21T19:00:00",
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "DRIVING"
+}
+
+
+### ================================================================
+### 이동 수단 변경 (일반 참가자 전용)
+### ================================================================
+
+### 6. 이동 수단 변경 → 200, { data: null }
+# 사전 조건: 로그인 필요, 일반 참가자만 가능 (방장 호출 시 400 에러)
+PATCH {{baseUrl}}/api/appointments/1/participants/transport
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "transport_type": "DRIVING"
+}
+
+
+### ================================================================
 ### 개인 알람 ON/OFF (본인만)
 ### ================================================================
 
-### 2. 개인 알람 OFF → 200, { data: null }
+### 7. 개인 알람 OFF → 200, { data: null }
 # 사전 조건: 로그인 필요, 해당 약속 참여자만 가능
 PATCH {{baseUrl}}/api/appointments/1/participants/active
 Content-Type: application/json
@@ -39,7 +114,7 @@ Authorization: Bearer {{accessToken}}
   "is_active": false
 }
 
-### 3. 개인 알람 ON → 200, { data: null }
+### 8. 개인 알람 ON → 200, { data: null }
 PATCH {{baseUrl}}/api/appointments/1/participants/active
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -53,13 +128,13 @@ Authorization: Bearer {{accessToken}}
 ### 참여자 탈퇴 & 추방 (공통)
 ### ================================================================
 
-### 4. 본인 탈퇴 → 200, { data: null }
+### 9. 본인 탈퇴 → 200, { data: null }
 # 사전 조건: 로그인 필요, 방장은 탈퇴 불가
 # targetMemberId = 본인 memberId
 DELETE {{baseUrl}}/api/appointments/1/participants/2
 Authorization: Bearer {{accessToken}}
 
-### 5. 참여자 추방 (방장 전용) → 200, { data: null }
+### 10. 참여자 추방 (방장 전용) → 200, { data: null }
 # 사전 조건: 로그인 필요, 방장만 가능
 # targetMemberId = 추방할 참여자의 memberId
 DELETE {{baseUrl}}/api/appointments/1/participants/3
@@ -70,7 +145,7 @@ Authorization: Bearer {{accessToken}}
 ### 그룹 알람 삭제 (방장 전용)
 ### ================================================================
 
-### 6. 그룹 알람 삭제 → 200, { data: null }
+### 11. 그룹 알람 삭제 → 200, { data: null }
 # 사전 조건: 로그인 필요, 방장만 가능
 # Appointment + 모든 Participant 삭제
 DELETE {{baseUrl}}/api/appointments/1

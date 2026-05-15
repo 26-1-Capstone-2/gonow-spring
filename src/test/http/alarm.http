@@ -33,6 +33,26 @@ Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
+### 알람 상세 조회 (알람 카드 클릭 시)
+### ================================================================
+
+### 5. 개인/귀가 알람 상세 조회 → 200, { data: { journey_id, journey_type, is_last_mode, plan_date, target_time, dest_name, dest_address, dest_lat, dest_lng, transport_type, repeat_days, is_active } }
+# 사전 조건: 로그인 필요, 소유자만 가능
+# journey_type + is_last_mode 로 프론트가 화면 분기
+GET {{baseUrl}}/api/journeys/1
+Authorization: Bearer {{accessToken}}
+
+###
+
+### 6. 그룹 알람 상세 조회 → 200, { data: { appointment_id, plan_date, target_time, dest_name, dest_address, invite_code, appointment_status, participants: [...] } }
+# 사전 조건: 로그인 필요, 참여자만 가능
+GET {{baseUrl}}/api/appointments/1
+Authorization: Bearer {{accessToken}}
+
+###
+
+
+### ================================================================
 ### 에러 케이스
 ### ================================================================
 

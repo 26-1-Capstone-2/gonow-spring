@@ -1,0 +1,207 @@
+### ================================================================
+### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 accessToken을 발급받아야 함
+### ================================================================
+
+
+### ================================================================
+### 개인 여정 생성 오류
+### ================================================================
+
+### E-1. plan_date 누락 → 400
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "target_time": "2026-05-20T22:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+### E-2. target_time 누락 → 400
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "plan_date": "2026-05-20",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+### E-3. dest_name 누락 → 400
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T22:00:00",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+### E-4. transport_type 누락 → 400
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T22:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "repeat_days": 0
+}
+
+### E-5. 잘못된 transport_type Enum → 400
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T22:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "WALK",
+  "repeat_days": 0
+}
+
+
+### ================================================================
+### 귀가 여정 생성 오류
+### ================================================================
+
+### E-6. 데드라인 모드에서 transport_type 누락 → 400 "데드라인 모드에서는 이동 수단 필수"
+POST {{baseUrl}}/api/journeys/home
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "is_last_mode": false,
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T23:30:00",
+  "dest_name": "우리집",
+  "dest_address": "서울특별시 동작구 흑석로 84",
+  "dest_lat": 37.50490,
+  "dest_lng": 126.96147,
+  "repeat_days": 0
+}
+
+### E-7. is_last_mode 누락 → 400
+POST {{baseUrl}}/api/journeys/home
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T23:30:00",
+  "dest_name": "우리집",
+  "dest_address": "서울특별시 동작구 흑석로 84",
+  "dest_lat": 37.50490,
+  "dest_lng": 126.96147,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+
+### ================================================================
+### 여정 상세 조회 오류
+### ================================================================
+
+### E-8. 존재하지 않는 journeyId → 400
+GET {{baseUrl}}/api/journeys/99999
+Authorization: Bearer {{accessToken}}
+
+### E-9. 다른 유저의 여정 조회 시도 → 400
+# 사전 조건: {journeyId}를 다른 유저 소유의 실제 ID로 교체
+GET {{baseUrl}}/api/journeys/2
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### 여정 수정 오류
+### ================================================================
+
+### E-10. 존재하지 않는 journeyId 수정 시도 → 400
+PUT {{baseUrl}}/api/journeys/personal/99999
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T22:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+### E-11. 다른 유저의 여정 수정 시도 → 400
+# 사전 조건: {journeyId}를 다른 유저 소유의 실제 ID로 교체
+PUT {{baseUrl}}/api/journeys/personal/2
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T22:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+
+### ================================================================
+### 여정 삭제 오류
+### ================================================================
+
+### E-12. 존재하지 않는 journeyId 삭제 시도 → 400
+DELETE {{baseUrl}}/api/journeys/99999
+Authorization: Bearer {{accessToken}}
+
+### E-13. 다른 유저의 여정 삭제 시도 → 400
+# 사전 조건: {journeyId}를 다른 유저 소유의 실제 ID로 교체
+DELETE {{baseUrl}}/api/journeys/2
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### JWT 인증 오류
+### ================================================================
+
+### E-14. 토큰 없이 여정 생성 → 403
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+
+{
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T22:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}

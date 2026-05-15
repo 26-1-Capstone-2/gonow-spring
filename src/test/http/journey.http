@@ -15,8 +15,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "title": "알바 가는 길",
-  "plan_date": "2026-05-15",
-  "target_time": "2026-05-15T22:00:00",
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T22:00:00",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
@@ -34,8 +34,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "title": "출근",
-  "plan_date": "2026-05-15",
-  "target_time": "2026-05-15T09:00:00",
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T09:00:00",
   "dest_name": "회사",
   "dest_address": "서울특별시 중구 세종대로 110",
   "dest_lat": 37.56648,
@@ -46,10 +46,21 @@ Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
+### 여정 상세 조회 (개인/귀가 공통)
+### ================================================================
+
+### 3. 여정 상세 조회 → 200, { data: { journey_id, journey_type, is_last_mode, plan_date, target_time, dest_name, dest_address, dest_lat, dest_lng, transport_type, repeat_days, is_active } }
+# 사전 조건: 로그인 필요, 소유자만 가능
+# journey_type + is_last_mode 로 프론트가 화면 분기 (PERSONAL / HOME+막차 / HOME+데드라인)
+GET {{baseUrl}}/api/journeys/1
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
 ### 개인 여정 수정
 ### ================================================================
 
-### 3. 개인 여정 수정 → 200, { data: null }
+### 4. 개인 여정 수정 → 200, { data: { journey_id, journey_status } }
 # 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
 PUT {{baseUrl}}/api/journeys/personal/1
 Content-Type: application/json
@@ -57,8 +68,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "title": "알바 가는 길 (수정)",
-  "plan_date": "2026-05-15",
-  "target_time": "2026-05-15T23:00:00",
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T23:00:00",
   "dest_name": "홍대입구역",
   "dest_address": "서울특별시 마포구 양화로 160",
   "dest_lat": 37.55763,
@@ -72,7 +83,7 @@ Authorization: Bearer {{accessToken}}
 ### 귀가 여정 생성
 ### ================================================================
 
-### 4. 귀가 여정 생성 (데드라인 모드) → 200, { data: { journey_id, journey_status } }
+### 5. 귀가 여정 생성 (데드라인 모드) → 200, { data: { journey_id, journey_status } }
 # 사전 조건: 로그인 필요
 POST {{baseUrl}}/api/journeys/home
 Content-Type: application/json
@@ -80,8 +91,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "is_last_mode": false,
-  "plan_date": "2026-05-15",
-  "target_time": "2026-05-15T23:30:00",
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T23:30:00",
   "dest_name": "우리집",
   "dest_address": "서울특별시 동작구 흑석로 84",
   "dest_lat": 37.50490,
@@ -90,7 +101,7 @@ Authorization: Bearer {{accessToken}}
   "repeat_days": 0
 }
 
-### 5. 귀가 여정 생성 (막차 모드) → 200, { data: { journey_id, journey_status } }
+### 6. 귀가 여정 생성 (막차 모드) → 200, { data: { journey_id, journey_status } }
 # 사전 조건: 로그인 필요
 # target_time: 플라스크에서 계산된 막차 시각을 프론트가 전달
 # transport_type 생략 가능 — 서버가 TRANSIT으로 강제
@@ -100,8 +111,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "is_last_mode": true,
-  "plan_date": "2026-05-15",
-  "target_time": "2026-05-15T23:58:00",
+  "plan_date": "2026-05-20",
+  "target_time": "2026-05-20T23:58:00",
   "dest_name": "우리집",
   "dest_address": "서울특별시 동작구 흑석로 84",
   "dest_lat": 37.50490,
@@ -114,7 +125,7 @@ Authorization: Bearer {{accessToken}}
 ### 귀가 여정 수정
 ### ================================================================
 
-### 6. 귀가 여정 수정 (데드라인 모드) → 200, { data: null }
+### 7. 귀가 여정 수정 (데드라인 모드) → 200, { data: { journey_id, journey_status } }
 # 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
 PUT {{baseUrl}}/api/journeys/home/1
 Content-Type: application/json
@@ -122,8 +133,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "is_last_mode": false,
-  "plan_date": "2026-05-16",
-  "target_time": "2026-05-16T23:00:00",
+  "plan_date": "2026-05-21",
+  "target_time": "2026-05-21T23:00:00",
   "dest_name": "홍대입구역 2번 출구",
   "dest_address": "서울특별시 마포구 양화로 160",
   "dest_lat": 37.55763,
@@ -132,7 +143,7 @@ Authorization: Bearer {{accessToken}}
   "repeat_days": 0
 }
 
-### 7. 귀가 여정 수정 (막차 모드) → 200, { data: null }
+### 8. 귀가 여정 수정 (막차 모드) → 200, { data: { journey_id, journey_status } }
 # 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
 # transport_type 생략 가능 — 서버가 TRANSIT으로 강제
 PUT {{baseUrl}}/api/journeys/home/1
@@ -141,8 +152,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "is_last_mode": true,
-  "plan_date": "2026-05-16",
-  "target_time": "2026-05-16T23:45:00",
+  "plan_date": "2026-05-21",
+  "target_time": "2026-05-21T23:45:00",
   "dest_name": "홍대입구역 2번 출구",
   "dest_address": "서울특별시 마포구 양화로 160",
   "dest_lat": 37.55763,
@@ -155,7 +166,7 @@ Authorization: Bearer {{accessToken}}
 ### 알람 스위치 ON/OFF (개인/귀가 공통)
 ### ================================================================
 
-### 8. 알람 OFF → 200, { data: null }
+### 9. 알람 OFF → 200, { data: null }
 # 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
 PATCH {{baseUrl}}/api/journeys/1/active
 Content-Type: application/json
@@ -165,7 +176,7 @@ Authorization: Bearer {{accessToken}}
   "is_active": false
 }
 
-### 9. 알람 ON → 200, { data: null }
+### 10. 알람 ON → 200, { data: null }
 PATCH {{baseUrl}}/api/journeys/1/active
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -179,7 +190,7 @@ Authorization: Bearer {{accessToken}}
 ### 여정 삭제 (개인/귀가 공통)
 ### ================================================================
 
-### 10. 여정 삭제 → 200, { data: null }
+### 11. 여정 삭제 → 200, { data: null }
 # 사전 조건: 로그인 필요, {journeyId}를 실제 ID로 교체
 DELETE {{baseUrl}}/api/journeys/1
 Authorization: Bearer {{accessToken}}

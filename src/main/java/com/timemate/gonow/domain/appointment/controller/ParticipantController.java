@@ -1,6 +1,7 @@
 package com.timemate.gonow.domain.appointment.controller;
 
 import com.timemate.gonow.domain.appointment.dto.ParticipantActiveUpdateRequest;
+import com.timemate.gonow.domain.appointment.dto.ParticipantTransportUpdateRequest;
 import com.timemate.gonow.domain.appointment.service.ParticipantService;
 import com.timemate.gonow.global.auth.MemberId;
 import com.timemate.gonow.global.response.ApiResult;
@@ -23,6 +24,17 @@ public class ParticipantController {
         participantService.updateActive(memberId, appointmentId, request);
 
         return ApiResult.success("참가자 알람 스위치 설정 완료");
+    }
+
+    // 이동 수단 변경 (일반 참가자 전용)
+    @PatchMapping("/transport")
+    public ApiResult<Void> updateTransportType(
+            @MemberId Long memberId,
+            @PathVariable Long appointmentId,
+            @Valid @RequestBody ParticipantTransportUpdateRequest request) {
+        participantService.updateTransportType(memberId, appointmentId, request);
+
+        return ApiResult.success("참가자 알람 수정 완료");
     }
 
     // 탈퇴(본인) & 추방(방장) 공통

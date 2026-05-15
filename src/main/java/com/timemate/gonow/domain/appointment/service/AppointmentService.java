@@ -1,7 +1,13 @@
 package com.timemate.gonow.domain.appointment.service;
 
+import com.timemate.gonow.domain.appointment.constant.AppointmentStatus;
 import com.timemate.gonow.domain.appointment.dto.AppointmentCreateRequest;
 import com.timemate.gonow.domain.appointment.dto.AppointmentCreateResponse;
+import com.timemate.gonow.domain.appointment.dto.AppointmentJoinRequest;
+import com.timemate.gonow.domain.appointment.dto.AppointmentJoinResponse;
+import com.timemate.gonow.domain.appointment.dto.AppointmentResponse;
+import com.timemate.gonow.domain.appointment.dto.AppointmentUpdateRequest;
+import com.timemate.gonow.domain.appointment.dto.DashboardResponse;
 import com.timemate.gonow.domain.appointment.entity.Appointment;
 import com.timemate.gonow.domain.appointment.entity.Participant;
 import com.timemate.gonow.domain.appointment.repository.AppointmentRepository;
@@ -17,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDate;
+import java.util.List;
 
 @Service
 @Transactional(readOnly = true)
@@ -58,12 +65,76 @@ public class AppointmentService {
                 .appointment(appointment)
                 .isHost(true)
                 .transportType(request.transportType())
-                .participantStatus(resolveInitialStatus(request.planDate()))
+                .participantStatus(resolveInitialStatus(request.planDate())) // 당일 생성이면 READY, 그 외엔 SCHEDULED
                 .build();
 
         participantRepository.save(host);
 
-        return AppointmentCreateResponse.from(appointment, host);
+        return AppointmentCreateResponse.from(appointment);
+    }
+
+    // 초대코드로 참여
+    @Transactional
+    public AppointmentJoinResponse joinAppointment(Long memberId, AppointmentJoinRequest request) {
+        Appointment appointment = appointmentRepository.findByInviteCode(request.inviteCode())
+                .orElseThrow(() -> new IllegalArgumentException("유효하지 않은 초대 코드입니다."));
+
+        if (appointment.getAppointmentStatus() == AppointmentStatus.FINISHED) {
+            throw new IllegalStateException("이미 종료된 약속입니다.");
+        }
+
+        if (participantRepository.existsByAppointmentIdAndMemberId(appointment.getId(), memberId)) {
+            throw new IllegalStateException("이미 참여 중인 약속입니다.");
+        }
+
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다."));
+
+        Participant participant = Participant.builder()
+                .member(member)
+                .appointment(appointment)
+                .isHost(false)
+                .transportType(request.transportType())
+                .participantStatus(resolveInitialStatus(appointment.getPlanDate())) // 당일 생성이면 READY, 그 외엔 SCHEDULED
+                .build();
+
+        participantRepository.save(participant);
+
+        return AppointmentJoinResponse.from(appointment);
+    }
+
+    // 그룹 알람 수정 (방장 전용 — 목적지/날짜/시간/이동수단)
+    @Transactional
+    public void updateAppointment(Long memberId, Long appointmentId, AppointmentUpdateRequest request) {
+        Participant host = participantRepository.findHostWithAppointment(appointmentId, memberId)
+                .orElseThrow(() -> new IllegalArgumentException("약속을 찾을 수 없거나 방장 권한이 없습니다."));
+
+        Location destination = new Location(
+                request.destName(),
+                request.destAddress(),
+                new Point(request.destLat(), request.destLng())
+        );
+
+        host.getAppointment().update(request.planDate(), request.targetTime(), destination);
+        host.updateTransportType(request.transportType());
+    }
+
+    // 도착 예정 대시보드 조회
+    public DashboardResponse getDashboard(Long memberId, Long appointmentId) {
+        Participant me = participantRepository.findWithAppointmentByAppointmentIdAndMemberId(appointmentId, memberId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 약속이거나 참여자가 아닙니다."));
+
+        List<Participant> participants = participantRepository.findAllByAppointmentId(appointmentId);
+        return DashboardResponse.from(me.getAppointment(), participants, memberId);
+    }
+
+    // 그룹 알람 조회
+    public AppointmentResponse getAppointment(Long memberId, Long appointmentId) {
+        Participant me = participantRepository.findWithAppointmentByAppointmentIdAndMemberId(appointmentId, memberId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 약속이거나 참여자가 아닙니다."));
+
+        List<Participant> participants = participantRepository.findAllByAppointmentId(appointmentId);
+        return AppointmentResponse.from(me.getAppointment(), participants);
     }
 
     // 그룹 알람 삭제

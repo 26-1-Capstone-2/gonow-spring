@@ -10,6 +10,7 @@ import com.timemate.gonow.domain.journey.dto.HomeJourneyCreateRequest;
 import com.timemate.gonow.domain.journey.dto.HomeJourneyUpdateRequest;
 import com.timemate.gonow.domain.journey.dto.JourneyActiveUpdateRequest;
 import com.timemate.gonow.domain.journey.dto.JourneyResponse;
+import com.timemate.gonow.domain.journey.dto.JourneySaveResponse;
 import com.timemate.gonow.domain.journey.dto.PersonalJourneyCreateRequest;
 import com.timemate.gonow.domain.journey.dto.PersonalJourneyUpdateRequest;
 import com.timemate.gonow.domain.journey.entity.Journey;
@@ -32,7 +33,7 @@ public class JourneyService {
 
     // 개인 여정 생성
     @Transactional
-    public JourneyResponse createPersonalJourney(Long memberId, PersonalJourneyCreateRequest request) {
+    public JourneySaveResponse createPersonalJourney(Long memberId, PersonalJourneyCreateRequest request) {
         Member member = memberRepository.findById(memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 회원입니다."));
 
@@ -55,12 +56,12 @@ public class JourneyService {
                 .journeyStatus(resolveInitialStatus(request.planDate()))
                 .build();
 
-        return JourneyResponse.from(journeyRepository.save(journey));
+        return JourneySaveResponse.from(journeyRepository.save(journey));
     }
 
     // 개인 여정 수정
     @Transactional
-    public JourneyResponse updatePersonalJourney(Long memberId, Long journeyId, PersonalJourneyUpdateRequest request) {
+    public JourneySaveResponse updatePersonalJourney(Long memberId, Long journeyId, PersonalJourneyUpdateRequest request) {
         Journey journey = journeyRepository.findByIdAndMemberId(journeyId, memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 여정이거나 수정 권한이 없습니다."));
 
@@ -71,12 +72,12 @@ public class JourneyService {
         );
 
         journey.updatePersonal(request.title(), request.planDate(), request.targetTime(), destination, request.transportType(), request.repeatDays(), resolveInitialStatus(request.planDate()));
-        return JourneyResponse.from(journey);
+        return JourneySaveResponse.from(journey);
     }
 
     // 귀가 여정 생성 (막차/데드라인 공통)
     @Transactional
-    public JourneyResponse createHomeJourney(Long memberId, HomeJourneyCreateRequest request) {
+    public JourneySaveResponse createHomeJourney(Long memberId, HomeJourneyCreateRequest request) {
         Member member = memberRepository.findById(memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 회원입니다."));
 
@@ -101,12 +102,12 @@ public class JourneyService {
                 .journeyStatus(resolveInitialStatus(request.planDate()))
                 .build();
 
-        return JourneyResponse.from(journeyRepository.save(journey));
+        return JourneySaveResponse.from(journeyRepository.save(journey));
     }
 
     // 귀가 여정 수정 (막차/데드라인 공통)
     @Transactional
-    public JourneyResponse updateHomeJourney(Long memberId, Long journeyId, HomeJourneyUpdateRequest request) {
+    public JourneySaveResponse updateHomeJourney(Long memberId, Long journeyId, HomeJourneyUpdateRequest request) {
         Journey journey = journeyRepository.findByIdAndMemberId(journeyId, memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 여정이거나 수정 권한이 없습니다."));
 
@@ -119,7 +120,7 @@ public class JourneyService {
         );
 
         journey.updateHome(request.title(), request.isLastMode(), request.planDate(), request.targetTime(), destination, transportType, request.repeatDays(), resolveInitialStatus(request.planDate()));
-        return JourneyResponse.from(journey);
+        return JourneySaveResponse.from(journey);
     }
 
     // 막차 모드면 TRANSIT 강제, 데드라인 모드면 클라이언트 값 사용 (null이면 예외)
@@ -135,6 +136,15 @@ public class JourneyService {
         // TODO: 플라스크랑 연동하면, DEPARTING도 고려하기
         return planDate.isEqual(LocalDate.now()) ? JourneyStatus.READY : JourneyStatus.SCHEDULED;
     }
+
+    // 여정 조회 (개인/귀가 공통)
+    public JourneyResponse getJourney(Long memberId, Long journeyId) {
+        Journey journey = journeyRepository.findByIdAndMemberId(journeyId, memberId).orElseThrow(
+                () -> new IllegalArgumentException("존재하지 않는 여정이거나 조회 권한이 없습니다."));
+
+        return JourneyResponse.from(journey);
+    }
+
 
     // 알람 스위치 ON/OFF (개인/귀가 공통)
     @Transactional

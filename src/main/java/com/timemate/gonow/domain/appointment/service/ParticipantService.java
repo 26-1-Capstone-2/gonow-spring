@@ -1,6 +1,7 @@
 package com.timemate.gonow.domain.appointment.service;
 
 import com.timemate.gonow.domain.appointment.dto.ParticipantActiveUpdateRequest;
+import com.timemate.gonow.domain.appointment.dto.ParticipantTransportUpdateRequest;
 import com.timemate.gonow.domain.appointment.entity.Participant;
 import com.timemate.gonow.domain.appointment.repository.ParticipantRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,19 @@ public class ParticipantService {
                 .orElseThrow(() -> new IllegalArgumentException("그룹 참여 정보를 찾을 수 없습니다."));
 
         participant.updateActive(request.isActive());
+    }
+
+    // 이동 수단 변경 (일반 참가자 전용)
+    @Transactional
+    public void updateTransportType(Long memberId, Long appointmentId, ParticipantTransportUpdateRequest request) {
+        Participant participant = participantRepository.findByAppointmentIdAndMemberId(appointmentId, memberId)
+                .orElseThrow(() -> new IllegalArgumentException("해당 약속의 참여자가 아닙니다."));
+
+        if (participant.isHost()) {
+            throw new IllegalArgumentException("방장은 그룹 알람 수정 API를 이용해주세요.");
+        }
+
+        participant.updateTransportType(request.transportType());
     }
 
     // 탈퇴(본인) & 추방(방장) 공통

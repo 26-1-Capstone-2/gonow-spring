@@ -10,7 +10,7 @@ public interface MemberSettingRepository extends JpaRepository<MemberSetting, Lo
     // member_id(FK) 찾기
     Optional<MemberSetting> findByMemberId(Long memberId);
 
-    // member 정보까지 찾기
+    // member.email, member.nickname, member.home 등 사용 → member fetch join
     @EntityGraph(attributePaths = "member")
     Optional<MemberSetting> findWithMemberByMemberId(Long memberId);
 }

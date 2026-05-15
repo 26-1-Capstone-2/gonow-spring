@@ -15,8 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 @Transactional(readOnly = true)
@@ -57,6 +55,7 @@ public class AlarmService {
                     .stream().map(this::toAppointmentResponse).toList();
         };
     }
+
 
     private AlarmResponse toJourneyResponse(Journey journey) {
         AlarmType alarmType = journey.getJourneyType() == JourneyType.PERSONAL ? AlarmType.PERSONAL : AlarmType.HOME;

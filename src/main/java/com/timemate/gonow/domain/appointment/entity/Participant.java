@@ -81,5 +81,10 @@ public class Participant {
         this.isActive = isActive;
     }
 
+    // 이동 수단 변경
+    public void updateTransportType(TransportType transportType) {
+        this.transportType = transportType;
+    }
+
     // 단방향이므로 연관관계 편의 메소드 X
 }

@@ -57,21 +57,14 @@ Controller → Service → Repository → Entity → MySQL
 
 ### 출발 알람 시각 계산 정책
 
-#### 출발지 선택 (알람 생성 시)
-유저가 세 가지 중 하나를 직접 선택한다. 프론트가 선택된 좌표를 요청 DTO(`origin_name`, `origin_address`, `origin_lat`, `origin_lng`)에 담아 전달하고, 서버는 받은 좌표 그대로 플라스크에 전달한다.
-
-1. **집 주소** (디폴트) — DB의 `member.home` 좌표를 프론트가 채워서 전송
-2. **현재 위치** — GPS로 찍은 현재 좌표를 프론트가 채워서 전송
-3. **직접 검색** — 유저가 검색한 주소 좌표를 프론트가 채워서 전송
-
-> 서버는 출발지가 어떤 종류인지 알 필요 없고, 좌표만 받으면 된다.
+#### 출발지 선택 정책
+알람 생성 시점에는 출발지를 저장하지 않는다. 출발지는 당일 READY 전환 시 GPS로 측정한 현재 위치로 최초 확정된다. 엔티티에 origin 필드 없음 — current_lat/lng만 사용.
 
 #### 출발지 기준 시점별 정책
 | 시점 | 출발지 기준 | GPS 사용 | 비고 |
 |---|---|---|---|
-| 알람 생성 시점 | 유저가 선택한 출발지 | 선택에 따라 다름 | 심리적 안정감용 임시값 |
-| 당일 이전 매 새벽 4시 | 생성 시 선택한 출발지 고정 | X | 플라스크 호출로 재계산, FCM 통보 |
-| 당일 새벽 4시 (READY 전환) | 실제 현재 위치 | O (1회) | 정확한 값으로 확정 |
+| 알람 생성 시점 | 없음 (미정) | X | 출발지 없이 생성 |
+| 당일 새벽 4시 (READY 전환) | 실제 현재 위치 | O (1회) | 정확한 값으로 확정, FCM 통보 |
 | READY 상태 500m 이탈마다 | 실제 현재 위치 | O (연속) | 실시간 재계산 |
 
 #### 이동 수단별 정확도
@@ -100,7 +93,8 @@ com.timemate.gonow/
 │   ├── member/       # 회원/설정 (Controller, Service, Repository, Entity, DTO, Constant 포함)
 │   ├── appointment/  # 약속/참여자 (Controller, Service, Repository, Entity, DTO, Constant 포함)
 │   ├── journey/      # 여정 (Controller, Service, Repository, Entity, DTO, Constant 포함)
-│   └── place/        # 장소 (Controller, Service, Repository, Entity, DTO, Constant 포함)
+│   ├── place/        # 장소 (Controller, Service, Repository, Entity, DTO, Constant 포함)
+│   └── alarm/        # 알람 조회 (Controller, Service, DTO, Constant 포함 — 별도 Entity 없음)
 └── global/
     ├── auth/         # JWT 필터(JwtTokenFilter), 토큰 프로바이더(JwtTokenProvider), @MemberId 어노테이션
     ├── config/       # SecurityConfig, RestClientConfig
@@ -149,9 +143,16 @@ com.timemate.gonow/
 | POST | `/api/journeys/home` | 필요 | 귀가 여정 생성 (막차/데드라인 공통, is_last_mode로 분기) |
 | PUT | `/api/journeys/home/{journeyId}` | 필요 | 귀가 여정 수정 (소유자 검증 포함) |
 | POST | `/api/appointments` | 필요 | 그룹 알람 생성 (방장 Participant 동시 생성, 초대코드 서버 자동 생성) |
+| POST | `/api/appointments/join` | 필요 | 초대코드로 참여 (FINISHED 상태 차단, 중복 참여 차단) |
 | DELETE | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 삭제 (방장 전용, 모든 Participant 벌크 삭제) |
 | PATCH | `/api/appointments/{appointmentId}/participants/active` | 필요 | 참가자 개인 알람 스위치 ON/OFF (본인만) |
 | DELETE | `/api/appointments/{appointmentId}/participants/{targetMemberId}` | 필요 | 참가자 탈퇴(본인) 또는 추방(방장) |
+| GET | `/api/alarms` | 필요 | 알람 조회 (`?date=` 날짜별 혼합 조회 또는 `?type=PERSONAL\|HOME\|GROUP` 타입별 조회, 둘 중 하나 필수) |
+| GET | `/api/journeys/{journeyId}` | 필요 | 여정 상세 조회 (개인/귀가 공통, `journeyType`+`isLastMode`로 프론트 분기) |
+| GET | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 상세 조회 (참여자 본인만, 참가자 목록 포함) |
+| GET | `/api/appointments/{appointmentId}/dashboard` | 필요 | 도착 예정 대시보드 조회 (참여자 본인만, estimatedArrival은 플라스크 연동 전 null) |
+| PATCH | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 수정 (방장 전용 — 목적지/날짜/시간/이동수단) |
+| PATCH | `/api/appointments/{appointmentId}/participants/transport` | 필요 | 이동 수단 변경 (일반 참가자 전용, 방장 호출 시 에러) |
 
 ### API 응답 형식
 
@@ -172,11 +173,43 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `MethodArgumentNotValidException` → 400 Bad Request (Bean Validation 실패)
 - `IllegalArgumentException` → 400 Bad Request (비즈니스 규칙 위반)
 - `IllegalStateException` → 400 Bad Request (비즈니스 규칙 위반)
+- `DataIntegrityViolationException` → 400 Bad Request (DB 제약 조건 위반 — UNIQUE, NOT NULL, FK)
 - `Exception` → 500 Internal Server Error
 
 ### 알람 메커니즘 (Universal Journey State Machine)
 
 @.claude/universal_journey_state_machine.md
+
+### 알람 구현 방식 결정 사항
+
+#### 실시간 통신 방식
+- **현재**: 모든 API를 HTTP로 구현 (조회는 필요 시 폴링)
+- **향후 검토**: 대시보드만 SSE로 전환 가능 (서버는 Controller 추가만, 프론트는 `react-native-sse` 적용)
+- **웹소켓은 불필요**: 우리 서비스는 서버→클라이언트 단방향이라 SSE로 충분
+
+#### HTTP vs SSE 판단 기준
+- **HTTP로 충분**: 쓰기(수정) API 전체, 조회 API (화면 진입 시 1회 호출 또는 폴링)
+- **SSE가 유리한 화면**: 대시보드 (다른 참가자 위치/ETA 실시간 반영)
+- **핵심 원칙**: SSE/HTTP는 화면 갱신 속도(UX)의 문제일 뿐, 서버 로직(상태 전이, ETA 계산, 스케줄러)에는 영향 없음
+
+#### 알람 울리기 방식 3가지
+| 방식 | 작동 조건 | 용도 |
+|------|----------|------|
+| expo-haptics / expo-av | 앱 포그라운드일 때만 | 단계별 알람 시퀀스 (1→4단계 진동+소리) |
+| expo-notifications (로컬 알림) | 앱 꺼져 있어도 작동 (OS 등록) | `departure_alarm_time` 도달 알람, 단계별 시퀀스 스케줄링 |
+| FCM (Firebase Cloud Messaging) | 앱 꺼져 있어도 작동 (서버 푸시) | 서버가 예측 불가능한 시점에 실시간 발송해야 할 때 |
+
+#### FCM이 필요한 경우 (로컬 알림으로 대체 불가)
+- 친구 ARRIVED 도착 알림 (B 도착 순간 A, C, D에게 즉시)
+- 전체 멤버 도착 (FINISHED) 알림
+- 방장이 약속 정보 수정 시 참가자 즉시 통보
+- 방장이 참가자 추방 시 즉시 알림
+- 스케줄러 새벽 4시 READY 전환 알림 ("오늘 약속 있어요")
+- 지각 위기 긴급 보정 알람 (실시간 속도 계산 후 서버가 즉시 발송)
+
+#### 로컬 알림으로 충분한 경우
+- `departure_alarm_time` 도달 알람 — 서버가 시각을 미리 계산해서 전달, OS에 등록
+- 단계별 알람 시퀀스 (1→4단계) — `departure_alarm_time` 기준으로 미리 스케줄링 가능
 
 ### 도메인 설계 원칙
 
@@ -195,8 +228,8 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 | Member | domain/member/entity | email, password, nickname, home(Location, NOT NULL) | O (MemberController, MemberService) |
 | MemberSetting | domain/member/entity | transitType, priorityType, preparationTime | O (MemberSettingController, MemberSettingService) |
 | Appointment | domain/appointment/entity | inviteCode, title, destination(Location), planDate, targetTime, appointmentStatus | O (AppointmentController, AppointmentService) |
-| Participant | domain/appointment/entity | member, appointment, isHost, origin(Location), transportType, participantStatus, isActive | O (ParticipantController, ParticipantService) |
-| Journey | domain/journey/entity | member, journeyType, isLastMode, planDate, origin(Location), destination(Location), transportType, repeatDays, isActive, journeyStatus | O (JourneyController, JourneyService) |
+| Participant | domain/appointment/entity | member, appointment, isHost, transportType, participantStatus, isActive | O (ParticipantController, ParticipantService) |
+| Journey | domain/journey/entity | member, journeyType, isLastMode, planDate, destination(Location), transportType, repeatDays, isActive, journeyStatus | O (JourneyController, JourneyService) |
 | Place | domain/place/entity | member, placeType, location(Location) | O (PlaceController, PlaceService) |
 
 ### MemberSetting 생성 규칙
@@ -217,6 +250,18 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `findByMemberAndAddress(Long memberId, String address)` — Upsert 중복 확인용 (동일 회원 + 주소 조회)
 - `findByIdAndMemberId(Long placeId, Long memberId)` — 삭제 전 소유자 검증용
 
+### ParticipantRepository 조회 메서드
+
+- `findHostWithAppointment(appointmentId, memberId)` — 방장 권한 확인 + Appointment fetch join (`@Query`)
+- `findByAppointmentIdAndMemberId(appointmentId, memberId)` — 본인 Participant 조회 (탈퇴/추방/알람스위치용)
+- `findWithAppointmentByAppointmentIdAndMemberId(appointmentId, memberId)` — 본인 Participant + Appointment fetch join (`@EntityGraph`, 상세 조회용)
+- `findAllByAppointmentId(appointmentId)` — 전체 참가자 조회 + Member fetch join (`@EntityGraph`, 상세 조회용)
+- `existsByAppointmentIdAndMemberId(appointmentId, memberId)` — 중복 참여 확인
+- `findAllByAppointmentIdAndMemberIdIn(appointmentId, memberIds)` — 탈퇴/추방 시 요청자+대상자 한 번에 조회
+- `bulkDeleteByAppointmentId(appointmentId)` — 약속 삭제 시 전체 참가자 벌크 삭제
+- `findAllByMemberId(memberId)` — 내가 참여한 약속 전체 조회 + Appointment fetch join (알람 타입별 조회용)
+- `findAllByMemberIdAndPlanDate(memberId, planDate)` — 내가 참여한 약속 날짜별 조회 + Appointment fetch join (알람 날짜별 조회용)
+
 ### Enum 상수 목록
 
 - `TransitType`: ALL, SUBWAY, BUS (회원 선호 교통수단)
@@ -227,6 +272,14 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `JourneyStatus`: SCHEDULED, READY, DEPARTING, MOVING, ARRIVED (기본값: SCHEDULED)
 - `JourneyType`: HOME, PERSONAL
 - `PlaceType`: HOME, DEST
+- `AlarmType`: PERSONAL, HOME, GROUP (알람 조회용, domain/alarm/constant)
+
+### DTO 네이밍 규칙
+- `XxxSaveResponse`: 생성/수정 공통 최소 응답 (`JourneySaveResponse` — `journeyId` + `journeyStatus`)
+- `XxxResponse`: 상세 조회 응답 (`JourneyResponse`, `AppointmentResponse`, `DashboardResponse`)
+- `XxxCreateResponse`: 생성 전용 응답 (`AppointmentCreateResponse` — `appointmentId` + `inviteCode`)
+- 중첩 record (`ParticipantInfo`, `ParticipantDashboard`): `public` 필수 (Jackson 직렬화)
+- 팩토리 메서드: 단일/다중 파라미터 무관하게 모두 `from()` 으로 통일
 
 ## 개발 환경 설정
 
@@ -242,10 +295,15 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 
 ### HTTP 테스트 파일
 `src/test/http/` 디렉토리에 IntelliJ HTTP Client용 시나리오 파일이 있다.
-- `member.http`: 각 API를 독립적으로 테스트 가능한 시나리오 (회원가입, 로그인, 프로필 조회, 정보 변경, 귀가지, 설정 등)
-- `member-error.http`: 회원 관련 에러 케이스 (E-1 ~ E-18)
+- `member.http`: 회원가입, 로그인, 프로필 조회, 정보 변경, 귀가지, 설정 등
+- `member-error.http`: 회원 관련 에러 케이스
 - `place.http`: 장소 API 시나리오 (목록 조회, 저장, 삭제)
 - `place-error.http`: 장소 관련 에러 케이스
+- `journey.http`: 개인/귀가 여정 생성, 상세 조회, 수정, 삭제, 알람 스위치
+- `journey-error.http`: 여정 관련 에러 케이스
+- `appointment.http`: 그룹 알람 생성, 참여, 조회, 대시보드, 수정, 삭제 등
+- `appointment-error.http`: 그룹 알람 관련 에러 케이스
+- `alarm.http`: 알람 목록 조회 (날짜별/타입별), 상세 조회
 
 ## 구현 현황
 
@@ -263,14 +321,24 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 장소(Place): 목록 조회(타입 필터링), Upsert 저장(동일 주소 시 touch), 삭제(소유자 검증)
 - 개인 여정(Journey): 생성, 수정, 삭제, 알람 스위치 ON/OFF
 - 귀가 여정(Journey): 생성, 수정 (is_last_mode=true 시 transportType 강제 TRANSIT)
-- 그룹 알람(Appointment): 생성(초대코드 서버 자동 생성), 삭제(방장 전용, 벌크 삭제)
+- 그룹 알람(Appointment): 생성(초대코드 서버 자동 생성), 초대코드로 참여, 삭제(방장 전용, 벌크 삭제)
 - 참가자(Participant): 개인 알람 스위치 ON/OFF, 탈퇴(본인)/추방(방장)
+- 알람 조회: 날짜별(`?date=`) 혼합 조회, 타입별(`?type=PERSONAL|HOME|GROUP`) 조회
+- 여정 상세 조회: 개인/귀가 공통 (`GET /api/journeys/{journeyId}`, `journeyType`+`isLastMode`로 프론트 분기)
+- 그룹 알람 상세 조회: 참가자 목록 포함 (`GET /api/appointments/{appointmentId}`)
+- 그룹 알람 수정: 방장 전용 목적지/날짜/시간/이동수단 (`PATCH /api/appointments/{appointmentId}`)
+- 이동수단 변경: 일반 참가자 전용 (`PATCH .../participants/transport`, 방장 호출 시 에러)
+- 도착 예정 대시보드 조회: 참가자 nickname/transportType/estimatedArrival/isMe (`GET .../dashboard`, `estimatedArrival`은 플라스크 연동 전 null)
 
 ### 미구현
-- 알람 조회 3종: `GET /api/alarms?date=`, `GET /api/alarms?type=PERSONAL|HOME|GROUP`
-- 그룹 알람 수정
-- 초대코드로 참여
-- 도착 대시보드 조회
+- GPS 좌표 수신 및 상태 전이 로직 (DEPARTING → MOVING → ARRIVED)
+- Appointment 상태 전이 (WAITING → ACTIVE → FINISHED)
+- Refresh Token
+- Redis (현재 위치 실시간 저장, Refresh Token 저장 용도)
+- 외부 API 연동 (ODsay/카카오맵 — ETA, 출발 알람 시각 계산)
+- 스케줄러 (매일 새벽 4시 SCHEDULED → READY 전환)
+- FCM 푸시 알림
+- 회원 탈퇴 실제 삭제 로직
 - Refresh Token
 - Redis (현재 위치 실시간 저장, Refresh Token 저장 용도)
 - 외부 API 연동 (ODsay/카카오맵 — ETA, 출발 알람 시각 계산)

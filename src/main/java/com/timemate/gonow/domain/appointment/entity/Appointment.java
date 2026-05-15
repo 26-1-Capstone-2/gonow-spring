@@ -59,5 +59,12 @@ public class Appointment {
         this.appointmentStatus = Objects.requireNonNullElse(appointmentStatus, AppointmentStatus.WAITING);
     }
 
+    // 약속 정보 수정 (방장 전용)
+    public void update(LocalDate planDate, LocalDateTime targetTime, Location destination) {
+        this.planDate = planDate;
+        this.targetTime = targetTime;
+        this.destination = destination;
+    }
+
     // 단방향이므로 연관관계 편의 메소드 X
 }

@@ -1,6 +1,7 @@
 package com.timemate.gonow.domain.appointment.repository;
 
 import com.timemate.gonow.domain.appointment.entity.Participant;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -11,7 +12,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ParticipantRepository extends JpaRepository<Participant, Long> {
-    // 방장 여부 확인 + Appointment fetch join (N+1 방지)
+    // 방장 권한 확인 + host.getAppointment() 사용 → appointment fetch join
     @Query("""
         SELECT p FROM Participant p
         JOIN FETCH p.appointment                                                                                                            \s
@@ -24,6 +25,13 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
     // 본인 Participant 조회
     Optional<Participant> findByAppointmentIdAndMemberId(Long appointmentId, Long memberId);
 
+    // appointment.targetTime, appointment.destination 사용 → appointment fetch join
+    @EntityGraph(attributePaths = {"appointment"})
+    Optional<Participant> findWithAppointmentByAppointmentIdAndMemberId(Long appointmentId, Long memberId);
+
+    // 중복 참여 확인
+    boolean existsByAppointmentIdAndMemberId(Long appointmentId, Long memberId);
+
     // 탈퇴/추방 시 요청자 + 대상자 한 번에 조회
     List<Participant> findAllByAppointmentIdAndMemberIdIn(Long appointmentId, List<Long> memberIds);
 
@@ -35,11 +43,15 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
     // 약속별 참가자 수 조회 (단건)
     int countByAppointmentId(Long appointmentId);
 
-    // 내가 참여한 약속 전체 조회 (appointment fetch join, departure_alarm_time)
+    // 약속 조회용 참가자 전체 조회 (member.nickname 사용 → member fetch join)
+    @EntityGraph(attributePaths = {"member"})
+    List<Participant> findAllByAppointmentId(Long appointmentId);
+
+    // 내가 참여한 약속 전체 조회 (appointment.destination, appointment.targetTime 사용 → appointment fetch join)
     @Query("SELECT p FROM Participant p JOIN FETCH p.appointment WHERE p.member.id = :memberId ORDER BY p.departureAlarmTime")
     List<Participant> findAllByMemberId(@Param("memberId") Long memberId);
 
-    // 내가 참여한 약속 날짜별 조회 (appointment fetch join, departure_alarm_time)
+    // 내가 참여한 약속 날짜별 조회 (appointment.destination, appointment.targetTime 사용 → appointment fetch join)
     @Query("SELECT p FROM Participant p JOIN FETCH p.appointment a WHERE p.member.id = :memberId AND a.planDate = :planDate ORDER BY p.departureAlarmTime")
     List<Participant> findAllByMemberIdAndPlanDate(@Param("memberId") Long memberId, @Param("planDate") LocalDate planDate);
 }
