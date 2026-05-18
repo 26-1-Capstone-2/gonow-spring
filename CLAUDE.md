@@ -97,13 +97,15 @@ com.timemate.gonow/
 │   └── alarm/        # 알람 조회 (Controller, Service, DTO, Constant 포함 — 별도 Entity 없음)
 └── global/
     ├── auth/         # JWT 필터(JwtTokenFilter), 토큰 프로바이더(JwtTokenProvider), @MemberId 어노테이션
-    ├── config/       # SecurityConfig, RestClientConfig
+    ├── config/       # SecurityConfig, RestClientConfig, QueryDslConfig
     ├── controller/   # AuthController, HealthController
     ├── dto/          # LoginRequest, LoginResponse
     ├── entity/       # BaseTimeEntity (createdAt, updatedAt, touch())
     ├── exception/    # GlobalExceptionHandler
     ├── response/     # ApiResult (success/fail 팩토리 메서드)
-    └── service/      # AuthService
+    ├── scheduler/    # ReadyTransitionScheduler/Service, ArrivedTransitionScheduler/Service
+    ├── service/      # AuthService
+    └── util/         # GeoUtils (Haversine 거리 계산)
 ```
 
 ### 보안 흐름
@@ -153,6 +155,14 @@ com.timemate.gonow/
 | GET | `/api/appointments/{appointmentId}/dashboard` | 필요 | 도착 예정 대시보드 조회 (참여자 본인만, estimatedArrival은 플라스크 연동 전 null) |
 | PATCH | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 수정 (방장 전용 — 목적지/날짜/시간/이동수단) |
 | PATCH | `/api/appointments/{appointmentId}/participants/transport` | 필요 | 이동 수단 변경 (일반 참가자 전용, 방장 호출 시 에러) |
+| PATCH | `/api/journeys/{journeyId}/location` | 필요 | 여정 GPS 좌표 수신 + 상태 전이 (READY/DEPARTING/MOVING/NEARDEST) |
+| PATCH | `/api/journeys/{journeyId}/arrive` | 필요 | 여정 도착 확인 (NEARDEST → ARRIVED, 사용자 확인 버튼) |
+| PATCH | `/api/appointments/{appointmentId}/participants/location` | 필요 | 참가자 GPS 좌표 수신 + 상태 전이 + Appointment 상태 전이 |
+| PATCH | `/api/appointments/{appointmentId}/participants/arrive` | 필요 | 참가자 도착 확인 (NEARDEST → ARRIVED, Appointment FINISHED 체크) |
+| PATCH | `/api/journeys/{journeyId}/location` | 필요 | 여정 GPS 위치 업데이트 + 상태 전이 (응답: journeyStatus, departureAlarmTime, estimatedArrival) |
+| PATCH | `/api/journeys/{journeyId}/arrive` | 필요 | 여정 도착 확인 (NEARDEST 상태에서 사용자 확인 시 ARRIVED 전환) |
+| PATCH | `/api/appointments/{appointmentId}/participants/location` | 필요 | 참가자 GPS 위치 업데이트 + 상태 전이 (응답: participantStatus, departureAlarmTime, estimatedArrival) |
+| PATCH | `/api/appointments/{appointmentId}/participants/arrive` | 필요 | 참가자 도착 확인 (NEARDEST 상태에서 사용자 확인 시 ARRIVED 전환) |
 
 ### API 응답 형식
 
@@ -268,8 +278,8 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `PriorityType`: MIN_TIME, MIN_TRANSFER, MIN_WALK (경로 우선순위)
 - `TransportType`: DRIVING, TRANSIT (여정/참여자 이동 수단, domain/common/constant)
 - `AppointmentStatus`: WAITING, ACTIVE, FINISHED
-- `ParticipantStatus`: SCHEDULED, READY, DEPARTING, MOVING, ARRIVED (기본값: SCHEDULED)
-- `JourneyStatus`: SCHEDULED, READY, DEPARTING, MOVING, ARRIVED (기본값: SCHEDULED)
+- `ParticipantStatus`: SCHEDULED, READY, DEPARTING, MOVING, NEARDEST, ARRIVED (기본값: SCHEDULED)
+- `JourneyStatus`: SCHEDULED, READY, DEPARTING, MOVING, NEARDEST, ARRIVED (기본값: SCHEDULED)
 - `JourneyType`: HOME, PERSONAL
 - `PlaceType`: HOME, DEST
 - `AlarmType`: PERSONAL, HOME, GROUP (알람 조회용, domain/alarm/constant)
@@ -304,6 +314,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `appointment.http`: 그룹 알람 생성, 참여, 조회, 대시보드, 수정, 삭제 등
 - `appointment-error.http`: 그룹 알람 관련 에러 케이스
 - `alarm.http`: 알람 목록 조회 (날짜별/타입별), 상세 조회
+- `scheduler.http`: 스케줄러 테스트 시나리오 (회원가입 → 로그인 → 여정/약속 생성 → READY 전환 확인)
 
 ## 구현 현황
 
@@ -329,21 +340,36 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 그룹 알람 수정: 방장 전용 목적지/날짜/시간/이동수단 (`PATCH /api/appointments/{appointmentId}`)
 - 이동수단 변경: 일반 참가자 전용 (`PATCH .../participants/transport`, 방장 호출 시 에러)
 - 도착 예정 대시보드 조회: 참가자 nickname/transportType/estimatedArrival/isMe (`GET .../dashboard`, `estimatedArrival`은 플라스크 연동 전 null)
+- 스케줄러: 매일 새벽 4시 당일 SCHEDULED → READY 벌크 전환 (`ReadyTransitionScheduler` + `ReadyTransitionService`, FCM은 TODO)
+- 여정 GPS 위치 업데이트 + 상태 전이 (`PATCH /api/journeys/{journeyId}/location`)
+  - READY: 좌표 저장 + distToDest < 100m → NEARDEST / P>=Q → DEPARTING (TODO)
+  - DEPARTING: distToDest < 100m → ARRIVED / distFromAnchor >= 300m → MOVING (앵커 보존)
+  - MOVING: 좌표 저장 + distToDest < 100m → ARRIVED
+  - NEARDEST: 아무것도 안 함 (확인은 /arrive, 자동처리는 스케줄러)
+- 여정 도착 확인 (`PATCH /api/journeys/{journeyId}/arrive`) — NEARDEST 상태에서 사용자 확인 시 ARRIVED 전환
+- 참가자 GPS 위치 업데이트 + 상태 전이 (`PATCH /api/appointments/{appointmentId}/participants/location`)
+  - Journey와 동일한 상태 전이 로직
+  - Appointment 상태 전이 연동 포함
+- 참가자 도착 확인 (`PATCH /api/appointments/{appointmentId}/participants/arrive`) — NEARDEST 상태에서 사용자 확인 시 ARRIVED 전환
+- Appointment 상태 전이: WAITING → ACTIVE (MOVING 또는 ARRIVED 진입 시), ACTIVE → FINISHED (전원 ARRIVED 시)
+- 스케줄러: 매 1분마다 NEARDEST + targetTime 초과 → 자동 ARRIVED + Appointment 상태 동기화 (`ArrivedTransitionScheduler` + `ArrivedTransitionService`)
+  - Journey: planDate 보정 포함 (자정~새벽 4시는 어제 날짜로 보정 — 막차 모드 자정 넘김 커버)
+  - Participant: 약속 ID 기준 3단계 벌크 처리 (약속 ID 추출 → 참가자 ARRIVED → Appointment ACTIVE/FINISHED)
+- `GeoUtils` — Haversine 공식 거리 계산 유틸 (`global/util`)
+- `GeoConstants` — 거리 상수 관리 (`ARRIVAL_THRESHOLD_METERS=100`, `DEPARTURE_THRESHOLD_METERS=300`, `RECOMPUTE_THRESHOLD_METERS=500`)
+- `QueryDslConfig` — `JPAQueryFactory` 빈 등록
+- `JourneyStatus`, `ParticipantStatus`에 `NEARDEST` 상태 추가
+- `application.yml`에 스케줄러 설정 추가 (`scheduler.ready-transition-cron`, `scheduler.day-boundary-hour=4`)
 
 ### 미구현
-- GPS 좌표 수신 및 상태 전이 로직 (DEPARTING → MOVING → ARRIVED)
-- Appointment 상태 전이 (WAITING → ACTIVE → FINISHED)
+- `READY → DEPARTING` 전환 (플라스크 연동 후 `departureAlarmTime` 계산 시 활성화)
 - Refresh Token
 - Redis (현재 위치 실시간 저장, Refresh Token 저장 용도)
-- 외부 API 연동 (ODsay/카카오맵 — ETA, 출발 알람 시각 계산)
-- 스케줄러 (매일 새벽 4시 SCHEDULED → READY 전환)
-- FCM 푸시 알림
-- 회원 탈퇴 실제 삭제 로직
-- Refresh Token
-- Redis (현재 위치 실시간 저장, Refresh Token 저장 용도)
-- 외부 API 연동 (ODsay/카카오맵 — ETA, 출발 알람 시각 계산)
-- 스케줄러 (매일 새벽 4시 SCHEDULED → READY 전환 + 플라스크 재계산)
-- FCM 푸시 알림
+- 외부 API 연동 (ODsay/카카오맵 — ETA, 출발 알람 시각 계산, 플라스크 중계)
+  - 여정/참가자 생성 시 초기 `departureAlarmTime` 계산
+  - READY 상태 500m 이탈 시 `departureAlarmTime` 재계산
+  - MOVING 상태 주기적 ETA 재계산 → `estimatedArrival` 갱신
+- FCM 푸시 알림 (스케줄러 READY 전환 알림, 친구 도착 알림, 추방 알림 등)
 - 회원 탈퇴 실제 삭제 로직
 
 ### 설계 확정 사항
@@ -352,6 +378,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - FINISHED 상태 약속 재사용 없음 — 새 초대코드로 새 방 생성
 - 조회 시 `status != FINISHED` 필터링 (자동 삭제 없음, 이력 보존)
 - 현재 위치(current_lat/lng)는 향후 Redis로 이전 예정, 현재는 MySQL
+- Appointment ACTIVE 트리거: MOVING 또는 ARRIVED 진입 시만 (DEPARTING 제외 — 아직 출발 전)
 
 ## 새 도메인 추가 시 체크리스트
 

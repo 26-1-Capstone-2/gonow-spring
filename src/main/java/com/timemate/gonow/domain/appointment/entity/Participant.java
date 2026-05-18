@@ -86,5 +86,15 @@ public class Participant {
         this.transportType = transportType;
     }
 
+    // 현재 위치 갱신
+    public void updateCurrentPos(Point point) {
+        this.currentPos = point;
+    }
+
+    // 상태 전이
+    public void updateStatus(ParticipantStatus status) {
+        this.participantStatus = status;
+    }
+
     // 단방향이므로 연관관계 편의 메소드 X
 }

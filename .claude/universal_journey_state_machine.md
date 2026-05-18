@@ -1,57 +1,146 @@
-# 🛰️ Gonow: Universal Journey State Machine Specification (v1.1)
+# 🛰️ Gonow: Universal Journey State Machine Specification (v1.4)
 
 본 문서는 **Gonow** 서비스의 핵심 엔진인 **여정 상태 머신 (Journey State Machine)** 의 구조와 전역 비즈니스 로직을 정의합니다. 본 체계는 `PERSONAL`, `HOME (막차)`, `GROUP` 모든 모드에 공통 적용되는 핵심 아키텍처입니다.
 
 ---
 
 ## 1. 개요 (Overview)
-**Gonow** 엔진은 사용자의 실시간 위치 변화를 '이벤트'로 인지하여 최적의 알람 시각을 도출하고, 사용자의 물리적 이동을 기반으로 여정의 단계를 능동적으로 전환합니다. 모든 여정은 다음 5가지 **상태** 를 순차적으로 거칩니다.
+**Gonow** 엔진은 사용자의 실시간 위치 변화를 '이벤트'로 인지하여 최적의 알람 시각을 도출하고, 사용자의 물리적 이동을 기반으로 여정의 단계를 능동적으로 전환합니다.
+
+GPS는 지오펜싱 대신 **주기적 폴링(N초마다)** 방식을 사용한다. (Apple Developer 계정 없이 iOS 개발 시 지오펜싱 불가)
 
 ---
 
-## 2. 상태별 상세 정의 (State Definitions)
+## 2. 상태 전이 다이어그램
+
+```
+SCHEDULED ──(새벽 4시 스케줄러)──▶ READY
+                                      │
+                    ┌─────────────────┤
+                    │ distToDest<100m │ P>=Q (플라스크 연동 후)
+                    ▼                 ▼
+                NEARDEST ◀──────── DEPARTING
+                    │    100m 벗어남+P>=Q  │       │
+          확인버튼  │                      │       │ distFromAnchor
+                    │  distToDest < 100m   │       │   >= 300m
+                    ▼                      ▼       ▼
+                 ARRIVED               ARRIVED   MOVING
+                    ▲                              │
+                    │              distToDest      │
+                    └──────────────< 100m ─────────┘
+
+NEARDEST: targetTime 초과 → ArrivedTransitionScheduler → ARRIVED
+NEARDEST: 100m 벗어남 + P < Q → READY 복귀
+NEARDEST: 100m 벗어남 + P >= Q → DEPARTING (플라스크 연동 후)
+```
+
+---
+
+## 3. 상태별 상세 정의 (State Definitions)
 
 ### ⓪ SCHEDULED (여정 예약 상태)
-* **정의:** 여정이 생성되었으나 아직 당일이 아니거나, 당일이더라도 본격적인 추적 시작 시간(새벽 4시) 전인 **상태** 입니다.
-* **핵심 로직: 정적 데이터 프리셋 (Static Preset)**
-  * **임시 알람 시각 부여:** 여정 생성 시 유저의 현재 위치 혹은 등록된 **'집'** 주소를 기준으로 플라스크에 요청하여 **최초 예상 출발 시각** (`departure_alarm_time`) 을 저장합니다. 유저에게는 이 시각을 노출하여 심리적 안정을 제공합니다.
-  * **자원 최적화:** 이 상태에서는 GPS 추적이나 실시간 연쇄 지오펜싱을 수행하지 않아 기기 배터리를 소모하지 않습니다.
-* **전환 트리거:** 여정 당일 새벽 4시, 서버 스케줄러에 의한 **사일런트 FCM** 수신 시 `READY` 로 전환됩니다.
+- **정의:** 여정이 생성되었으나 당일이 아닌 상태
+- **전환 트리거:** 매일 새벽 4시 서버 스케줄러(`ReadyTransitionScheduler`) → `READY`
 
 ### ① READY (대기 및 최적화 상태)
-* **정의:** 여정 당일 새벽 4시부터 첫 출발 알람이 울리기 전까지의 **상태** 입니다.
-* **핵심 로직: 실시간 위치 동기화 및 연쇄 지오펜싱 (Chained Geofencing)**
-  * **동적 보정:** 새벽 4시 깨어남과 동시에 유저의 **진짜 현재 위치** 를 파악하여 `departure_alarm_time` 을 확정치로 갱신합니다.
-  * **공통:** 현재 위치 기준 반경 $500m$ 의 가상 **울타리** 를 생성하고, 이탈 시마다 **알람 발송 예정 시각** 을 재계산합니다.
-  * **막차 (HOME) 특화:** 출발지가 바뀌면 최적의 **막차 장소 (첫 역/정류장)** 와 **노선** 이 바뀔 수 있습니다. $500m$ 이탈 시마다 집까지 가는 가장 빠른 **막차 경로** 를 재탐색하여 **실질적 목적지(역)** 를 업데이트합니다.
-* **전환 트리거:** 현재 시간이 실시간으로 계산된 `departure_alarm_time` 에 도달하면 `DEPARTING` 으로 전환됩니다.
+- **정의:** 여정 당일 새벽 4시부터 출발 알람 전까지의 상태. 주기적 GPS 폴링 가동.
+- **앵커 관리 (500m 단위):**
+  - 최초 좌표 수신 시 → `current_lat/lng`에 앵커 저장
+  - 이후 앵커로부터 500m 이탈 시에만 앵커 갱신 + 플라스크 호출 (500m 미만이면 좌표 갱신 안 함)
+  - **500m 단위 앵커 보존 이유:** N초마다 좌표를 갱신하면 기준점이 계속 바뀌어 500m 이탈 감지 불가
+- **전환 조건 (우선순위 순):**
+  1. `distToDest < 100m` → `NEARDEST` (최우선)
+  2. `P >= Q` → `DEPARTING` (플라스크 연동 후 구현)
+  3. `currentPoint == null` → 최초 앵커 저장
+  4. `distFromAnchor >= 500m` → 앵커 갱신 + 플라스크 호출 (TODO)
+- **TODO:** 500m 이탈 시 플라스크 호출 → ETA 계산 → `departureAlarmTime` 재계산
 
-### ② DEPARTING (출발 준비 및 확정 상태)
-* **정의:** 출발 알람이 발송되어 사용자의 외출을 강력하게 유도하는 **단계** 입니다.
-* **핵심 로직: 단계별 가속 알람 & 목적지 락 (Lock)**
-  * **알람 시퀀스:** 1단계(진동) -> 2단계(소리) -> 3단계(강력 알람) 순으로 유저가 움직일 때까지 **강도** 를 높입니다.
-  * **막차 (HOME) 특화:** 알람이 울리는 순간, 그때까지 계산된 최적의 **막차 장소 (역)** 를 최종 **목적지** 로 고정(Lock)합니다.
-  * **이동 확인:** 유저가 실제로 집(혹은 현재 위치)에서 벗어나는지 $300m$ 반경의 이탈 감시를 시작합니다.
-* **전환 트리거:** 사용자가 $300m$ 이상 이동하여 지오펜스를 이탈하면 `MOVING` 으로 전환됩니다.
+### ② DEPARTING (출발 준비 상태)
+- **정의:** 출발 알람(`departureAlarmTime`)이 도달하여 사용자 외출을 유도하는 단계
+- **앵커 확정:** `DEPARTING` 진입 시점의 `current_lat/lng`가 출발지 앵커로 확정됨
+- **알람:** 앱이 `P >= Q AND status == DEPARTING` 조건으로 단계별 알람 처리 (1→4단계)
+- **전환 조건:**
+  - `distToDest < 100m` → `ARRIVED` (이동 중 도착, 확인 불필요)
+  - `distFromAnchor >= 300m` → `MOVING`
+  - 300m 미만이면 `DEPARTING` 유지, 좌표 갱신 안 함 (앵커 보존)
 
-### ③ MOVING (실시간 이동 및 그룹 공유 상태)
-* **정의:** 실제 이동이 확인되어 **목적지** 로 향하고 있는 활성 **단계** 입니다.
-* **핵심 로직: 알람 자동 중단 및 그룹 대시보드 활성화**
-  * **알람 해제:** `MOVING` **상태** 진입 즉시 울리던 **알람** 을 자동 중단합니다. (물리적 이동이 유일한 알람 해제 **열쇠**)
-  * **그룹 (GROUP) 특화:** 대시보드에는 `MOVING` **상태** 인 **멤버** 들의 상세 **ETA** 정보만 노출하여 데이터 신뢰도를 높입니다.
-  * **지각 위기 감시:** 실시간 속도와 막차/약속 시각을 비교하여 지각 위험 시 **긴급 보정 알람** 을 발송합니다.
-* **전환 트리거:** 목적지(혹은 확정된 역) 반경 $100m$ 이내 진입 시 `ARRIVED` 로 전환됩니다.
+### ③ MOVING (실시간 이동 상태)
+- **정의:** 출발지 앵커로부터 300m 이탈이 확인된 이동 중 상태
+- **알람:** 단계별 알람 중단
+- **그룹 특화:** 대시보드에 ETA(`estimatedArrival`) 표시
+- **전환 조건:** `distToDest < 100m` → `ARRIVED`
+- **TODO:** 플라스크 호출 → ETA 재계산 → `estimatedArrival` 갱신 (대시보드용)
 
-### ④ ARRIVED (여정 완료 상태)
-* **정의:** 최종 **목적지** 에 도착하여 모든 트래킹이 종료된 **상태** 입니다.
-* **핵심 로직:** 모든 위치 추적 스케줄러와 지오펜싱 이벤트를 즉시 해제하고 **여정 데이터** 를 기록(Archive)합니다.
+### ④ NEARDEST (목적지 근처 도착 확인 대기 상태)
+- **정의:** `READY` 상태에서 목적지 100m 이내 도달 시 진입. 도착 확인 대기 중.
+- **진입 경로:** `READY → NEARDEST` (일찍 출발해서 목적지 근처 도달)
+- **좌표 수신 시 처리:**
+  - `distToDest < 100m` → `NEARDEST` 유지 (좌표 갱신 안 함)
+  - `distToDest >= 100m + P < Q` → `READY` 복귀 (스쳐지나간 케이스)
+  - `distToDest >= 100m + P >= Q` → `DEPARTING` 전환 (플라스크 연동 후 구현)
+- **전환 조건:**
+  - 사용자 확인(`/arrive` API 호출) → `ARRIVED`
+  - `targetTime` 초과 → `ArrivedTransitionScheduler` 자동 `ARRIVED`
+- **알람:** 앱이 `P >= Q AND (status == DEPARTING OR status == NEARDEST)` 조건으로 단계별 알람 처리
+
+### ⑤ ARRIVED (여정 완료 상태)
+- **정의:** 최종 목적지에 도착하여 모든 트래킹 종료
+- **그룹 특화:** 모든 참가자 `ARRIVED` → `Appointment` 상태 `FINISHED`
 
 ---
 
-## 3. 기술적 보조 사양 (Technical Specs)
-* **출발지 앵커 (Anchor):** `DEPARTING` 에서 `MOVING` 으로 전환되는 찰나의 **좌표** 를 해당 여정의 최종 **출발지** 로 기록합니다.
-* **상태 전이 트리거 요약:**
-  * `SCHEDULED` -> `READY` : [시간] 당일 새벽 4시 (서버 푸시)
-  * `READY` -> `DEPARTING` : [시간] `departure_alarm_time` 도달
-  * `DEPARTING` -> `MOVING` : [공간] $300m$ 이탈 (이동 확인)
-  * `MOVING` -> `ARRIVED` : [공간] $100m$ 진입 (도착 확인)
+## 4. DEPARTING 케이스별 처리
+
+| 상황 | 조건 | 처리 |
+|---|---|---|
+| 정상 흐름 | DEPARTING 진입 시 dest ≥ 400m | 300m 이탈 → MOVING → 100m → ARRIVED |
+| 반경 겹침 | DEPARTING 진입 시 100m ≤ dest < 400m | 이동하다 100m 진입 → ARRIVED |
+| 일찍 도착 | READY 상태에서 dest < 100m | READY → NEARDEST → 확인 → ARRIVED |
+
+---
+
+## 5. Appointment 상태 전이 (그룹 전용)
+
+| 전이 | 조건 |
+|---|---|
+| `WAITING → ACTIVE` | 참가자 중 누군가 `MOVING` 또는 `ARRIVED` 진입 시 |
+| `ACTIVE → FINISHED` | 모든 참가자 `ARRIVED` 시 (`countNotArrived == 0`) |
+
+---
+
+## 6. 기술적 보조 사양 (Technical Specs)
+
+### GPS 폴링 방식
+- 지오펜싱 대신 N초마다 좌표를 서버에 전송 (`PATCH /location`)
+- 폴링 주기는 앱이 결정 (목적지에 가까울수록 짧게)
+- 서버는 좌표를 받아 Haversine 공식으로 거리 계산 후 상태 전이 판단
+
+### 앵커 (Anchor) 개념
+- **READY 앵커:** 최초 좌표 또는 500m 이탈 시 갱신. 플라스크 호출 기준점.
+- **DEPARTING 앵커:** `DEPARTING` 진입 시점의 좌표로 확정. 300m 이탈 감지 기준점.
+- 두 상태 모두 앵커 보존을 위해 조건 미충족 시 `updateCurrentPoint()` 호출 안 함
+
+### 거리 기준 상수 (`GeoConstants`)
+- `ARRIVAL_THRESHOLD_METERS = 100` — 목적지 도착 판정 반경
+- `DEPARTURE_THRESHOLD_METERS = 300` — 출발 감지 반경
+- `RECOMPUTE_THRESHOLD_METERS = 500` — 출발 알람 시각 재계산 반경 (READY 상태)
+
+### 스케줄러
+| 스케줄러 | 주기 | 역할 |
+|---|---|---|
+| `ReadyTransitionScheduler` | 매일 새벽 4시 | 당일 `SCHEDULED` → `READY` 벌크 전환 |
+| `ArrivedTransitionScheduler` | 매 1분 | `NEARDEST` + 오늘 날짜 + `targetTime` 초과 → 자동 `ARRIVED` |
+
+### 상태 전이 트리거 요약
+| 전이 | 트리거 | 주체 |
+|---|---|---|
+| `SCHEDULED → READY` | 당일 새벽 4시 | 서버 스케줄러 |
+| `READY → NEARDEST` | `distToDest < 100m` | 서버 (좌표 수신 시) |
+| `READY → DEPARTING` | `P >= Q` | 서버 (플라스크 연동 후) |
+| `NEARDEST → READY` | `distToDest >= 100m + P < Q` | 서버 (좌표 수신 시) |
+| `NEARDEST → DEPARTING` | `distToDest >= 100m + P >= Q` | 서버 (플라스크 연동 후) |
+| `NEARDEST → ARRIVED` | 사용자 확인 | 앱 → `/arrive` API |
+| `NEARDEST → ARRIVED` | `targetTime` 초과 | 서버 스케줄러 |
+| `DEPARTING → ARRIVED` | `distToDest < 100m` (이동 중) | 서버 (좌표 수신 시) |
+| `DEPARTING → MOVING` | `distFromAnchor >= 300m` | 서버 (좌표 수신 시) |
+| `MOVING → ARRIVED` | `distToDest < 100m` | 서버 (좌표 수신 시) |

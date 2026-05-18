@@ -121,19 +121,25 @@ public class AppointmentService {
 
     // 도착 예정 대시보드 조회
     public DashboardResponse getDashboard(Long memberId, Long appointmentId) {
-        Participant me = participantRepository.findWithAppointmentByAppointmentIdAndMemberId(appointmentId, memberId)
+        List<Participant> participants = participantRepository.findAllByAppointmentId(appointmentId);
+
+        Participant me = participants.stream()
+                .filter(p -> p.getMember().getId().equals(memberId))
+                .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 약속이거나 참여자가 아닙니다."));
 
-        List<Participant> participants = participantRepository.findAllByAppointmentId(appointmentId);
         return DashboardResponse.from(me.getAppointment(), participants, memberId);
     }
 
     // 그룹 알람 조회
     public AppointmentResponse getAppointment(Long memberId, Long appointmentId) {
-        Participant me = participantRepository.findWithAppointmentByAppointmentIdAndMemberId(appointmentId, memberId)
+        List<Participant> participants = participantRepository.findAllByAppointmentId(appointmentId);
+
+        Participant me = participants.stream()
+                .filter(p -> p.getMember().getId().equals(memberId))
+                .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 약속이거나 참여자가 아닙니다."));
 
-        List<Participant> participants = participantRepository.findAllByAppointmentId(appointmentId);
         return AppointmentResponse.from(me.getAppointment(), participants);
     }
 

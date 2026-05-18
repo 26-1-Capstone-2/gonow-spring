@@ -59,6 +59,11 @@ public class Appointment {
         this.appointmentStatus = Objects.requireNonNullElse(appointmentStatus, AppointmentStatus.WAITING);
     }
 
+    // 약속 상태 전이
+    public void updateStatus(AppointmentStatus status) {
+        this.appointmentStatus = status;
+    }
+
     // 약속 정보 수정 (방장 전용)
     public void update(LocalDate planDate, LocalDateTime targetTime, Location destination) {
         this.planDate = planDate;

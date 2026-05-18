@@ -130,5 +130,15 @@ public class Journey {
         this.journeyStatus = journeyStatus;
     }
 
+    // 현재 위치 갱신
+    public void updateCurrentPoint(Point point) {
+        this.currentPoint = point;
+    }
+
+    // 상태 전이
+    public void updateStatus(JourneyStatus status) {
+        this.journeyStatus = status;
+    }
+
     // 단방향이므로 연관관계 편의 메소드 X
 }

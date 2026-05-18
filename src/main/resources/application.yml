@@ -33,6 +33,12 @@ springdoc:
   swagger-ui:
     path: /docs
 
+scheduler:
+  # 새벽 4시: SCHEDULED → READY 전환 기준 시각
+  # ArrivedTransitionService의 날짜 보정(day-boundary-hour)과 반드시 동일하게 유지
+  ready-transition-cron: "0 0 4 * * *"
+  day-boundary-hour: 4
+
 ---
 spring:
   config:
@@ -46,7 +52,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: create
+      ddl-auto: update
     properties:
       hibernate:
         format_sql: false

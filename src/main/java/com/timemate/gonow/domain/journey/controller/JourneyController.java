@@ -5,6 +5,8 @@ import com.timemate.gonow.domain.journey.dto.HomeJourneyUpdateRequest;
 import com.timemate.gonow.domain.journey.dto.JourneyActiveUpdateRequest;
 import com.timemate.gonow.domain.journey.dto.JourneyResponse;
 import com.timemate.gonow.domain.journey.dto.JourneySaveResponse;
+import com.timemate.gonow.domain.common.dto.LocationUpdateRequest;
+import com.timemate.gonow.domain.journey.dto.LocationUpdateResponse;
 import com.timemate.gonow.domain.journey.dto.PersonalJourneyCreateRequest;
 import com.timemate.gonow.domain.journey.dto.PersonalJourneyUpdateRequest;
 import com.timemate.gonow.domain.journey.service.JourneyService;
@@ -91,5 +93,26 @@ public class JourneyController {
         journeyService.deleteJourney(memberId, journeyId);
 
         return ApiResult.success("알람 삭제 완료");
+    }
+
+    // GPS 좌표 수신 + 상태 전이
+    @PatchMapping("/{journeyId}/location")
+    public ApiResult<LocationUpdateResponse> updateLocation(
+            @MemberId Long memberId,
+            @PathVariable Long journeyId,
+            @Valid @RequestBody LocationUpdateRequest request) {
+        LocationUpdateResponse response = journeyService.updateLocation(memberId, journeyId, request);
+
+        return ApiResult.success("위치 업데이트 완료", response);
+    }
+
+    // 도착 완료 승인 (DEPARTING 상태에서 목적지 100m 이내 확인 시)
+    @PatchMapping("/{journeyId}/arrive")
+    public ApiResult<Void> arrive(
+            @MemberId Long memberId,
+            @PathVariable Long journeyId) {
+        journeyService.arrive(memberId, journeyId);
+
+        return ApiResult.success("도착 확인 완료");
     }
 }

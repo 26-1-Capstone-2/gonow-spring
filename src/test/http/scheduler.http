@@ -1,0 +1,97 @@
+### ================================================================
+### 스케줄러 테스트 시나리오
+### 순서대로 실행: 1 → 2 → 3 → (1분 대기) → 4, 5로 READY 전환 확인
+### ================================================================
+
+
+### ================================================================
+### 1. 회원가입
+### ================================================================
+
+### 1. 회원가입 → 200, { data: null }
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "scheduler_test@cau.ac.kr",
+  "password": "test1234!",
+  "nickname": "스케줄러테스터",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+
+### ================================================================
+### 2. 로그인 → accessToken 발급
+### ================================================================
+
+### 2. 로그인 → 200, { data: { id, jwt_token } }
+# @no-log
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "scheduler_test@cau.ac.kr",
+  "password": "test1234!"
+}
+
+> {% client.global.set("accessToken", response.body.data.access_token) %}
+
+
+### ================================================================
+### 3. 오늘 날짜로 여정/그룹 알람 생성 → SCHEDULED 상태로 생성됨
+### ================================================================
+
+### 3-1. 개인 여정 생성 (오늘 날짜) → 200, { data: { journey_id, journey_status: SCHEDULED } }
+# plan_date = 오늘 → SCHEDULED 상태로 생성
+# 스케줄러 실행 후 READY로 전환되는지 확인용
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "스케줄러 테스트 여정",
+  "plan_date": "2026-05-17",
+  "target_time": "2026-05-17T22:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+### 3-2. 그룹 알람 생성 (오늘 날짜) → 200, { data: { appointment_id, invite_code } }
+# 방장 Participant도 SCHEDULED 상태로 동시 생성됨
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "스케줄러 테스트 약속",
+  "plan_date": "2026-05-17",
+  "target_time": "2026-05-17T19:00:00",
+  "dest_name": "홍대입구역 2번 출구",
+  "dest_address": "서울특별시 마포구 양화로 160",
+  "dest_lat": 37.55763,
+  "dest_lng": 126.92525,
+  "transport_type": "TRANSIT"
+}
+
+
+### ================================================================
+### 4. 스케줄러 실행 후 상태 확인 (1분 대기 후 실행)
+### ================================================================
+
+### 4-1. 여정 상세 조회 → journey_status가 READY로 바뀌었는지 확인
+# {journeyId}를 3-1번 응답의 journey_id로 교체
+GET {{baseUrl}}/api/journeys/1
+Authorization: Bearer {{accessToken}}
+
+### 4-2. 그룹 알람 상세 조회 → participants의 status가 READY로 바뀌었는지 확인
+# {appointmentId}를 3-2번 응답의 appointment_id로 교체
+GET {{baseUrl}}/api/appointments/1
+Authorization: Bearer {{accessToken}}

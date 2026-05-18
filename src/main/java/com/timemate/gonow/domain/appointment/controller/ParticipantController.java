@@ -1,8 +1,10 @@
 package com.timemate.gonow.domain.appointment.controller;
 
 import com.timemate.gonow.domain.appointment.dto.ParticipantActiveUpdateRequest;
+import com.timemate.gonow.domain.appointment.dto.ParticipantLocationUpdateResponse;
 import com.timemate.gonow.domain.appointment.dto.ParticipantTransportUpdateRequest;
 import com.timemate.gonow.domain.appointment.service.ParticipantService;
+import com.timemate.gonow.domain.common.dto.LocationUpdateRequest;
 import com.timemate.gonow.global.auth.MemberId;
 import com.timemate.gonow.global.response.ApiResult;
 import jakarta.validation.Valid;
@@ -46,5 +48,27 @@ public class ParticipantController {
         participantService.deleteParticipant(memberId, appointmentId, targetMemberId);
 
         return ApiResult.success("참가자 삭제 완료");
+    }
+
+
+    // GPS 좌표 수신 + 상태 전이
+    @PatchMapping("/location")
+    public ApiResult<ParticipantLocationUpdateResponse> updateLocation(
+            @MemberId Long memberId,
+            @PathVariable Long appointmentId,
+            @Valid @RequestBody LocationUpdateRequest request) {
+        ParticipantLocationUpdateResponse response = participantService.updateLocation(memberId, appointmentId, request);
+
+        return ApiResult.success("위치 업데이트 완료", response);
+    }
+
+    // 도착 확인 (NEARDEST 상태에서 사용자 확인 시 ARRIVED 전환)
+    @PatchMapping("/arrive")
+    public ApiResult<Void> arrive(
+            @MemberId Long memberId,
+            @PathVariable Long appointmentId) {
+        participantService.arrive(memberId, appointmentId);
+
+        return ApiResult.success("도착 확인 완료");
     }
 }
