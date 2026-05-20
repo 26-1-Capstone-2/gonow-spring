@@ -66,8 +66,7 @@ public class Journey {
     @Column(nullable = false)
     private LocalDateTime targetTime; // 목표 시간 (NOT NULL)
 
-    // TODO: 플라스크 연동 후 NOT NULL로 변경 예정
-    private LocalDateTime departureAlarmTime; // 출발 알람 시각
+    private LocalDateTime departureAlarmTime; // 출발 알람 시각 (SCHEDULED 상태에서는 null, READY 최초 GPS 수신 시 플라스크 호출로 확정)
 
     private LocalDateTime estimatedArrival; // 도착 예정 시간
 
@@ -138,6 +137,12 @@ public class Journey {
     // 상태 전이
     public void updateStatus(JourneyStatus status) {
         this.journeyStatus = status;
+    }
+
+    // 플라스크 계산 결과 저장
+    public void updateAlarmInfo(LocalDateTime departureAlarmTime, LocalDateTime estimatedArrival) {
+        this.departureAlarmTime = departureAlarmTime;
+        this.estimatedArrival = estimatedArrival;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

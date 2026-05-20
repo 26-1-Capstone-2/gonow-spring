@@ -5,6 +5,7 @@ import com.timemate.gonow.domain.appointment.entity.Appointment;
 import com.timemate.gonow.domain.appointment.entity.Participant;
 import com.timemate.gonow.domain.common.constant.TransportType;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,6 +16,8 @@ public record AppointmentResponse(
         LocalDateTime targetTime,
         String destName,
         String destAddress,
+        BigDecimal destLat,
+        BigDecimal destLng,
         String inviteCode,
         AppointmentStatus appointmentStatus,
         List<ParticipantInfo> participants
@@ -42,6 +45,8 @@ public record AppointmentResponse(
                 appointment.getTargetTime(),
                 appointment.getDestination().name(),
                 appointment.getDestination().address(),
+                appointment.getDestination().point().lat(),
+                appointment.getDestination().point().lng(),
                 appointment.getInviteCode(),
                 appointment.getAppointmentStatus(),
                 participantInfos

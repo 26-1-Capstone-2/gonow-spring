@@ -73,7 +73,7 @@
 | 현재 위도 | current_lat | DECIMAL(10, 8) | - | 유저의 실시간 위도 |
 | 현재 경도 | current_lng | DECIMAL(11, 8) | - | 유저의 실시간 경도 |
 | 도착 예정 시간 | estimated_arrival | DATETIME | - | 서버가 계산한 도착 예정 시간 |
-| 출발 알람 시각 | departure_alarm_time | DATETIME | - (→ 플라스크 연동 후 NOT NULL로 변경 예정) | 서버가 계산한 출발 알람 시각 |
+| 출발 알람 시각 | departure_alarm_time | DATETIME | - (SCHEDULED 상태에서는 null, READY 최초 GPS 수신 시 확정) | 서버가 계산한 출발 알람 시각 |
 | 이동 수단 | transport_type | ENUM | NOT NULL | DRIVING(자가용), TRANSIT(대중교통) |
 | 참여자 상태 | status | ENUM | NOT NULL, DEFAULT 'SCHEDULED' | SCHEDULED(예약), READY(대기), DEPARTING(출발 준비), MOVING(이동 중), ARRIVED(도착) |
 | 알람 활성화 여부 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | 개인 알람 ON/OFF |
@@ -103,7 +103,7 @@
 | 막차 여부 | is_last_mode | BOOLEAN | NOT NULL | TRUE면 막차 시간 기준, FALSE면 직접 입력 기준 |
 | 목표 시간 | target_time | DATETIME | NOT NULL | 직접 입력값 혹은 API로 가져온 막차 시각 |
 | 도착 예정 시간 | estimated_arrival | DATETIME | - | 서버가 계산한 도착 예정 시간 |
-| 출발 알람 시각 | departure_alarm_time | DATETIME | - (→ 플라스크 연동 후 NOT NULL로 변경 예정) | 서버가 계산한 출발 알람 시각 |
+| 출발 알람 시각 | departure_alarm_time | DATETIME | - (SCHEDULED 상태에서는 null, READY 최초 GPS 수신 시 확정) | 서버가 계산한 출발 알람 시각 |
 | 반복 요일 | repeat_days | INT | NOT NULL | 요일 반복 비트마스크 (0: 반복 안 함) |
 | 여정 알람 스위치 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | 여정 활성화 ON/OFF |
 | 여정 상태 | status | ENUM | NOT NULL, DEFAULT 'SCHEDULED' | SCHEDULED(예약), READY(대기), DEPARTING(출발 준비), MOVING(이동 중), ARRIVED(도착) |

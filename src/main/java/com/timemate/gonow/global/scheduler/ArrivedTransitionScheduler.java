@@ -14,7 +14,8 @@ public class ArrivedTransitionScheduler {
 
     private final ArrivedTransitionService arrivedTransitionService;
 
-    // 매 1분마다: DEPARTING + targetTime 초과 + 목적지 100m 이내 → 자동 ARRIVED
+    // 매 1분마다: NEARDEST + targetTime 초과 → 자동 ARRIVED
+    // 반복 여정 포함
     @Scheduled(cron = "0 * * * * *")
     public void transitionToArrived() {
         LocalDateTime now = LocalDateTime.now();

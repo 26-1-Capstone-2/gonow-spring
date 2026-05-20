@@ -20,7 +20,9 @@ public class ReadyTransitionService {
     // 하나의 트랜잭션으로 Journey + Participant 동시 전환
     @Transactional
     public void transitionToReady(LocalDate today) {
-        int journeyCount = journeyRepository.bulkUpdateToReady(today);
+        int todayBit = 1 << (today.getDayOfWeek().getValue() - 1);
+        int journeyCount = journeyRepository.bulkUpdateToReady(today, todayBit);
+
         int participantCount = participantRepository.bulkUpdateToReady(today);
         log.info("[스케줄러] READY 전환 완료 - 여정: {}건, 참가자: {}건", journeyCount, participantCount);
     }

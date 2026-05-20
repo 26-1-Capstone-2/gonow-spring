@@ -3,6 +3,7 @@ package com.timemate.gonow.domain.appointment.service;
 import com.timemate.gonow.domain.appointment.constant.AppointmentStatus;
 import com.timemate.gonow.domain.appointment.constant.ParticipantStatus;
 import com.timemate.gonow.domain.appointment.dto.ParticipantActiveUpdateRequest;
+import com.timemate.gonow.domain.appointment.dto.ParticipantArriveResponse;
 import com.timemate.gonow.domain.appointment.dto.ParticipantLocationUpdateResponse;
 import com.timemate.gonow.domain.appointment.dto.ParticipantTransportUpdateRequest;
 import com.timemate.gonow.domain.appointment.entity.Appointment;
@@ -11,12 +12,18 @@ import com.timemate.gonow.domain.appointment.repository.ParticipantRepository;
 import com.timemate.gonow.domain.common.Point;
 import com.timemate.gonow.domain.common.constant.GeoConstants;
 import com.timemate.gonow.domain.common.dto.LocationUpdateRequest;
+import com.timemate.gonow.domain.member.entity.MemberSetting;
+import com.timemate.gonow.domain.member.repository.MemberSettingRepository;
+import com.timemate.gonow.global.client.FlaskClient;
+import com.timemate.gonow.global.client.dto.FlaskParticipantRequest;
+import com.timemate.gonow.global.client.dto.FlaskResponse;
 import com.timemate.gonow.global.util.GeoUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -24,6 +31,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ParticipantService {
     private final ParticipantRepository participantRepository;
+    private final MemberSettingRepository memberSettingRepository;
+    private final FlaskClient flaskClient;
 
     // 개인 알람 스위치 ON/OFF (본인만)
     @Transactional
@@ -85,127 +94,96 @@ public class ParticipantService {
         BigDecimal newLng = request.lng();
         Point newPoint = new Point(newLat, newLng);
 
+        // 목적지까지의 거리
+        double distToDest = GeoUtils.calculateDistance(
+                newLat.doubleValue(), newLng.doubleValue(),
+                appointment.getDestination().point().lat().doubleValue(),
+                appointment.getDestination().point().lng().doubleValue()
+        );
+        // 앵커로부터의 거리
+        double distFromAnchor = participant.getCurrentPos() == null ? -1 :
+                GeoUtils.calculateDistance(
+                        newLat.doubleValue(), newLng.doubleValue(),
+                        participant.getCurrentPos().lat().doubleValue(),
+                        participant.getCurrentPos().lng().doubleValue()
+                );
+
+        boolean isNearDest = distToDest < GeoConstants.ARRIVAL_THRESHOLD_METERS; // 목적지 100m 이내?
+
         switch (participant.getParticipantStatus()) {
             case READY -> {
-                double distToDest = GeoUtils.calculateDistance(
-                        newLat.doubleValue(), newLng.doubleValue(),
-                        appointment.getDestination().point().lat().doubleValue(),
-                        appointment.getDestination().point().lng().doubleValue()
-                );
+                boolean isFirstReceive = (distFromAnchor == -1); // 첫 좌표 수신?
+                boolean isOutOfAnchor = (distFromAnchor >= GeoConstants.RECOMPUTE_THRESHOLD_METERS); // 앵커 500m 이탈?
 
-                if (distToDest < GeoConstants.ARRIVAL_THRESHOLD_METERS) {
-                    // 1. NEARDEST 우선: 목적지 100m 이내 → 도착 확인 대기
+                // 앵커 갱신 및 Q 계산이 필요한 조건 통합 (isPastAlarmTime 계산 전에 반드시 실행)
+                if (isNearDest || isFirstReceive || isOutOfAnchor) {
                     participant.updateCurrentPos(newPoint);
+                    callFlaskAndUpdate(participant, appointment, newPoint, memberId);
+                }
+
+                boolean isPastAlarmTime = !LocalDateTime.now().isBefore(participant.getDepartureAlarmTime()); // P >= Q?
+
+                if (isNearDest) {
+                    // 100m 이내 -> NEARDEST
                     participant.updateStatus(ParticipantStatus.NEARDEST);
-                //} else if (P >= Q) {
-                //    // 2. TODO: DEPARTING 전환 + 앵커 확정 (플라스크 연동 후 departureAlarmTime 채워지면 활성화)
-                } else if (participant.getCurrentPos() == null) {
-                    // 3. 최초 좌표 수신 → 앵커 저장
-                    participant.updateCurrentPos(newPoint);
-                } else {
-                    // 4. 앵커 존재 → 500m 이탈 시 앵커 갱신
-                    double distFromAnchor = GeoUtils.calculateDistance(
-                            newLat.doubleValue(), newLng.doubleValue(),
-                            participant.getCurrentPos().lat().doubleValue(),
-                            participant.getCurrentPos().lng().doubleValue()
-                    );
-                    if (distFromAnchor >= GeoConstants.RECOMPUTE_THRESHOLD_METERS) {
-                        participant.updateCurrentPos(newPoint);
-                        // TODO: 플라스크 호출 → ETA 계산 → departureAlarmTime 재계산
-                    }
-                    // 500m 미만이면 좌표 갱신 안 함 (앵커 보존)
+                } else if (isPastAlarmTime) {
+                    // P >= Q → DEPARTING
+                    participant.updateStatus(ParticipantStatus.DEPARTING);
                 }
-            }
-            case DEPARTING -> {
-                double distToDest = GeoUtils.calculateDistance(
-                        newLat.doubleValue(), newLng.doubleValue(),
-                        appointment.getDestination().point().lat().doubleValue(),
-                        appointment.getDestination().point().lng().doubleValue()
-                );
-
-                if (distToDest < GeoConstants.ARRIVAL_THRESHOLD_METERS) {
-                    // 출발 알람 후 이동 중 100m 진입 → 바로 ARRIVED (도착 확인 불필요)
-                    participant.updateCurrentPos(newPoint);
-                    participant.updateStatus(ParticipantStatus.ARRIVED);
-                    // ARRIVED 시 Appointment ACTIVE + 전원 도착 시 FINISHED
-                    if (appointment.getAppointmentStatus() == AppointmentStatus.WAITING) {
-                        appointment.updateStatus(AppointmentStatus.ACTIVE);
-                    }
-                    if (participantRepository.countNotArrivedByAppointmentId(appointmentId) == 0) {
-                        appointment.updateStatus(AppointmentStatus.FINISHED);
-                    }
-                } else {
-                    double distFromAnchor = GeoUtils.calculateDistance(
-                            newLat.doubleValue(), newLng.doubleValue(),
-                            participant.getCurrentPos().lat().doubleValue(),
-                            participant.getCurrentPos().lng().doubleValue()
-                    );
-                    if (distFromAnchor >= GeoConstants.DEPARTURE_THRESHOLD_METERS) {
-                        // 앵커로부터 300m 이탈 → MOVING
-                        participant.updateCurrentPos(newPoint);
-                        participant.updateStatus(ParticipantStatus.MOVING);
-                        // MOVING 시 Appointment ACTIVE로 전환
-                        if (appointment.getAppointmentStatus() == AppointmentStatus.WAITING) {
-                            appointment.updateStatus(AppointmentStatus.ACTIVE);
-                        }
-                    }
-                    // 300m 미만이면 DEPARTING 유지, 좌표 갱신 안 함 (앵커 보존)
-                }
-            }
-            case MOVING -> {
-                double distToDest = GeoUtils.calculateDistance(
-                        newLat.doubleValue(), newLng.doubleValue(),
-                        appointment.getDestination().point().lat().doubleValue(),
-                        appointment.getDestination().point().lng().doubleValue()
-                );
-
-                participant.updateCurrentPos(newPoint);
-                // TODO: 플라스크 호출 → ETA 재계산 → estimatedArrival 갱신 (대시보드용)
-
-                if (distToDest < GeoConstants.ARRIVAL_THRESHOLD_METERS) {
-                    // 이동 중 목적지 100m 이내 진입 → 바로 ARRIVED (도착 확인 불필요)
-                    participant.updateStatus(ParticipantStatus.ARRIVED);
-                    // ARRIVED 시 Appointment ACTIVE + 전원 도착 시 FINISHED
-                    if (appointment.getAppointmentStatus() == AppointmentStatus.WAITING) {
-                        appointment.updateStatus(AppointmentStatus.ACTIVE);
-                    }
-                    if (participantRepository.countNotArrivedByAppointmentId(appointmentId) == 0) {
-                        appointment.updateStatus(AppointmentStatus.FINISHED);
-                    }
-                }
+                // P < Q → READY 유지
             }
             case NEARDEST -> {
-                double distToDest = GeoUtils.calculateDistance(
-                        newLat.doubleValue(), newLng.doubleValue(),
-                        appointment.getDestination().point().lat().doubleValue(),
-                        appointment.getDestination().point().lng().doubleValue()
-                );
+                boolean isPastAlarmTime = !LocalDateTime.now().isBefore(participant.getDepartureAlarmTime()); // P >= Q?
 
-                if (distToDest >= GeoConstants.ARRIVAL_THRESHOLD_METERS) {
-                    // 100m 벗어남 (스쳐지나간 케이스)
+                if (!isNearDest && !isPastAlarmTime) {
+                    // 100m 벗어남 + P < Q → READY 복귀 (스쳐지나간 케이스)
                     participant.updateCurrentPos(newPoint);
-                    //if (P >= Q) {
-                    // TODO: DEPARTING 전환 (플라스크 연동 후 departureAlarmTime 채워지면 활성화)
-                    //} else {
                     participant.updateStatus(ParticipantStatus.READY);
-                    //}
+                    callFlaskAndUpdate(participant, appointment, newPoint, memberId); // Q 재계산
                 }
-                // 100m 이내면 NEARDEST 유지, 좌표 갱신 안 함
+                // P >= Q면 100m 벗어나도 NEARDEST 고정 (알람 울리는 중)
                 // - 사용자 확인 → /arrive API → ARRIVED
-                // - 미확인 + P >= Q → 앱이 단계별 알람 처리 (서버 상태 변경 없음)
-                // - 미확인 + targetTime 초과 → ArrivedTransitionScheduler가 자동 ARRIVED
+                // - targetTime 초과 → ArrivedTransitionScheduler가 자동 ARRIVED
+            }
+            case DEPARTING -> {
+                boolean isDepartedFromAnchor = (distFromAnchor >= GeoConstants.DEPARTURE_THRESHOLD_METERS);
+
+                if (isNearDest) {
+                    // 100m 진입 → ARRIVED
+                    participant.updateCurrentPos(newPoint);
+
+                    participant.updateStatus(ParticipantStatus.ARRIVED);
+                    finishAppointment(appointment);
+                } else if (isDepartedFromAnchor) {
+                    // 300m 이탈 → MOVING
+                    participant.updateCurrentPos(newPoint);
+
+                    participant.updateStatus(ParticipantStatus.MOVING);
+                    activateAppointment(appointment);
+                }
+                // 300m 미만이면 DEPARTING 유지, 앵커 보존
+            }
+            case MOVING -> {
+                participant.updateCurrentPos(newPoint); // 대시보드용 위치 갱신
+                callFlaskAndUpdate(participant, appointment, newPoint, memberId); // ETA 재계산
+
+                if (isNearDest) {
+                    // 100m 진입 → ARRIVED
+                    participant.updateStatus(ParticipantStatus.ARRIVED);
+                    finishAppointment(appointment);
+                }
             }
             default -> {
                 // SCHEDULED, ARRIVED 상태에서는 무시
             }
         }
 
-        return ParticipantLocationUpdateResponse.from(participant);
+        return ParticipantLocationUpdateResponse.from(participant, appointment);
     }
 
     // 도착 확인 (사용자가 확인 버튼 눌렀을 때 ARRIVED로 전환)
     @Transactional
-    public void arrive(Long memberId, Long appointmentId) {
+    public ParticipantArriveResponse arrive(Long memberId, Long appointmentId) {
         Participant participant = participantRepository.findWithAppointmentByAppointmentIdAndMemberId(appointmentId, memberId)
                 .orElseThrow(() -> new IllegalArgumentException("해당 약속의 참여자가 아닙니다."));
 
@@ -214,15 +192,46 @@ public class ParticipantService {
         }
 
         Appointment appointment = participant.getAppointment();
-        participant.updateStatus(ParticipantStatus.ARRIVED);
 
-        // ARRIVED 시 Appointment ACTIVE + 전원 도착 시 FINISHED
+        participant.updateStatus(ParticipantStatus.ARRIVED);
+        finishAppointment(appointment);
+
+        return ParticipantArriveResponse.from(appointment);
+    }
+
+    // WAITING → ACTIVE 전환
+    private void activateAppointment(Appointment appointment) {
         if (appointment.getAppointmentStatus() == AppointmentStatus.WAITING) {
             appointment.updateStatus(AppointmentStatus.ACTIVE);
         }
-        if (participantRepository.countNotArrivedByAppointmentId(appointmentId) == 0) {
+    }
+
+    // ACTIVE → FINISHED 전환 (전원 ARRIVED 시)
+    private void finishAppointment(Appointment appointment) {
+        activateAppointment(appointment);
+
+        if (participantRepository.countNotArrivedByAppointmentId(appointment.getId()) == 0) {
             appointment.updateStatus(AppointmentStatus.FINISHED);
         }
+    }
+
+    // 플라스크 호출 → departureAlarmTime + estimatedArrival 저장
+    private void callFlaskAndUpdate(Participant participant, Appointment appointment, Point currentPoint, Long memberId) {
+        MemberSetting setting = memberSettingRepository.findByMemberId(memberId).orElseThrow(
+                () -> new IllegalArgumentException("존재하지 않는 회원 설정입니다."));
+
+        FlaskParticipantRequest request = new FlaskParticipantRequest(
+                currentPoint.lat(),
+                currentPoint.lng(),
+                appointment.getDestination().point().lat(),
+                appointment.getDestination().point().lng(),
+                participant.getTransportType(),
+                appointment.getTargetTime(),
+                setting.getPreparationTime()
+        );
+
+        FlaskResponse response = flaskClient.calculateParticipantAlarm(request);
+        participant.updateAlarmInfo(response.departureAlarmTime(), response.estimatedArrival());
     }
 
 }

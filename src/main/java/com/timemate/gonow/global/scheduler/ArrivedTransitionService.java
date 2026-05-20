@@ -33,7 +33,8 @@ public class ArrivedTransitionService {
         LocalDate today = now.toLocalDate();
 
         // [Journey] NEARDEST + targetTime 초과 → ARRIVED
-        List<Long> journeyIds = journeyRepository.findIdsNeardestOverdue(planDate, now);
+        int planDateBit = 1 << (planDate.getDayOfWeek().getValue() - 1);
+        List<Long> journeyIds = journeyRepository.findIdsNeardestOverdue(planDate, now, planDateBit);
         if (!journeyIds.isEmpty()) {
             int count = journeyRepository.bulkUpdateToArrived(journeyIds);
             log.info("[스케줄러] 여정 자동 ARRIVED 전환 완료 - {}건", count);

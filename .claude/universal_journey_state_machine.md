@@ -1,4 +1,4 @@
-# 🛰️ Gonow: Universal Journey State Machine Specification (v1.4)
+# 🛰️ Gonow: Universal Journey State Machine Specification (v1.5)
 
 본 문서는 **Gonow** 서비스의 핵심 엔진인 **여정 상태 머신 (Journey State Machine)** 의 구조와 전역 비즈니스 로직을 정의합니다. 본 체계는 `PERSONAL`, `HOME (막차)`, `GROUP` 모든 모드에 공통 적용되는 핵심 아키텍처입니다.
 
@@ -15,23 +15,24 @@ GPS는 지오펜싱 대신 **주기적 폴링(N초마다)** 방식을 사용한�
 
 ```
 SCHEDULED ──(새벽 4시 스케줄러)──▶ READY
-                                      │
-                    ┌─────────────────┤
-                    │ distToDest<100m │ P>=Q (플라스크 연동 후)
-                    ▼                 ▼
-                NEARDEST ◀──────── DEPARTING
-                    │    100m 벗어남+P>=Q  │       │
-          확인버튼  │                      │       │ distFromAnchor
-                    │  distToDest < 100m   │       │   >= 300m
-                    ▼                      ▼       ▼
-                 ARRIVED               ARRIVED   MOVING
-                    ▲                              │
-                    │              distToDest      │
-                    └──────────────< 100m ─────────┘
+  ▲  반복여정: ARRIVED도 READY로        │
+  │                    ┌───────────────┤
+  │                    │ distToDest    │ P>=Q
+  │                    │ <100m         ▼
+  │                NEARDEST        DEPARTING
+  │                    │               │       │
+  │    P<Q+100m 벗어남 │               │       │ distFromAnchor
+  └───────────────────┘│  distToDest   │       │   >= 300m
+          확인버튼 또는 │  < 100m       │       ▼
+          targetTime초과▼              ▼     MOVING
+                    ARRIVED        ARRIVED     │
+                       ▲                       │
+                       └───── distToDest<100m ─┘
 
 NEARDEST: targetTime 초과 → ArrivedTransitionScheduler → ARRIVED
-NEARDEST: 100m 벗어남 + P < Q → READY 복귀
-NEARDEST: 100m 벗어남 + P >= Q → DEPARTING (플라스크 연동 후)
+NEARDEST: P < Q + 100m 벗어남 → READY 복귀
+NEARDEST: P >= Q → 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방어)
+반복 여정: ARRIVED → 다음 반복 요일 새벽 4시 → READY (SCHEDULED 생략)
 ```
 
 ---
@@ -49,11 +50,10 @@ NEARDEST: 100m 벗어남 + P >= Q → DEPARTING (플라스크 연동 후)
   - 이후 앵커로부터 500m 이탈 시에만 앵커 갱신 + 플라스크 호출 (500m 미만이면 좌표 갱신 안 함)
   - **500m 단위 앵커 보존 이유:** N초마다 좌표를 갱신하면 기준점이 계속 바뀌어 500m 이탈 감지 불가
 - **전환 조건 (우선순위 순):**
-  1. `distToDest < 100m` → `NEARDEST` (최우선)
-  2. `P >= Q` → `DEPARTING` (플라스크 연동 후 구현)
-  3. `currentPoint == null` → 최초 앵커 저장
-  4. `distFromAnchor >= 500m` → 앵커 갱신 + 플라스크 호출 (TODO)
-- **TODO:** 500m 이탈 시 플라스크 호출 → ETA 계산 → `departureAlarmTime` 재계산
+  1. `distToDest < 100m` → `NEARDEST` (최우선, 플라스크 호출 + 앵커 저장 포함)
+  2. `currentPoint == null` → 최초 앵커 저장 + 플라스크 호출
+  3. `distFromAnchor >= 500m` → 앵커 갱신 + 플라스크 호출
+  4. 위 조건 후 `P >= Q` → `DEPARTING`
 
 ### ② DEPARTING (출발 준비 상태)
 - **정의:** 출발 알람(`departureAlarmTime`)이 도달하여 사용자 외출을 유도하는 단계
@@ -67,17 +67,16 @@ NEARDEST: 100m 벗어남 + P >= Q → DEPARTING (플라스크 연동 후)
 ### ③ MOVING (실시간 이동 상태)
 - **정의:** 출발지 앵커로부터 300m 이탈이 확인된 이동 중 상태
 - **알람:** 단계별 알람 중단
-- **그룹 특화:** 대시보드에 ETA(`estimatedArrival`) 표시
+- **그룹 특화:** 대시보드에 ETA(`estimatedArrival`) 표시, 매 GPS 수신마다 플라스크 호출 → ETA 갱신
 - **전환 조건:** `distToDest < 100m` → `ARRIVED`
-- **TODO:** 플라스크 호출 → ETA 재계산 → `estimatedArrival` 갱신 (대시보드용)
 
 ### ④ NEARDEST (목적지 근처 도착 확인 대기 상태)
 - **정의:** `READY` 상태에서 목적지 100m 이내 도달 시 진입. 도착 확인 대기 중.
 - **진입 경로:** `READY → NEARDEST` (일찍 출발해서 목적지 근처 도달)
 - **좌표 수신 시 처리:**
-  - `distToDest < 100m` → `NEARDEST` 유지 (좌표 갱신 안 함)
-  - `distToDest >= 100m + P < Q` → `READY` 복귀 (스쳐지나간 케이스)
-  - `distToDest >= 100m + P >= Q` → `DEPARTING` 전환 (플라스크 연동 후 구현)
+  - `distToDest < 100m` → `NEARDEST` 유지
+  - `distToDest >= 100m + P < Q` → `READY` 복귀 + Q 재계산 (스쳐지나간 케이스)
+  - `distToDest >= 100m + P >= Q` → `NEARDEST` 고정 (알람 울리는 중, 방향 감각 상실 방어)
 - **전환 조건:**
   - 사용자 확인(`/arrive` API 호출) → `ARRIVED`
   - `targetTime` 초과 → `ArrivedTransitionScheduler` 자동 `ARRIVED`
@@ -86,6 +85,7 @@ NEARDEST: 100m 벗어남 + P >= Q → DEPARTING (플라스크 연동 후)
 ### ⑤ ARRIVED (여정 완료 상태)
 - **정의:** 최종 목적지에 도착하여 모든 트래킹 종료
 - **그룹 특화:** 모든 참가자 `ARRIVED` → `Appointment` 상태 `FINISHED`
+- **반복 여정:** 다음 반복 요일 새벽 4시 스케줄러가 `ARRIVED` → `READY` 직접 전환
 
 ---
 
@@ -128,17 +128,26 @@ NEARDEST: 100m 벗어남 + P >= Q → DEPARTING (플라스크 연동 후)
 ### 스케줄러
 | 스케줄러 | 주기 | 역할 |
 |---|---|---|
-| `ReadyTransitionScheduler` | 매일 새벽 4시 | 당일 `SCHEDULED` → `READY` 벌크 전환 |
+| `ReadyTransitionScheduler` | 매일 새벽 4시 | 당일 `SCHEDULED` → `READY` 벌크 전환 + 반복 여정 `ARRIVED` → `READY` 직접 전환 |
 | `ArrivedTransitionScheduler` | 매 1분 | `NEARDEST` + 오늘 날짜 + `targetTime` 초과 → 자동 `ARRIVED` |
+
+### 반복 여정 사이클
+```
+최초 생성 → SCHEDULED
+새벽 4시 → READY (plan_date <= 오늘 + 오늘 요일이 repeatDays에 포함)
+당일 완료 → ARRIVED
+다음 반복 요일 새벽 4시 → ARRIVED → READY (SCHEDULED 단계 생략)
+```
 
 ### 상태 전이 트리거 요약
 | 전이 | 트리거 | 주체 |
 |---|---|---|
 | `SCHEDULED → READY` | 당일 새벽 4시 | 서버 스케줄러 |
+| `ARRIVED → READY` | 다음 반복 요일 새벽 4시 (반복 여정) | 서버 스케줄러 |
 | `READY → NEARDEST` | `distToDest < 100m` | 서버 (좌표 수신 시) |
-| `READY → DEPARTING` | `P >= Q` | 서버 (플라스크 연동 후) |
+| `READY → DEPARTING` | `P >= Q` | 서버 (좌표 수신 시) |
 | `NEARDEST → READY` | `distToDest >= 100m + P < Q` | 서버 (좌표 수신 시) |
-| `NEARDEST → DEPARTING` | `distToDest >= 100m + P >= Q` | 서버 (플라스크 연동 후) |
+| `NEARDEST → NEARDEST 고정` | `P >= Q` (100m 벗어나도 유지) | 서버 (좌표 수신 시) |
 | `NEARDEST → ARRIVED` | 사용자 확인 | 앱 → `/arrive` API |
 | `NEARDEST → ARRIVED` | `targetTime` 초과 | 서버 스케줄러 |
 | `DEPARTING → ARRIVED` | `distToDest < 100m` (이동 중) | 서버 (좌표 수신 시) |

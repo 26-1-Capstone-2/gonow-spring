@@ -1,6 +1,7 @@
 package com.timemate.gonow.domain.appointment.controller;
 
 import com.timemate.gonow.domain.appointment.dto.ParticipantActiveUpdateRequest;
+import com.timemate.gonow.domain.appointment.dto.ParticipantArriveResponse;
 import com.timemate.gonow.domain.appointment.dto.ParticipantLocationUpdateResponse;
 import com.timemate.gonow.domain.appointment.dto.ParticipantTransportUpdateRequest;
 import com.timemate.gonow.domain.appointment.service.ParticipantService;
@@ -64,11 +65,11 @@ public class ParticipantController {
 
     // 도착 확인 (NEARDEST 상태에서 사용자 확인 시 ARRIVED 전환)
     @PatchMapping("/arrive")
-    public ApiResult<Void> arrive(
+    public ApiResult<ParticipantArriveResponse> arrive(
             @MemberId Long memberId,
             @PathVariable Long appointmentId) {
-        participantService.arrive(memberId, appointmentId);
+        ParticipantArriveResponse response = participantService.arrive(memberId, appointmentId);
 
-        return ApiResult.success("도착 확인 완료");
+        return ApiResult.success("도착 확인 완료", response);
     }
 }

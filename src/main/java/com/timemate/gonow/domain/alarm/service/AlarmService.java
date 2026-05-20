@@ -27,8 +27,11 @@ public class AlarmService {
     public List<AlarmResponse> getAlarmsByDate(Long memberId, LocalDate date) {
         List<AlarmResponse> result = new ArrayList<>();
 
-        // 날짜별 개인 + 귀가 알람 조회
-        journeyRepository.findAllByPlanDate(memberId, date)
+        // 요일 비트마스크 계산 (월:1, 화:2, 수:4, 목:8, 금:16, 토:32, 일:64)
+        int dateBit = 1 << (date.getDayOfWeek().getValue() - 1);
+
+        // 날짜별 개인 + 귀가 알람 조회 (반복 여정 포함)
+        journeyRepository.findAllByPlanDate(memberId, date, dateBit)
                 .forEach(j -> result.add(toJourneyResponse(j)));
 
         // 날짜별 그룹 알람 조회

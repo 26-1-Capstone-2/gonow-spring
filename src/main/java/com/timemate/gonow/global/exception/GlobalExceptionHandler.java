@@ -9,15 +9,23 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     // 비즈니스 규칙 위반 (이메일 중복, 비밀번호 불일치 등)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(IllegalArgumentException.class)
     public ApiResult<Void> handleIllegalArgument(IllegalArgumentException e) {
-        // 내가 의도적으로 던진 에러이므로 메시지를 그대로 전달
+        return ApiResult.fail(e.getMessage());
+    }
+
+    // 상태 전이 규칙 위반 (NEARDEST가 아닌데 /arrive 호출 등)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(IllegalStateException.class)
+    public ApiResult<Void> handleIllegalState(IllegalStateException e) {
         return ApiResult.fail(e.getMessage());
     }
 
@@ -34,7 +42,6 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ApiResult<Void> handleHttpMessageNotReadable(HttpMessageNotReadableException e) {
-        log.warn("잘못된 JSON 요청 발생: {}", e.getMessage()); // 개발용 로그
         return ApiResult.fail("요청 데이터 형식이 올바르지 않습니다.");
     }
 
@@ -50,7 +57,16 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ApiResult<Void> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        log.warn("DB 제약 조건 위배: {}", e.getMostSpecificCause().getMessage());
         return ApiResult.fail("DB 제약 조건을 위반했습니다.");
+    }
+
+    // 플라스크 서버 연결 실패 (다운, 타임아웃)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    @ExceptionHandler(ResourceAccessException.class)
+    public ApiResult<Void> handleResourceAccess(ResourceAccessException e) {
+        log.error("경로 계산 서버 연결 실패: {}", e.getMessage());
+        return ApiResult.fail("경로 계산 서버에 일시적 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
     }
 
     // 그 외 예상치 못한 서버 에러

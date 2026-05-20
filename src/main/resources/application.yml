@@ -33,6 +33,9 @@ springdoc:
   swagger-ui:
     path: /docs
 
+flask:
+  url: http://15.164.215.15:5000
+
 scheduler:
   # 새벽 4시: SCHEDULED → READY 전환 기준 시각
   # ArrivedTransitionService의 날짜 보정(day-boundary-hour)과 반드시 동일하게 유지
