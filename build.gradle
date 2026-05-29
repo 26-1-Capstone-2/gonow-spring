@@ -52,6 +52,12 @@ dependencies {
 
     // Swagger (SpringDoc OpenAPI)
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
+
+    // Firebase Admin SDK (파이어베이스 통합 마스터 키)
+    // jackson-dataformat-xml 전이 의존성 제거 — 미포함 시 Spring이 XML 응답을 우선하는 부작용 발생
+    implementation('com.google.firebase:firebase-admin:9.8.0') {
+        exclude group: 'com.fasterxml.jackson.dataformat', module: 'jackson-dataformat-xml'
+    }
 }
 
 tasks.named('test') {

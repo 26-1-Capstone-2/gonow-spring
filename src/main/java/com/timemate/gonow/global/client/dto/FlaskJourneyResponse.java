@@ -2,7 +2,7 @@ package com.timemate.gonow.global.client.dto;
 
 import java.time.LocalDateTime;
 
-public record FlaskResponse(
+public record FlaskJourneyResponse(
         LocalDateTime departureAlarmTime,
-        LocalDateTime estimatedArrival
+        Integer interval
 ) {}

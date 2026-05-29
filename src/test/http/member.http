@@ -1,16 +1,14 @@
 ### ================================================================
-### 헬스 체크
+### member.http — 회원 API 테스트
+### 매 테스트 전 서버를 재기동(DB create)하여 초기화할 것
 ### ================================================================
-
-### 0. Swagger API → 200 "OK"
-GET {{baseUrl}}/docs
 
 
 ### ================================================================
-### 회원가입
+### STEP 1. 회원가입
 ### ================================================================
 
-### 1. 회원가입 → 200, { data: null }
+### 1. 회원가입 → 200 { data: null }
 POST {{baseUrl}}/api/members
 Content-Type: application/json
 
@@ -27,28 +25,27 @@ Content-Type: application/json
 
 
 ### ================================================================
-### 이메일 / 닉네임 중복 확인
+### STEP 2. 이메일/닉네임 중복 확인 (인증 불필요)
 ### ================================================================
 
-### 2-1. 이메일 사용 가능 확인 → 200 "사용 가능한 이메일"
+### 2-1. 사용 가능한 이메일 → 200 "사용 가능한 이메일"
 GET {{baseUrl}}/api/members/check?email=new@cau.ac.kr
 
-### 2-2. 이메일 사용 불가 확인 → 400 "이미 사용 중인 이메일입니다."
+### 2-2. 이미 사용 중인 이메일 → 400
 GET {{baseUrl}}/api/members/check?email=hero@cau.ac.kr
 
-### 2-3. 닉네임 사용 가능 확인 → 200 "사용 가능한 닉네임"
+### 2-3. 사용 가능한 닉네임 → 200 "사용 가능한 닉네임"
 GET {{baseUrl}}/api/members/check?nickname=새닉네임
 
-### 2-4. 닉네임 사용 불가 확인 → 400 "이미 사용 중인 닉네임입니다."
+### 2-4. 이미 사용 중인 닉네임 → 400
 GET {{baseUrl}}/api/members/check?nickname=영웅개발자
 
 
 ### ================================================================
-### 로그인 — 이하 모든 요청의 선행 조건
+### STEP 3. 로그인 → accessToken 자동 저장
 ### ================================================================
 
-### 3. 로그인 → 200, { data: { id, jwt_token } }
-# 사전 조건: 1번(회원가입) 실행 필요
+### 3. 로그인 → 200 { data: { member_id, access_token } }
 POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
@@ -63,21 +60,19 @@ Content-Type: application/json
 
 
 ### ================================================================
-### 내 프로필 조회
+### STEP 4. 내 프로필 조회
 ### ================================================================
 
-### 4. 내 프로필 조회 → 200, { data: { member_id, email, nickname, home_name, home_address, home_lat, home_lng, transit_type, priority_type, preparation_time } }
-# 사전 조건: 3번(로그인) 실행 필요
+### 4. 내 프로필 조회 → 200 { data: { member_id, email, nickname, home_*, transit_type, priority_type, preparation_time } }
 GET {{baseUrl}}/api/members/me
 Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
-### 닉네임 / 비밀번호 변경
+### STEP 5. 회원 정보 변경
 ### ================================================================
 
-### 5-1. 닉네임 변경 → 200
-# 사전 조건: 3번(로그인) 실행 필요
+### 5-1. 닉네임 변경 → 200 { data: null }
 PATCH {{baseUrl}}/api/members/me/nickname
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -86,8 +81,7 @@ Authorization: Bearer {{accessToken}}
   "nickname": "새닉네임"
 }
 
-### 5-2. 비밀번호 변경 → 200
-# 사전 조건: 3번(로그인) 실행 필요
+### 5-2. 비밀번호 변경 → 200 { data: null }
 PATCH {{baseUrl}}/api/members/me/password
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -97,31 +91,28 @@ Authorization: Bearer {{accessToken}}
   "new_password": "newPassword123!"
 }
 
+### 5-3. FCM 토큰 등록/갱신 → 200 { data: null }
+PATCH {{baseUrl}}/api/members/me/fcm-token
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
 
-### ================================================================
-### 귀가지(홈) 등록/수정
-### ================================================================
+{
+  "fcm_token": "eXaMpLeFcMtOkEn123456789"
+}
 
-### 6. 귀가지 등록/수정 → 200, { data: null }
-# 사전 조건: 3번(로그인) 실행 필요
+### 5-4. 귀가지 등록/수정 → 200 { data: null }
 PATCH {{baseUrl}}/api/members/me/home
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "name": "우리집",
-  "address": "서울특별시 동작구 흑석로 84",
-  "lat": 37.50490,
-  "lng": 126.96147
+  "name": "본가",
+  "address": "서울특별시 마포구 양화로 160",
+  "lat": 37.55763,
+  "lng": 126.92525
 }
 
-
-### ================================================================
-### 멤버 설정 변경
-### ================================================================
-
-### 7. 멤버 설정 변경 → 200
-# 사전 조건: 3번(로그인) 실행 필요
+### 5-5. 멤버 설정 변경 → 200 { data: null }
 # transit_type: ALL | SUBWAY | BUS
 # priority_type: MIN_TIME | MIN_TRANSFER | MIN_WALK
 PATCH {{baseUrl}}/api/members/me/setting
@@ -136,15 +127,13 @@ Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
-### 로그아웃 / 회원탈퇴
+### STEP 6. 로그아웃 / 회원탈퇴
 ### ================================================================
 
-### 8. 로그아웃 → 200 (서버는 껍데기, 클라이언트가 토큰 삭제)
-# 사전 조건: 3번(로그인) 실행 필요
+### 6-1. 로그아웃 → 200 (서버 껍데기 — 클라이언트가 토큰 삭제)
 POST {{baseUrl}}/api/auth/logout
 Authorization: Bearer {{accessToken}}
 
-### 9. 회원탈퇴 → 200 (현재 껍데기 — 로그만 찍힘)
-# 사전 조건: 3번(로그인) 실행 필요
+### 6-2. 회원탈퇴 → 200 (현재 껍데기 — 로그만 찍힘)
 DELETE {{baseUrl}}/api/members/me
 Authorization: Bearer {{accessToken}}

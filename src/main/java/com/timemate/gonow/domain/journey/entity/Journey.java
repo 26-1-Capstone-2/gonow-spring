@@ -68,8 +68,6 @@ public class Journey {
 
     private LocalDateTime departureAlarmTime; // 출발 알람 시각 (SCHEDULED 상태에서는 null, READY 최초 GPS 수신 시 플라스크 호출로 확정)
 
-    private LocalDateTime estimatedArrival; // 도착 예정 시간
-
     @Column(nullable = false)
     private int repeatDays; // 반복 요일 (NOT NULL)
 
@@ -83,7 +81,7 @@ public class Journey {
     private JourneyStatus journeyStatus; // 이동 상태 (NOT NULL, DEFAULT 'SCHEDULED')
 
     @Builder
-    private Journey(Member member, String title, JourneyType journeyType, Point currentPoint, Location destination, TransportType transportType, LocalDate planDate, boolean isLastMode, LocalDateTime targetTime, LocalDateTime estimatedArrival, LocalDateTime departureAlarmTime, int repeatDays, Boolean isActive, JourneyStatus journeyStatus) {
+    private Journey(Member member, String title, JourneyType journeyType, Point currentPoint, Location destination, TransportType transportType, LocalDate planDate, boolean isLastMode, LocalDateTime targetTime, LocalDateTime departureAlarmTime, int repeatDays, Boolean isActive, JourneyStatus journeyStatus) {
         this.member = member;
         this.title = title;
         this.journeyType = journeyType;
@@ -93,7 +91,6 @@ public class Journey {
         this.planDate = planDate;
         this.isLastMode = isLastMode;
         this.targetTime = targetTime;
-        this.estimatedArrival = estimatedArrival;
         this.departureAlarmTime = departureAlarmTime;
         this.repeatDays = repeatDays;
         this.isActive = Objects.requireNonNullElse(isActive, true);
@@ -139,10 +136,8 @@ public class Journey {
         this.journeyStatus = status;
     }
 
-    // 플라스크 계산 결과 저장
-    public void updateAlarmInfo(LocalDateTime departureAlarmTime, LocalDateTime estimatedArrival) {
+    public void updateDepartureAlarmTime(LocalDateTime departureAlarmTime) {
         this.departureAlarmTime = departureAlarmTime;
-        this.estimatedArrival = estimatedArrival;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

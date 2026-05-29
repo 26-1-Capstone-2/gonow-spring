@@ -1,28 +1,47 @@
 ### ================================================================
-### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 accessToken을 발급받아야 함
+### place.http — 장소 API 테스트
+### 매 테스트 전 서버를 재기동(DB create)하여 초기화할 것
 ### ================================================================
 
 
 ### ================================================================
-### 장소 저장 (Upsert)
+### STEP 1. 회원가입 + 로그인 (독립 실행용)
 ### ================================================================
 
-### 1-1. 신규 장소 저장 (HOME) → 200, { data: { place_id } }
-# 사전 조건: 로그인 필요
-POST {{baseUrl}}/api/places
+### 1. 회원가입
+POST {{baseUrl}}/api/members
 Content-Type: application/json
-Authorization: Bearer {{accessToken}}
 
 {
-  "place_type": "HOME",
-  "name": "중앙대학교",
-  "address": "서울특별시 동작구 흑석로 84",
-  "lat": 37.50490,
-  "lng": 126.96147
+  "email": "hero@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "영웅개발자",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
 }
 
-### 1-2. 신규 장소 저장 (DEST) → 200
-# 사전 조건: 로그인 필요
+### 2. 로그인 → accessToken 자동 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("accessToken", response.body.data.access_token);
+%}
+
+
+### ================================================================
+### STEP 2. 장소 저장 (Upsert)
+### ================================================================
+
+### 3-1. 목적지 저장 → 200 { data: { place_id } }
 POST {{baseUrl}}/api/places
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -35,8 +54,7 @@ Authorization: Bearer {{accessToken}}
   "lng": 127.02759
 }
 
-### 1-3. 중복 주소 저장 → 200, updatedAt만 갱신 (신규 생성 X)
-# 사전 조건: 1-1번 실행 필요 (동일 주소로 재요청)
+### 3-2. 귀가지 저장 → 200 { data: { place_id } }
 POST {{baseUrl}}/api/places
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -49,32 +67,42 @@ Authorization: Bearer {{accessToken}}
   "lng": 126.96147
 }
 
+### 3-3. 동일 주소 재저장 → 200 { data: { place_id } } (신규 생성 X, updatedAt만 갱신)
+POST {{baseUrl}}/api/places
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "place_type": "DEST",
+  "name": "강남역 1번출구",
+  "address": "서울특별시 강남구 강남대로 396",
+  "lat": 37.49794,
+  "lng": 127.02759
+}
+
 
 ### ================================================================
-### 장소 목록 조회
+### STEP 3. 장소 목록 조회
 ### ================================================================
 
-### 2-1. 전체 조회 (type 미지정) → 200, updatedAt DESC 정렬
-# 사전 조건: 로그인 필요
+### 4-1. 전체 조회 → 200 { data: [...] } updatedAt DESC 정렬
 GET {{baseUrl}}/api/places
 Authorization: Bearer {{accessToken}}
 
-### 2-2. HOME 타입만 조회 → 200
-# 사전 조건: 로그인 필요
-GET {{baseUrl}}/api/places?place_type=HOME
-Authorization: Bearer {{accessToken}}
-
-### 2-3. DEST 타입만 조회 → 200
-# 사전 조건: 로그인 필요
+### 4-2. DEST 타입만 조회 → 200
 GET {{baseUrl}}/api/places?place_type=DEST
 Authorization: Bearer {{accessToken}}
 
+### 4-3. HOME 타입만 조회 → 200
+GET {{baseUrl}}/api/places?place_type=HOME
+Authorization: Bearer {{accessToken}}
+
 
 ### ================================================================
-### 장소 삭제
+### STEP 4. 장소 삭제
 ### ================================================================
 
-### 3. 특정 장소 삭제 → 200
-# 사전 조건: 로그인 필요, {placeId}를 실제 ID로 교체
+### 5. 장소 삭제 → 200 { data: null }
+# place_id는 3-1번 응답값으로 교체
 DELETE {{baseUrl}}/api/places/1
 Authorization: Bearer {{accessToken}}

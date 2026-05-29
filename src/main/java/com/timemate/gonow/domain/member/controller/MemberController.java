@@ -59,7 +59,7 @@ public class MemberController {
         return ApiResult.success("비밀번호 변경 완료");
     }
 
-    // 귀가지 등록/변경
+    // home 등록/변경
     @PatchMapping("/me/home")
     public ApiResult<Void> updateHome(@MemberId Long memberId,
                                       @Valid @RequestBody HomeUpdateRequest request) {
@@ -74,6 +74,15 @@ public class MemberController {
         MyProfileResponse response = memberService.getMyProfile(memberId);
 
         return ApiResult.success("프로필 조회 완료", response);
+    }
+
+    // FCM 토큰 등록/갱신
+    @PatchMapping("/me/fcm-token")
+    public ApiResult<Void> updateFcmToken(@MemberId Long memberId,
+                                          @Valid @RequestBody FcmTokenUpdateRequest request) {
+        memberService.updateFcmToken(memberId, request);
+
+        return ApiResult.success("FCM 토큰 등록 완료");
     }
 
     // 미완성 -----------------------------------------------------------------------------------

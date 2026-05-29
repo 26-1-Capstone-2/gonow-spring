@@ -22,7 +22,6 @@ public class ReadyTransitionScheduler {
 
         try {
             readyTransitionService.transitionToReady(today);
-            // TODO: FCM 발송 ("오늘 약속 있어요" 알림)
         } catch (Exception e) {
             log.error("[스케줄러] READY 전환 실패 - {}", today, e);
         }

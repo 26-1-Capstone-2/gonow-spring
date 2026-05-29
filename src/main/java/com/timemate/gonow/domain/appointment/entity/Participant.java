@@ -101,5 +101,10 @@ public class Participant {
         this.estimatedArrival = estimatedArrival;
     }
 
+    // ETA만 갱신 (MOVING 상태 — departureAlarmTime은 DEPARTING에서 확정, 덮어쓰지 않음)
+    public void updateEstimatedArrival(LocalDateTime estimatedArrival) {
+        this.estimatedArrival = estimatedArrival;
+    }
+
     // 단방향이므로 연관관계 편의 메소드 X
 }

@@ -41,3 +41,6 @@ mysql_data/
 
 ### Claude Code ###
 .claude/settings.local.json
+
+### FCM ###
+/src/main/resources/firebase-service-account.json

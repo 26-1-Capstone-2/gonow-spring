@@ -27,6 +27,10 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-
 
+      # Firebase 서비스 계정 키 파일 복원 (빌드 전에 복원해야 JAR 안에 포함됨)
+      - name: Firebase 서비스 계정 키 파일 생성
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > src/main/resources/firebase-service-account.json
+
       # 실행 권한 부여 및 깨끗한 빌드 수행
       - name: Gradle 빌드
         run: |
@@ -55,18 +59,18 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd /home/${{ secrets.EC2_USER }}/gonow
-            
+
             # 1. 이전 설정 확실히 정리 (prod 프로파일 포함)
             docker compose --profile prod down
-            
+
             # 2. .env 파일 깨끗하게 새로 만들기
             echo "MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}" > .env
             echo "JWT_SECRET_PROD=${{ secrets.JWT_SECRET_PROD }}" >> .env
-            
+
             # 3. JAR 파일 위치 세팅
             mkdir -p build/libs
             mv project.jar build/libs/app.jar
-            
+
             # 4. 재시작 (환경 변수는 도커가 .env를 알아서 읽으므로 뒤에만 적어줘도 됩니다)
             docker compose --profile prod up --build -d
 

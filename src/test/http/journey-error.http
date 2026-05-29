@@ -1,10 +1,44 @@
 ### ================================================================
-### 사전 조건: member.http의 3번(로그인)을 먼저 실행해 accessToken을 발급받아야 함
+### journey-error.http — 개인/귀가 여정 API 에러 케이스
+### 매 테스트 전 서버를 재기동(DB create)하여 초기화할 것
 ### ================================================================
 
 
 ### ================================================================
-### 개인 여정 생성 오류
+### STEP 1. 회원가입 + 로그인 (독립 실행용)
+### ================================================================
+
+### 0-1. 회원가입
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "영웅개발자",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+### 0-2. 로그인 → accessToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("accessToken", response.body.data.access_token);
+%}
+
+
+### ================================================================
+### 개인 여정 생성 에러
 ### ================================================================
 
 ### E-1. plan_date 누락 → 400
@@ -13,7 +47,7 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "target_time": "2026-05-20T22:00:00",
+  "target_time": "2026-05-30T22:00:00",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
@@ -28,7 +62,7 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "plan_date": "2026-05-20",
+  "plan_date": "2026-05-30",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
@@ -43,8 +77,8 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "plan_date": "2026-05-20",
-  "target_time": "2026-05-20T22:00:00",
+  "plan_date": "2026-05-30",
+  "target_time": "2026-05-30T22:00:00",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
   "dest_lng": 127.02759,
@@ -58,8 +92,8 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "plan_date": "2026-05-20",
-  "target_time": "2026-05-20T22:00:00",
+  "plan_date": "2026-05-30",
+  "target_time": "2026-05-30T22:00:00",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
@@ -73,8 +107,8 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "plan_date": "2026-05-20",
-  "target_time": "2026-05-20T22:00:00",
+  "plan_date": "2026-05-30",
+  "target_time": "2026-05-30T22:00:00",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
@@ -85,7 +119,7 @@ Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
-### 귀가 여정 생성 오류
+### 귀가 여정 생성 에러
 ### ================================================================
 
 ### E-6. 데드라인 모드에서 transport_type 누락 → 400 "데드라인 모드에서는 이동 수단 필수"
@@ -95,8 +129,8 @@ Authorization: Bearer {{accessToken}}
 
 {
   "is_last_mode": false,
-  "plan_date": "2026-05-20",
-  "target_time": "2026-05-20T23:30:00",
+  "plan_date": "2026-05-30",
+  "target_time": "2026-05-30T23:30:00",
   "dest_name": "우리집",
   "dest_address": "서울특별시 동작구 흑석로 84",
   "dest_lat": 37.50490,
@@ -110,8 +144,8 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "plan_date": "2026-05-20",
-  "target_time": "2026-05-20T23:30:00",
+  "plan_date": "2026-05-30",
+  "target_time": "2026-05-30T23:30:00",
   "dest_name": "우리집",
   "dest_address": "서울특별시 동작구 흑석로 84",
   "dest_lat": 37.50490,
@@ -122,31 +156,21 @@ Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
-### 여정 상세 조회 오류
+### 여정 조회/수정/삭제 에러
 ### ================================================================
 
-### E-8. 존재하지 않는 journeyId → 400
+### E-8. 존재하지 않는 journeyId 조회 → 400
 GET {{baseUrl}}/api/journeys/99999
 Authorization: Bearer {{accessToken}}
 
-### E-9. 다른 유저의 여정 조회 시도 → 400
-# 사전 조건: {journeyId}를 다른 유저 소유의 실제 ID로 교체
-GET {{baseUrl}}/api/journeys/2
-Authorization: Bearer {{accessToken}}
-
-
-### ================================================================
-### 여정 수정 오류
-### ================================================================
-
-### E-10. 존재하지 않는 journeyId 수정 시도 → 400
+### E-9. 존재하지 않는 journeyId 수정 → 400
 PUT {{baseUrl}}/api/journeys/personal/99999
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "plan_date": "2026-05-20",
-  "target_time": "2026-05-20T22:00:00",
+  "plan_date": "2026-05-30",
+  "target_time": "2026-05-30T22:00:00",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
@@ -155,49 +179,42 @@ Authorization: Bearer {{accessToken}}
   "repeat_days": 0
 }
 
-### E-11. 다른 유저의 여정 수정 시도 → 400
-# 사전 조건: {journeyId}를 다른 유저 소유의 실제 ID로 교체
-PUT {{baseUrl}}/api/journeys/personal/2
+### E-10. 존재하지 않는 journeyId 삭제 → 400
+DELETE {{baseUrl}}/api/journeys/99999
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### GPS / 도착 확인 에러
+### ================================================================
+
+### E-11. 존재하지 않는 여정 GPS 전송 → 400
+PATCH {{baseUrl}}/api/journeys/99999/location
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "plan_date": "2026-05-20",
-  "target_time": "2026-05-20T22:00:00",
-  "dest_name": "강남역",
-  "dest_address": "서울특별시 강남구 강남대로 396",
-  "dest_lat": 37.49794,
-  "dest_lng": 127.02759,
-  "transport_type": "TRANSIT",
-  "repeat_days": 0
+  "lat": 37.50490,
+  "lng": 126.96147
 }
 
-
-### ================================================================
-### 여정 삭제 오류
-### ================================================================
-
-### E-12. 존재하지 않는 journeyId 삭제 시도 → 400
-DELETE {{baseUrl}}/api/journeys/99999
-Authorization: Bearer {{accessToken}}
-
-### E-13. 다른 유저의 여정 삭제 시도 → 400
-# 사전 조건: {journeyId}를 다른 유저 소유의 실제 ID로 교체
-DELETE {{baseUrl}}/api/journeys/2
+### E-12. NEARDEST 외 상태에서 도착 확인 → 400 "NEARDEST 상태에서만 도착 확인이 가능합니다."
+# 사전 조건: READY 상태 여정 생성 후 arrive 호출
+PATCH {{baseUrl}}/api/journeys/1/arrive
 Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
-### JWT 인증 오류
+### 인증 에러
 ### ================================================================
 
-### E-14. 토큰 없이 여정 생성 → 403
+### E-13. 토큰 없이 여정 생성 → 403
 POST {{baseUrl}}/api/journeys/personal
 Content-Type: application/json
 
 {
-  "plan_date": "2026-05-20",
-  "target_time": "2026-05-20T22:00:00",
+  "plan_date": "2026-05-30",
+  "target_time": "2026-05-30T22:00:00",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,

@@ -13,6 +13,7 @@
 | 집 주소 | home_address | VARCHAR(255) | NOT NULL | - |
 | 집 위도 | home_lat | DECIMAL(10, 8) | NOT NULL | - |
 | 집 경도 | home_lng | DECIMAL(11, 8) | NOT NULL | - |
+| FCM 토큰 | fcm_token | VARCHAR(255) | - | 앱 시작 시 등록, 푸시 알림 발송 대상 (nullable) |
 
 ---
 
@@ -75,7 +76,7 @@
 | 도착 예정 시간 | estimated_arrival | DATETIME | - | 서버가 계산한 도착 예정 시간 |
 | 출발 알람 시각 | departure_alarm_time | DATETIME | - (SCHEDULED 상태에서는 null, READY 최초 GPS 수신 시 확정) | 서버가 계산한 출발 알람 시각 |
 | 이동 수단 | transport_type | ENUM | NOT NULL | DRIVING(자가용), TRANSIT(대중교통) |
-| 참여자 상태 | status | ENUM | NOT NULL, DEFAULT 'SCHEDULED' | SCHEDULED(예약), READY(대기), DEPARTING(출발 준비), MOVING(이동 중), ARRIVED(도착) |
+| 참여자 상태 | status | ENUM | NOT NULL, DEFAULT 'SCHEDULED' | SCHEDULED(예약), READY(대기), DEPARTING(출발 준비), MOVING(이동 중), NEARDEST(목적지 근처), ARRIVED(도착) |
 | 알람 활성화 여부 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | 개인 알람 ON/OFF |
 
 - 방장이 친구를 초대 → insert
@@ -102,11 +103,10 @@
 | 여정 예정 날짜 | plan_date | DATE | NOT NULL | - |
 | 막차 여부 | is_last_mode | BOOLEAN | NOT NULL | TRUE면 막차 시간 기준, FALSE면 직접 입력 기준 |
 | 목표 시간 | target_time | DATETIME | NOT NULL | 직접 입력값 혹은 API로 가져온 막차 시각 |
-| 도착 예정 시간 | estimated_arrival | DATETIME | - | 서버가 계산한 도착 예정 시간 |
 | 출발 알람 시각 | departure_alarm_time | DATETIME | - (SCHEDULED 상태에서는 null, READY 최초 GPS 수신 시 확정) | 서버가 계산한 출발 알람 시각 |
 | 반복 요일 | repeat_days | INT | NOT NULL | 요일 반복 비트마스크 (0: 반복 안 함) |
 | 여정 알람 스위치 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | 여정 활성화 ON/OFF |
-| 여정 상태 | status | ENUM | NOT NULL, DEFAULT 'SCHEDULED' | SCHEDULED(예약), READY(대기), DEPARTING(출발 준비), MOVING(이동 중), ARRIVED(도착) |
+| 여정 상태 | status | ENUM | NOT NULL, DEFAULT 'SCHEDULED' | SCHEDULED(예약), READY(대기), DEPARTING(출발 준비), MOVING(이동 중), NEARDEST(목적지 근처), ARRIVED(도착) |
 
 ## 요일 반복 비트 마스크
 

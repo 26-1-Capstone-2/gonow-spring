@@ -1,5 +1,6 @@
 package com.timemate.gonow.domain.journey.repository;
 
+import com.timemate.gonow.domain.journey.constant.JourneyStatus;
 import com.timemate.gonow.domain.journey.constant.JourneyType;
 import com.timemate.gonow.domain.journey.entity.Journey;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -24,18 +25,48 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
     List<Journey> findAllByPlanDate(@Param("memberId") Long memberId, @Param("planDate") LocalDate planDate, @Param("dateBit") int dateBit);
 
     // 스케줄러: 당일 SCHEDULED/ARRIVED → READY 벌크 업데이트 (반복 여정은 ARRIVED도 포함)
+    // 비트마스크 연산으로 네이티브 쿼리 필수 — bulkUpdateToReady(LocalDate, int) 래퍼를 통해 호출할 것
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = "UPDATE journey SET status = 'READY' WHERE (plan_date = :today OR (repeat_days & :todayBit) > 0) AND plan_date <= :today AND status IN ('SCHEDULED', 'ARRIVED')", nativeQuery = true)
-    int bulkUpdateToReady(@Param("today") LocalDate today, @Param("todayBit") int todayBit);
+    @Query(value = "UPDATE journey SET status = :readyStatus WHERE (plan_date = :today OR (repeat_days & :todayBit) > 0) AND plan_date <= :today AND status IN (:scheduledStatus, :arrivedStatus)", nativeQuery = true)
+    int bulkUpdateToReadyInternal(@Param("readyStatus") String readyStatus, @Param("today") LocalDate today, @Param("todayBit") int todayBit, @Param("scheduledStatus") String scheduledStatus, @Param("arrivedStatus") String arrivedStatus);
+
+    // 외부 호출용 래퍼 — Enum.name() 조립을 캡슐화
+    default int bulkUpdateToReady(LocalDate today, int todayBit) {
+        return bulkUpdateToReadyInternal(
+                JourneyStatus.READY.name(), today, todayBit,
+                JourneyStatus.SCHEDULED.name(), JourneyStatus.ARRIVED.name());
+    }
 
     // 스케줄러: ID 목록 → ARRIVED 벌크 업데이트
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("UPDATE Journey j SET j.journeyStatus = 'ARRIVED' WHERE j.id IN :ids")
-    int bulkUpdateToArrived(@Param("ids") List<Long> ids);
+    @Query("UPDATE Journey j SET j.journeyStatus = :arrived WHERE j.id IN :ids")
+    int bulkUpdateToArrivedInternal(@Param("arrived") JourneyStatus arrived, @Param("ids") List<Long> ids);
+
+    // 외부 호출용 래퍼 — Enum 파라미터 조립을 캡슐화
+    default int bulkUpdateToArrived(List<Long> ids) {
+        return bulkUpdateToArrivedInternal(JourneyStatus.ARRIVED, ids);
+    }
 
     // 스케줄러: NEARDEST + 해당 날짜 + targetTime 초과 → ID 목록 반환
     // NEARDEST 진입 시점에 이미 100m 이내 보장됨 → Haversine 재계산 불필요
     // planDate: 자정~새벽 4시 사이는 어제 날짜로 보정 (막차 모드 자정 넘김 커버)
-    @Query(value = "SELECT journey_id FROM journey WHERE status = 'NEARDEST' AND (plan_date = :planDate OR (repeat_days & :planDateBit) > 0) AND plan_date <= :planDate AND target_time < :now", nativeQuery = true)
-    List<Long> findIdsNeardestOverdue(@Param("planDate") LocalDate planDate, @Param("now") LocalDateTime now, @Param("planDateBit") int planDateBit);
+    // 비트마스크 연산으로 네이티브 쿼리 필수 — findIdsNeardestOverdue(LocalDate, LocalDateTime, int) 래퍼를 통해 호출할 것
+    @Query(value = "SELECT journey_id FROM journey WHERE status = :neardestStatus AND (plan_date = :planDate OR (repeat_days & :planDateBit) > 0) AND plan_date <= :planDate AND target_time < :now", nativeQuery = true)
+    List<Long> findIdsNeardestOverdueInternal(@Param("neardestStatus") String neardestStatus, @Param("planDate") LocalDate planDate, @Param("now") LocalDateTime now, @Param("planDateBit") int planDateBit);
+
+    // 외부 호출용 래퍼 — Enum.name() 조립을 캡슐화
+    default List<Long> findIdsNeardestOverdue(LocalDate planDate, LocalDateTime now, int planDateBit) {
+        return findIdsNeardestOverdueInternal(JourneyStatus.NEARDEST.name(), planDate, now, planDateBit);
+    }
+
+    // 스케줄러: 당일 READY 전환 대상 여정 주인들의 FCM 토큰 조회 (null 토큰 제외)
+    // 비트마스크 연산으로 네이티브 쿼리 필수 — findFcmTokensForReadyTransition(LocalDate, int) 래퍼를 통해 호출할 것
+    @Query(value = "SELECT DISTINCT m.fcm_token FROM journey j JOIN member m ON j.member_id = m.member_id WHERE (j.plan_date = :today OR (j.repeat_days & :todayBit) > 0) AND j.plan_date <= :today AND j.status IN (:scheduledStatus, :arrivedStatus) AND m.fcm_token IS NOT NULL", nativeQuery = true)
+    List<String> findFcmTokensForReadyTransitionInternal(@Param("today") LocalDate today, @Param("todayBit") int todayBit, @Param("scheduledStatus") String scheduledStatus, @Param("arrivedStatus") String arrivedStatus);
+
+    // 외부 호출용 래퍼 — Enum.name() 조립을 캡슐화
+    default List<String> findFcmTokensForReadyTransition(LocalDate today, int todayBit) {
+        return findFcmTokensForReadyTransitionInternal(today, todayBit,
+                JourneyStatus.SCHEDULED.name(), JourneyStatus.ARRIVED.name());
+    }
 }

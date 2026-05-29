@@ -12,11 +12,15 @@ import com.timemate.gonow.domain.appointment.repository.ParticipantRepository;
 import com.timemate.gonow.domain.common.Point;
 import com.timemate.gonow.domain.common.constant.GeoConstants;
 import com.timemate.gonow.domain.common.dto.LocationUpdateRequest;
+import com.timemate.gonow.domain.common.constant.TransportType;
+import com.timemate.gonow.domain.member.constant.TransitType;
 import com.timemate.gonow.domain.member.entity.MemberSetting;
 import com.timemate.gonow.domain.member.repository.MemberSettingRepository;
 import com.timemate.gonow.global.client.FlaskClient;
 import com.timemate.gonow.global.client.dto.FlaskParticipantRequest;
-import com.timemate.gonow.global.client.dto.FlaskResponse;
+import com.timemate.gonow.global.client.dto.FlaskParticipantResponse;
+import com.timemate.gonow.global.client.dto.TransportMode;
+import com.timemate.gonow.global.fcm.FcmSender;
 import com.timemate.gonow.global.util.GeoUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,15 +28,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class ParticipantService {
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("a h시 m분", Locale.KOREAN);
+
     private final ParticipantRepository participantRepository;
     private final MemberSettingRepository memberSettingRepository;
     private final FlaskClient flaskClient;
+    private final FcmSender fcmSender;
 
     // 개인 알람 스위치 ON/OFF (본인만)
     @Transactional
@@ -89,6 +99,10 @@ public class ParticipantService {
         Participant participant = participantRepository.findWithAppointmentByAppointmentIdAndMemberId(appointmentId, memberId)
                 .orElseThrow(() -> new IllegalArgumentException("해당 약속의 참여자가 아닙니다."));
 
+        MemberSetting setting = memberSettingRepository.findByMemberId(memberId).orElseThrow(
+                () -> new IllegalArgumentException("존재하지 않는 회원 설정입니다."));
+
+
         Appointment appointment = participant.getAppointment();
         BigDecimal newLat = request.lat();
         BigDecimal newLng = request.lng();
@@ -110,6 +124,8 @@ public class ParticipantService {
 
         boolean isNearDest = distToDest < GeoConstants.ARRIVAL_THRESHOLD_METERS; // 목적지 100m 이내?
 
+        Integer interval = null;
+
         switch (participant.getParticipantStatus()) {
             case READY -> {
                 boolean isFirstReceive = (distFromAnchor == -1); // 첫 좌표 수신?
@@ -118,7 +134,7 @@ public class ParticipantService {
                 // 앵커 갱신 및 Q 계산이 필요한 조건 통합 (isPastAlarmTime 계산 전에 반드시 실행)
                 if (isNearDest || isFirstReceive || isOutOfAnchor) {
                     participant.updateCurrentPos(newPoint);
-                    callFlaskAndUpdate(participant, appointment, newPoint, memberId);
+                    interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
                 }
 
                 boolean isPastAlarmTime = !LocalDateTime.now().isBefore(participant.getDepartureAlarmTime()); // P >= Q?
@@ -127,8 +143,9 @@ public class ParticipantService {
                     // 100m 이내 -> NEARDEST
                     participant.updateStatus(ParticipantStatus.NEARDEST);
                 } else if (isPastAlarmTime) {
-                    // P >= Q → DEPARTING
+                    // P >= Q → DEPARTING, 300m 이탈 감지를 위해 주기를 타이트하게 갱신
                     participant.updateStatus(ParticipantStatus.DEPARTING);
+                    interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
                 }
                 // P < Q → READY 유지
             }
@@ -139,11 +156,17 @@ public class ParticipantService {
                     // 100m 벗어남 + P < Q → READY 복귀 (스쳐지나간 케이스)
                     participant.updateCurrentPos(newPoint);
                     participant.updateStatus(ParticipantStatus.READY);
-                    callFlaskAndUpdate(participant, appointment, newPoint, memberId); // Q 재계산
+                    interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting); // Q 재계산
+                } else {
+                    // 100m 이내 대기 중 → targetTime까지 남은 시간 기반으로 주기 조절 (플라스크 미호출)
+                    // P >= Q면 100m 벗어나도 NEARDEST 고정 (알람 울리는 중)
+                    // - 사용자 확인 → /arrive API → ARRIVED
+                    // - targetTime 초과 → ArrivedTransitionScheduler가 자동 ARRIVED
+                    long minutesLeft = ChronoUnit.MINUTES.between(LocalDateTime.now(), appointment.getTargetTime());
+                    if (minutesLeft > 30) interval = 120;
+                    else if (minutesLeft > 10) interval = 60;
+                    else interval = 30;
                 }
-                // P >= Q면 100m 벗어나도 NEARDEST 고정 (알람 울리는 중)
-                // - 사용자 확인 → /arrive API → ARRIVED
-                // - targetTime 초과 → ArrivedTransitionScheduler가 자동 ARRIVED
             }
             case DEPARTING -> {
                 boolean isDepartedFromAnchor = (distFromAnchor >= GeoConstants.DEPARTURE_THRESHOLD_METERS);
@@ -154,23 +177,32 @@ public class ParticipantService {
 
                     participant.updateStatus(ParticipantStatus.ARRIVED);
                     finishAppointment(appointment);
+                    sendGroupNotification(memberId, appointmentId, "도착 완료 알림",
+                            participant.getMember().getNickname() + "님이 " + LocalDateTime.now().format(TIME_FORMATTER) + "에 도착했습니다.");
                 } else if (isDepartedFromAnchor) {
                     // 300m 이탈 → MOVING
                     participant.updateCurrentPos(newPoint);
 
                     participant.updateStatus(ParticipantStatus.MOVING);
                     activateAppointment(appointment);
+                    interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
+
+                    String eta = participant.getEstimatedArrival().format(TIME_FORMATTER);
+                    sendGroupNotification(memberId, appointmentId, "도착 예정 알림",
+                            participant.getMember().getNickname() + "님이 " + eta + "에 도착 예정입니다.");
                 }
                 // 300m 미만이면 DEPARTING 유지, 앵커 보존
             }
             case MOVING -> {
                 participant.updateCurrentPos(newPoint); // 대시보드용 위치 갱신
-                callFlaskAndUpdate(participant, appointment, newPoint, memberId); // ETA 재계산
+                interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting); // ETA 재계산
 
                 if (isNearDest) {
                     // 100m 진입 → ARRIVED
                     participant.updateStatus(ParticipantStatus.ARRIVED);
                     finishAppointment(appointment);
+                    sendGroupNotification(memberId, appointmentId, "도착 완료 알림",
+                            participant.getMember().getNickname() + "님이 " + LocalDateTime.now().format(TIME_FORMATTER) + "에 도착했습니다.");
                 }
             }
             default -> {
@@ -178,7 +210,7 @@ public class ParticipantService {
             }
         }
 
-        return ParticipantLocationUpdateResponse.from(participant, appointment);
+        return ParticipantLocationUpdateResponse.from(participant, appointment, interval, setting.getPreparationTime());
     }
 
     // 도착 확인 (사용자가 확인 버튼 눌렀을 때 ARRIVED로 전환)
@@ -195,6 +227,8 @@ public class ParticipantService {
 
         participant.updateStatus(ParticipantStatus.ARRIVED);
         finishAppointment(appointment);
+        sendGroupNotification(memberId, appointmentId, "도착 완료 알림",
+                participant.getMember().getNickname() + "님이 " + LocalDateTime.now().format(TIME_FORMATTER) + "에 도착했습니다.");
 
         return ParticipantArriveResponse.from(appointment);
     }
@@ -215,23 +249,45 @@ public class ParticipantService {
         }
     }
 
-    // 플라스크 호출 → departureAlarmTime + estimatedArrival 저장
-    private void callFlaskAndUpdate(Participant participant, Appointment appointment, Point currentPoint, Long memberId) {
-        MemberSetting setting = memberSettingRepository.findByMemberId(memberId).orElseThrow(
-                () -> new IllegalArgumentException("존재하지 않는 회원 설정입니다."));
+    // 나를 제외한 다른 참가자들에게 FCM Notification 발송
+    private void sendGroupNotification(Long memberId, Long appointmentId, String title, String body) {
+        List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);
+        fcmSender.sendAllNotification(tokens, title, body);
+    }
+
+    // 플라스크 호출 → interval 반환, MOVING이 아닐 때만 departureAlarmTime 저장
+    // (MOVING에서는 DEPARTING 진입 시 확정된 departureAlarmTime을 덮어쓰지 않음, estimatedArrival은 항상 갱신)
+    private Integer callFlaskAndUpdate(Long memberId, Participant participant, Appointment appointment, Point currentPoint, MemberSetting setting) {
+        TransportMode transportMode = resolveTransportMode(participant.getTransportType(), setting.getTransitType());
 
         FlaskParticipantRequest request = new FlaskParticipantRequest(
+                memberId,
                 currentPoint.lat(),
                 currentPoint.lng(),
                 appointment.getDestination().point().lat(),
                 appointment.getDestination().point().lng(),
-                participant.getTransportType(),
+                transportMode,
+                setting.getPriorityType(),
                 appointment.getTargetTime(),
                 setting.getPreparationTime()
         );
 
-        FlaskResponse response = flaskClient.calculateParticipantAlarm(request);
-        participant.updateAlarmInfo(response.departureAlarmTime(), response.estimatedArrival());
+        FlaskParticipantResponse response = flaskClient.calculateParticipantAlarm(request);
+        if (participant.getParticipantStatus() != ParticipantStatus.MOVING) {
+            participant.updateAlarmInfo(response.departureAlarmTime(), response.estimatedArrival());
+        } else {
+            participant.updateEstimatedArrival(response.estimatedArrival()); // ETA만 갱신 (대시보드용)
+        }
+        return response.interval();
     }
 
+    // TransportType + TransitType → TransportMode 변환
+    private TransportMode resolveTransportMode(TransportType transportType, TransitType transitType) {
+        if (transportType == TransportType.DRIVING) return TransportMode.DRIVING;
+        return switch (transitType) {
+            case SUBWAY -> TransportMode.SUBWAY;
+            case BUS -> TransportMode.BUS;
+            case ALL -> TransportMode.ALL;
+        };
+    }
 }

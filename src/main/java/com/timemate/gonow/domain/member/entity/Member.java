@@ -38,6 +38,8 @@ public class Member {
     })
     private Location location; // 집 이름, 집 주소, 집 위도, 집 경도
 
+    private String fcmToken; // FCM 푸시 알림 토큰 (앱 시작 시 등록, nullable)
+
     // 생성자 ------------------------------------------------------------------------------
     @Builder
     private Member(String nickname, String email, String password, Location location) {
@@ -59,6 +61,10 @@ public class Member {
     // home 변경
     public void updateHome(Location location) {
         this.location = location;
+    }
+    // FCM 토큰 갱신
+    public void updateFcmToken(String fcmToken) {
+        this.fcmToken = fcmToken;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

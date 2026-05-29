@@ -1,0 +1,177 @@
+### ================================================================
+### location.http — GPS 좌표 수신 + 상태 전이 API 테스트
+### 매 테스트 전 서버를 재기동(DB create)하여 초기화할 것
+### 플라스크 서버 미기동 시 503 반환 (정상 동작)
+### ================================================================
+
+
+### ================================================================
+### STEP 1. 회원가입 + 로그인
+### ================================================================
+
+### 1. 회원가입
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "영웅개발자",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+### 2. 로그인 → accessToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("accessToken", response.body.data.access_token);
+%}
+
+
+### ================================================================
+### STEP 2. 여정 생성 (오늘 날짜 → READY 상태로 생성됨)
+### ================================================================
+
+### 3. 개인 여정 생성 → journey_status: READY
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "GPS 테스트 여정",
+  "plan_date": "2026-05-30",
+  "target_time": "2026-05-30T22:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+
+### ================================================================
+### STEP 3. GPS 좌표 전송 — 여정 상태 전이 테스트
+### ================================================================
+
+### 4-1. 최초 좌표 수신 (출발지 근처) → READY 유지, 플라스크 호출, interval 반환
+# journey_id는 STEP 3 응답값으로 교체
+# 응답: { journey_status, departure_alarm_time, interval, preparation_time }
+PATCH {{baseUrl}}/api/journeys/1/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### 4-2. 500m 이내 유지 (같은 자리) → READY 유지, 플라스크 미호출, interval: null
+PATCH {{baseUrl}}/api/journeys/1/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50500,
+  "lng": 126.96150
+}
+
+### 4-3. 목적지 100m 이내 진입 → NEARDEST 전환, 플라스크 호출
+PATCH {{baseUrl}}/api/journeys/1/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### 4-4. NEARDEST → 도착 확인 (확인 버튼) → ARRIVED
+PATCH {{baseUrl}}/api/journeys/1/arrive
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### STEP 4. 그룹 알람 GPS 테스트
+### ================================================================
+
+### 5-1. 참여자 회원가입
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "guest@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "참여자",
+  "home_name": "자취방",
+  "home_address": "서울특별시 마포구 양화로 160",
+  "home_lat": 37.55763,
+  "home_lng": 126.92525,
+  "preparation_time": 15
+}
+
+### 5-2. 그룹 알람 생성 (방장)
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "GPS 그룹 테스트",
+  "plan_date": "2026-05-30",
+  "target_time": "2026-05-30T19:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT"
+}
+
+### 5-3. 참여자 로그인 → guestToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "guest@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("guestToken", response.body.data.access_token);
+%}
+
+### 5-4. 참여자 초대코드로 참여
+# invite_code는 5-2번 응답값으로 교체
+POST {{baseUrl}}/api/appointments/join
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "invite_code": "AB23CD45",
+  "transport_type": "DRIVING"
+}
+
+### 5-5. 참여자 GPS 좌표 전송 → READY 유지, 플라스크 호출
+# appointment_id는 5-2번 응답값으로 교체
+# 응답: { participant_status, appointment_status, departure_alarm_time, estimated_arrival, interval, preparation_time }
+PATCH {{baseUrl}}/api/appointments/1/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.55763,
+  "lng": 126.92525
+}
+
+### 5-6. 참여자 도착 확인 (확인 버튼) → ARRIVED, appointment_status 반환
+PATCH {{baseUrl}}/api/appointments/1/participants/arrive
+Authorization: Bearer {{guestToken}}

@@ -114,6 +114,15 @@ public class MemberService {
         member.updatePassword(encryptedPassword);
     }
 
+    // FCM 토큰 등록/갱신
+    @Transactional
+    public void updateFcmToken(Long memberId, FcmTokenUpdateRequest request) {
+        Member member = memberRepository.findById(memberId).orElseThrow(
+                () -> new IllegalArgumentException("존재하지 않는 회원입니다.")
+        );
+        member.updateFcmToken(request.fcmToken());
+    }
+
     // home 등록/변경
     @Transactional
     public void updateHome(Long memberId, HomeUpdateRequest request) {

@@ -8,13 +8,15 @@ import java.time.LocalDateTime;
 public record LocationUpdateResponse(
         JourneyStatus journeyStatus,
         LocalDateTime departureAlarmTime,
-        LocalDateTime estimatedArrival
+        Integer interval,
+        int preparationTime
 ) {
-    public static LocationUpdateResponse from(Journey journey) {
+    public static LocationUpdateResponse from(Journey journey, Integer interval, int preparationTime) {
         return new LocationUpdateResponse(
                 journey.getJourneyStatus(),
                 journey.getDepartureAlarmTime(),
-                journey.getEstimatedArrival()
+                interval,
+                preparationTime
         );
     }
 }

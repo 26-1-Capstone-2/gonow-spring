@@ -11,14 +11,18 @@ public record ParticipantLocationUpdateResponse(
         ParticipantStatus participantStatus,
         AppointmentStatus appointmentStatus,
         LocalDateTime departureAlarmTime,
-        LocalDateTime estimatedArrival
+        LocalDateTime estimatedArrival,
+        Integer interval,
+        int preparationTime
 ) {
-    public static ParticipantLocationUpdateResponse from(Participant participant, Appointment appointment) {
+    public static ParticipantLocationUpdateResponse from(Participant participant, Appointment appointment, Integer interval, int preparationTime) {
         return new ParticipantLocationUpdateResponse(
                 participant.getParticipantStatus(),
                 appointment.getAppointmentStatus(),
                 participant.getDepartureAlarmTime(),
-                participant.getEstimatedArrival()
+                participant.getEstimatedArrival(),
+                interval,
+                preparationTime
         );
     }
 }

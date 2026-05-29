@@ -1,8 +1,9 @@
 package com.timemate.gonow.global.client;
 
 import com.timemate.gonow.global.client.dto.FlaskJourneyRequest;
+import com.timemate.gonow.global.client.dto.FlaskJourneyResponse;
 import com.timemate.gonow.global.client.dto.FlaskParticipantRequest;
-import com.timemate.gonow.global.client.dto.FlaskResponse;
+import com.timemate.gonow.global.client.dto.FlaskParticipantResponse;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.service.annotation.HttpExchange;
 import org.springframework.web.service.annotation.PostExchange;
@@ -11,8 +12,8 @@ import org.springframework.web.service.annotation.PostExchange;
 public interface FlaskClient {
 
     @PostExchange("/internal/alarm/journey")
-    FlaskResponse calculateJourneyAlarm(@RequestBody FlaskJourneyRequest request);
+    FlaskJourneyResponse calculateJourneyAlarm(@RequestBody FlaskJourneyRequest request);
 
     @PostExchange("/internal/alarm/appointment")
-    FlaskResponse calculateParticipantAlarm(@RequestBody FlaskParticipantRequest request);
+    FlaskParticipantResponse calculateParticipantAlarm(@RequestBody FlaskParticipantRequest request);
 }

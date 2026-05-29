@@ -3,6 +3,7 @@ package com.timemate.gonow.domain.journey.service;
 import com.timemate.gonow.domain.common.Location;
 import com.timemate.gonow.domain.common.Point;
 import com.timemate.gonow.domain.common.constant.TransportType;
+import com.timemate.gonow.domain.member.constant.TransitType;
 import com.timemate.gonow.domain.journey.constant.JourneyStatus;
 import com.timemate.gonow.domain.journey.constant.JourneyType;
 import com.timemate.gonow.domain.common.constant.GeoConstants;
@@ -10,7 +11,8 @@ import com.timemate.gonow.domain.common.dto.LocationUpdateRequest;
 import com.timemate.gonow.domain.journey.dto.LocationUpdateResponse;
 import com.timemate.gonow.global.client.FlaskClient;
 import com.timemate.gonow.global.client.dto.FlaskJourneyRequest;
-import com.timemate.gonow.global.client.dto.FlaskResponse;
+import com.timemate.gonow.global.client.dto.FlaskJourneyResponse;
+import com.timemate.gonow.global.client.dto.TransportMode;
 import com.timemate.gonow.global.util.GeoUtils;
 
 import com.timemate.gonow.domain.journey.dto.HomeJourneyCreateRequest;
@@ -33,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
 @Service
@@ -183,6 +186,8 @@ public class JourneyService {
     public LocationUpdateResponse updateLocation(Long memberId, Long journeyId, LocationUpdateRequest request) {
         Journey journey = journeyRepository.findByIdAndMemberId(journeyId, memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 여정이거나 권한이 없습니다."));
+        MemberSetting setting = memberSettingRepository.findByMemberId(memberId).orElseThrow(
+                () -> new IllegalArgumentException("존재하지 않는 회원 설정입니다."));
 
         BigDecimal newLat = request.lat();
         BigDecimal newLng = request.lng();
@@ -204,6 +209,8 @@ public class JourneyService {
 
         boolean isNearDest = (distToDest < GeoConstants.ARRIVAL_THRESHOLD_METERS); // 목적지 100m 이내?
 
+        Integer interval = null;
+
         switch (journey.getJourneyStatus()) {
             case READY -> {
                 boolean isFirstReceive = (distFromAnchor == -1); // 첫 좌표 수신?
@@ -212,7 +219,7 @@ public class JourneyService {
                 // 앵커 갱신 및 Q 계산이 필요한 조건 통합 (isPastAlarmTime 계산 전에 반드시 실행)
                 if (isNearDest || isFirstReceive || isOutOfAnchor) {
                     journey.updateCurrentPoint(newPoint);
-                    callFlaskAndUpdate(journey, newPoint, memberId);
+                    interval = callFlaskAndUpdate(memberId, journey, newPoint, setting);
                 }
 
                 boolean isPastAlarmTime = !LocalDateTime.now().isBefore(journey.getDepartureAlarmTime()); // P >= Q?
@@ -221,8 +228,9 @@ public class JourneyService {
                     // 100m 이내 -> NEARDEST
                     journey.updateStatus(JourneyStatus.NEARDEST);
                 } else if (isPastAlarmTime) {
-                    // P >= Q → DEPARTING
+                    // P >= Q → DEPARTING, 300m 이탈 감지를 위해 주기를 타이트하게 갱신
                     journey.updateStatus(JourneyStatus.DEPARTING);
+                    interval = callFlaskAndUpdate(memberId, journey, newPoint, setting);
                 }
                 // P < Q → READY 유지
             }
@@ -233,11 +241,17 @@ public class JourneyService {
                     // 100m 벗어남 + P < Q → READY 복귀 (스쳐지나간 케이스)
                     journey.updateCurrentPoint(newPoint);
                     journey.updateStatus(JourneyStatus.READY);
-                    callFlaskAndUpdate(journey, newPoint, memberId); // Q 재계산
+                    interval = callFlaskAndUpdate(memberId, journey, newPoint, setting); // Q 재계산
+                } else {
+                    // 100m 이내 대기 중 → targetTime까지 남은 시간 기반으로 주기 조절 (플라스크 미호출)
+                    // P >= Q면 100m 벗어나도 NEARDEST 고정 (알람 울리는 중)
+                    // - 사용자 확인 → /arrive API → ARRIVED
+                    // - targetTime 초과 → ArrivedTransitionScheduler가 자동 ARRIVED
+                    long minutesLeft = ChronoUnit.MINUTES.between(LocalDateTime.now(), journey.getTargetTime());
+                    if (minutesLeft > 30) interval = 120;
+                    else if (minutesLeft > 10) interval = 60;
+                    else interval = 30;
                 }
-                // P >= Q면 100m 벗어나도 NEARDEST 고정 (알람 울리는 중)
-                // - 사용자 확인 → /arrive API → ARRIVED
-                // - targetTime 초과 → ArrivedTransitionScheduler가 자동 ARRIVED
             }
             case DEPARTING -> {
                 boolean isDepartedFromAnchor = (distFromAnchor >= GeoConstants.DEPARTURE_THRESHOLD_METERS);
@@ -255,6 +269,7 @@ public class JourneyService {
             }
             case MOVING -> {
                 journey.updateCurrentPoint(newPoint);
+                interval = callFlaskAndUpdate(memberId, journey, newPoint, setting); // interval 갱신 (departureAlarmTime은 무시)
                 if (isNearDest) {
                     // 100m 진입 → ARRIVED
                     journey.updateStatus(JourneyStatus.ARRIVED);
@@ -265,7 +280,7 @@ public class JourneyService {
             }
         }
 
-        return LocationUpdateResponse.from(journey);
+        return LocationUpdateResponse.from(journey, interval, setting.getPreparationTime());
     }
 
     // 도착 확인 (사용자가 확인 버튼 눌렀을 때 ARRIVED로 전환)
@@ -280,23 +295,38 @@ public class JourneyService {
         journey.updateStatus(JourneyStatus.ARRIVED);
     }
 
-    // 플라스크 호출 → departureAlarmTime + estimatedArrival 저장
-    private void callFlaskAndUpdate(Journey journey, Point currentPoint, Long memberId) {
-        MemberSetting setting = memberSettingRepository.findByMemberId(memberId).orElseThrow(
-                () -> new IllegalArgumentException("존재하지 않는 회원 설정입니다."));
+    // 플라스크 호출 → interval 반환, MOVING이 아닐 때만 departureAlarmTime 저장
+    // (MOVING에서는 DEPARTING 진입 시 확정된 departureAlarmTime을 덮어쓰지 않음)
+    private Integer callFlaskAndUpdate(Long memberId, Journey journey, Point currentPoint, MemberSetting setting) {
+        TransportMode transportMode = resolveTransportMode(journey.getTransportType(), setting.getTransitType());
 
         FlaskJourneyRequest request = new FlaskJourneyRequest(
+                memberId,
                 currentPoint.lat(),
                 currentPoint.lng(),
                 journey.getDestination().point().lat(),
                 journey.getDestination().point().lng(),
-                journey.getTransportType(),
+                transportMode,
+                setting.getPriorityType(),
                 journey.getTargetTime(),
                 journey.isLastMode(),
                 setting.getPreparationTime()
         );
 
-        FlaskResponse response = flaskClient.calculateJourneyAlarm(request);
-        journey.updateAlarmInfo(response.departureAlarmTime(), response.estimatedArrival());
+        FlaskJourneyResponse response = flaskClient.calculateJourneyAlarm(request);
+        if (journey.getJourneyStatus() != JourneyStatus.MOVING) {
+            journey.updateDepartureAlarmTime(response.departureAlarmTime());
+        }
+        return response.interval();
+    }
+
+    // TransportType + TransitType → TransportMode 변환
+    private TransportMode resolveTransportMode(TransportType transportType, TransitType transitType) {
+        if (transportType == TransportType.DRIVING) return TransportMode.DRIVING;
+        return switch (transitType) {
+            case SUBWAY -> TransportMode.SUBWAY;
+            case BUS -> TransportMode.BUS;
+            case ALL -> TransportMode.ALL;
+        };
     }
 }

@@ -97,8 +97,8 @@ com.timemate.gonow/
 │   └── alarm/        # 알람 조회 (Controller, Service, DTO, Constant 포함 — 별도 Entity 없음)
 └── global/
     ├── auth/         # JWT 필터(JwtTokenFilter), 토큰 프로바이더(JwtTokenProvider), @MemberId 어노테이션
-    ├── client/       # FlaskClient (HTTP Interface), dto/ (FlaskRequest, FlaskResponse)
-    ├── config/       # SecurityConfig, RestClientConfig (flask.url baseUrl 설정), QueryDslConfig
+    ├── client/       # FlaskClient (HTTP Interface), dto/ (FlaskJourneyRequest/Response, FlaskParticipantRequest/Response, TransportMode)
+    ├── config/       # SecurityConfig, RestClientConfig (flask.url baseUrl 설정), QueryDslConfig, FirebaseConfig
     ├── controller/   # AuthController, HealthController
     ├── dto/          # LoginRequest, LoginResponse
     ├── entity/       # BaseTimeEntity (createdAt, updatedAt, touch())
@@ -106,6 +106,7 @@ com.timemate.gonow/
     ├── response/     # ApiResult (success/fail 팩토리 메서드)
     ├── scheduler/    # ReadyTransitionScheduler/Service, ArrivedTransitionScheduler/Service
     ├── service/      # AuthService
+    ├── fcm/          # FcmSender (Data/Notification 다중 발송)
     └── util/         # GeoUtils (Haversine 거리 계산)
 ```
 
@@ -133,6 +134,7 @@ com.timemate.gonow/
 | GET | `/api/members/me` | 필요 | 내 프로필 조회 (Member + MemberSetting 통합) |
 | PATCH | `/api/members/me/nickname` | 필요 | 닉네임 변경 |
 | PATCH | `/api/members/me/password` | 필요 | 비밀번호 변경 |
+| PATCH | `/api/members/me/fcm-token` | 필요 | FCM 토큰 등록/갱신 |
 | PATCH | `/api/members/me/home` | 필요 | 귀가지 등록/수정 |
 | PATCH | `/api/members/me/setting` | 필요 | 멤버 설정 변경 (transitType, priorityType, preparationTime) |
 | DELETE | `/api/members/me` | 필요 | 회원 탈퇴 (스켈레톤) |
@@ -156,9 +158,9 @@ com.timemate.gonow/
 | GET | `/api/appointments/{appointmentId}/dashboard` | 필요 | 도착 예정 대시보드 조회 (참여자 본인만, estimatedArrival은 플라스크 연동 전 null) |
 | PATCH | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 수정 (방장 전용 — 목적지/날짜/시간/이동수단) |
 | PATCH | `/api/appointments/{appointmentId}/participants/transport` | 필요 | 이동 수단 변경 (일반 참가자 전용, 방장 호출 시 에러) |
-| PATCH | `/api/journeys/{journeyId}/location` | 필요 | 여정 GPS 좌표 수신 + 상태 전이 (READY/DEPARTING/MOVING/NEARDEST) |
+| PATCH | `/api/journeys/{journeyId}/location` | 필요 | 여정 GPS 좌표 수신 + 상태 전이 (응답: journeyStatus, departureAlarmTime, interval, preparationTime) |
 | PATCH | `/api/journeys/{journeyId}/arrive` | 필요 | 여정 도착 확인 (NEARDEST → ARRIVED, 사용자 확인 버튼) |
-| PATCH | `/api/appointments/{appointmentId}/participants/location` | 필요 | 참가자 GPS 좌표 수신 + 상태 전이 (응답: participantStatus, appointmentStatus, departureAlarmTime, estimatedArrival) |
+| PATCH | `/api/appointments/{appointmentId}/participants/location` | 필요 | 참가자 GPS 좌표 수신 + 상태 전이 (응답: participantStatus, appointmentStatus, departureAlarmTime, estimatedArrival, interval, preparationTime) |
 | PATCH | `/api/appointments/{appointmentId}/participants/arrive` | 필요 | 참가자 도착 확인 (NEARDEST → ARRIVED, 응답: appointmentStatus) |
 
 ### API 응답 형식
@@ -195,19 +197,33 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 #### 실시간 통신 방식
 - **현재**: 모든 API를 HTTP로 구현
 - **대시보드**: 프론트가 폴링 방식으로 구현 (팀원 결정)
-- **FCM**: 미구현 — 프론트가 로컬 알림으로 대체
+- **FCM**: 구현 완료 — `FcmSender` (Data/Notification 두 가지 메서드)
+
+#### GPS 폴링 주기 조절
+- `/location` 응답에 `interval`(초) 포함 — 플라스크 호출 시에만 값 설정, 미호출 시 `null`
+- 프론트는 `interval != null`이면 폴링 주기를 해당 값으로 갱신, `null`이면 마지막 주기 유지
+- 새벽 4시 `ReadyTransitionService`에서 FCM Data(`type: "READY"`) 발송 → 프론트가 GPS 폴링 시작
 
 #### 알람 울리기 방식
 | 방식 | 작동 조건 | 용도 |
 |------|----------|------|
-| expo-notifications (로컬 알림) | 앱 꺼져 있어도 작동 (OS 등록) | `departure_alarm_time` 도달 알람, 새벽 4시 READY 알림, 단계별 시퀀스 |
-| FCM Data | 앱 포그라운드/백그라운드 | 상태 변화 시 대시보드 자동 갱신 (미구현) |
-| FCM Notification | 앱 완전 종료 포함 | 예측 불가능한 시점 푸시 (미구현) |
+| expo-notifications (로컬 알림) | 앱 꺼져 있어도 작동 (OS 등록) | `departure_alarm_time` + `preparationTime` 기반 단계별 알람 시퀀스 (1→4단계) |
+| FCM Data | 앱 포그라운드/백그라운드 | 새벽 4시 READY 전환 → GPS 가동 트리거 (`type: "READY"`) |
+| FCM Notification | 앱 완전 종료 포함 | 그룹 알람 도착 예정/완료 알림 (MOVING 진입, ARRIVED 진입 시) |
 
-#### 로컬 알림으로 처리하는 것 (프론트)
-- `departure_alarm_time` 도달 알람 — 서버가 시각 계산 후 전달, OS에 등록
-- 새벽 4시 "오늘 약속 있어요" — 시각 고정이라 미리 등록 가능
-- 단계별 알람 시퀀스 (1→4단계)
+#### 단계별 출발 알람 (프론트 처리)
+- 서버가 `/location` 응답으로 `departureAlarmTime` + `preparationTime` 전달
+- 프론트가 두 값을 조합해 로컬 알림 등록:
+  - 1단계: `departureAlarmTime - preparationTime` (지금 바로 나가야 함)
+  - 2~4단계: `preparationTime`을 25%씩 소진하는 시점에 알림
+
+#### FCM 그룹 알람 메시지 (ParticipantService)
+| 시점 | 제목 | 내용 |
+|------|------|------|
+| MOVING 진입 (DEPARTING→MOVING) | 도착 예정 알림 | XXX님이 오전/오후 X시 X분에 도착 예정입니다. |
+| ARRIVED (NEARDEST→ARRIVED, 확인 버튼) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
+| ARRIVED (DEPARTING→ARRIVED, 100m 자동) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
+| ARRIVED (MOVING→ARRIVED, 100m 자동) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
 
 ### 도메인 설계 원칙
 
@@ -223,7 +239,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 
 | 엔티티 | 위치 | 주요 필드 | Controller/Service 존재 |
 |--------|------|-----------|------------------------|
-| Member | domain/member/entity | email, password, nickname, home(Location, NOT NULL) | O (MemberController, MemberService) |
+| Member | domain/member/entity | email, password, nickname, home(Location, NOT NULL), fcmToken(nullable) | O (MemberController, MemberService) |
 | MemberSetting | domain/member/entity | transitType, priorityType, preparationTime | O (MemberSettingController, MemberSettingService) |
 | Appointment | domain/appointment/entity | inviteCode, title, destination(Location), planDate, targetTime, appointmentStatus | O (AppointmentController, AppointmentService) |
 | Participant | domain/appointment/entity | member, appointment, isHost, transportType, participantStatus, isActive | O (ParticipantController, ParticipantService) |
@@ -262,9 +278,10 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 
 ### Enum 상수 목록
 
-- `TransitType`: ALL, SUBWAY, BUS (회원 선호 교통수단)
-- `PriorityType`: MIN_TIME, MIN_TRANSFER, MIN_WALK (경로 우선순위)
+- `TransitType`: ALL, SUBWAY, BUS (회원 선호 교통수단, domain/member/constant)
+- `PriorityType`: MIN_TIME, MIN_TRANSFER, MIN_WALK (경로 우선순위, domain/member/constant)
 - `TransportType`: DRIVING, TRANSIT (여정/참여자 이동 수단, domain/common/constant)
+- `TransportMode`: DRIVING, SUBWAY, BUS, ALL (플라스크 요청 전용 — TransportType+TransitType 조합, global/client/dto)
 - `AppointmentStatus`: WAITING, ACTIVE, FINISHED
 - `ParticipantStatus`: SCHEDULED, READY, DEPARTING, MOVING, NEARDEST, ARRIVED (기본값: SCHEDULED)
 - `JourneyStatus`: SCHEDULED, READY, DEPARTING, MOVING, NEARDEST, ARRIVED (기본값: SCHEDULED)
@@ -291,9 +308,16 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `flask.url: http://localhost:5000` (로컬, WSL에서 플라스크 서버 기동 필요)
 - `RestClientConfig`에서 `flask.url`을 `baseUrl`로 설정 → `FlaskClient` 빈 생성
 - 플라스크 엔드포인트:
-  - `POST /internal/alarm/journey` — 개인/귀가용 (`FlaskJourneyRequest` → `FlaskResponse`)
-  - `POST /internal/alarm/appointment` — 그룹(약속)용 (`FlaskParticipantRequest` → `FlaskResponse`)
-- 요청 DTO 차이: `FlaskJourneyRequest`는 `isLastMode` 포함, `FlaskParticipantRequest`는 미포함
+  - `POST /internal/alarm/journey` — 개인/귀가용 (`FlaskJourneyRequest` → `FlaskJourneyResponse`)
+  - `POST /internal/alarm/appointment` — 그룹(약속)용 (`FlaskParticipantRequest` → `FlaskParticipantResponse`)
+- 요청 필드:
+  - 공통: `memberId`, `currentLat/Lng`, `destLat/Lng`, `transportMode(TransportMode enum)`, `priorityType`, `targetTime`, `preparationTime`
+  - 개인/귀가 전용: `isLastMode` 포함
+- 폴백 정책: BUS/SUBWAY 검색 결과 없으면 ALL로 폴백 (플라스크 내부 처리)
+- 응답 필드:
+  - 개인/귀가(`FlaskJourneyResponse`): `departureAlarmTime`, `interval`
+  - 그룹(`FlaskParticipantResponse`): `departureAlarmTime`, `estimatedArrival`, `interval`
+- `TransportMode` enum: `DRIVING`, `SUBWAY`, `BUS`, `ALL` — `TransportType` + `TransitType` 조합을 단일 값으로 변환해서 전달
 - 플라스크 미기동 시 `ResourceAccessException` → 503 반환
 
 ### JWT 설정
@@ -323,7 +347,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 표준화된 API 응답 포맷 (ApiResult) + SNAKE_CASE JSON 직렬화
 - BaseTimeEntity (createdAt, updatedAt JPA Auditing + touch() 메서드)
 - `@MemberId` 커스텀 어노테이션 (JWT Subject → Long memberId 자동 추출)
-- 회원(Member): 회원가입, 로그인, 프로필 조회, 닉네임/비밀번호 변경, 탈퇴(스켈레톤)
+- 회원(Member): 회원가입, 로그인, 프로필 조회, 닉네임/비밀번호 변경, FCM 토큰 등록/갱신, 탈퇴(스켈레톤)
 - 귀가지: 등록/수정
 - 멤버 설정(MemberSetting): 회원가입 시 자동 생성, 설정 변경
 - 이메일/닉네임 중복 확인
@@ -340,16 +364,20 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 도착 예정 대시보드 조회: 참가자 nickname/transportType/estimatedArrival/isMe (`GET .../dashboard`, `estimatedArrival`은 플라스크 연동 전 null)
 - 스케줄러: 매일 새벽 4시 당일 SCHEDULED/ARRIVED → READY 벌크 전환 (`ReadyTransitionScheduler` + `ReadyTransitionService`)
   - 반복 여정: `repeat_days` 비트마스크 + `plan_date <= 오늘` 조건으로 ARRIVED 포함 READY 전환 (네이티브 쿼리)
+  - 전환 후 대상 회원들에게 FCM Data(`type: "READY"`) 일괄 발송 → 프론트 GPS 폴링 시작 트리거
 - 여정 GPS 위치 업데이트 + 상태 전이 (`PATCH /api/journeys/{journeyId}/location`)
-  - READY: 100m 이내 → 플라스크 호출 + NEARDEST / 최초 수신 → 앵커 저장 + 플라스크 호출 + P>=Q면 DEPARTING / 500m 이탈 → 앵커 갱신 + 플라스크 호출 + P>=Q면 DEPARTING
-  - DEPARTING: distToDest < 100m → ARRIVED / distFromAnchor >= 300m → MOVING (앵커 보존)
-  - MOVING: distToDest < 100m → 위치 저장 + ARRIVED
-  - NEARDEST: P < Q + 100m 벗어남 → READY / P >= Q면 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방어)
+  - 응답: `journeyStatus`, `departureAlarmTime`, `interval`(플라스크 미호출 시 null), `preparationTime`
+  - READY: 최초 수신/500m 이탈/100m 이내 → 플라스크 호출 + Q·interval 갱신 / 500m 이내 유지 중 → 플라스크 미호출(null) / P>=Q → DEPARTING 전환 + 플라스크 호출(300m 이탈 감지용 주기 타이트하게)
+  - DEPARTING: 100m 이내 → ARRIVED / 300m 이탈 → MOVING (앵커 보존, 유지 중 플라스크 미호출)
+  - MOVING: 매 호출마다 플라스크 호출(interval만 갱신, departureAlarmTime 저장 안 함) / 100m 이내 → ARRIVED
+  - NEARDEST: READY 복귀 시(100m 벗어남 + P<Q) → 플라스크 호출 + Q 재계산 / P>=Q면 100m 벗어나도 NEARDEST 고정 / 유지 중 플라스크 미호출 — targetTime까지 남은 시간 기반으로 서버 자체 interval 계산 (30분 이상→120초, 10~30분→60초, 10분 미만→30초)
 - 여정 도착 확인 (`PATCH /api/journeys/{journeyId}/arrive`) — NEARDEST 상태에서 사용자 확인 시 ARRIVED 전환
 - 참가자 GPS 위치 업데이트 + 상태 전이 (`PATCH /api/appointments/{appointmentId}/participants/location`)
-  - READY: Journey와 동일한 플라스크 호출 패턴 적용
-  - MOVING: 매 GPS 수신마다 위치 갱신 + 플라스크 ETA 호출 → `estimatedArrival` 갱신 (대시보드용)
-  - NEARDEST: Journey와 동일한 P >= Q 고정 로직 적용
+  - 응답: `participantStatus`, `appointmentStatus`, `departureAlarmTime`, `estimatedArrival`, `interval`(플라스크 미호출 시 null), `preparationTime`
+  - READY: Journey와 동일한 플라스크 호출 패턴 적용 (500m 이내 유지 중 플라스크 미호출, P>=Q → DEPARTING 전환 + 플라스크 호출)
+  - MOVING: 매 GPS 수신마다 플라스크 호출 → interval + estimatedArrival 갱신 (departureAlarmTime 저장 안 함, 대시보드용)
+  - DEPARTING → MOVING 전환 시: 플라스크 호출 후 estimatedArrival 기반 FCM Notification 발송
+  - NEARDEST: Journey와 동일한 P >= Q 고정 로직 적용 (유지 중 플라스크 미호출)
   - Appointment 상태 전이: `activateAppointment()`, `finishAppointment()` 헬퍼로 관리
 - 참가자 도착 확인 (`PATCH /api/appointments/{appointmentId}/participants/arrive`) — NEARDEST 상태에서 사용자 확인 시 ARRIVED 전환 (응답: appointmentStatus)
 - Appointment 상태 전이: WAITING → ACTIVE (MOVING 또는 ARRIVED 진입 시), ACTIVE → FINISHED (전원 ARRIVED 시)
@@ -363,12 +391,36 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `application.yml`에 스케줄러 설정 추가 (`scheduler.ready-transition-cron`, `scheduler.day-boundary-hour=4`)
 - `JourneyResponse`, `AppointmentResponse`에 `destLat`, `destLng` 추가
 - 날짜별 알람 조회(`?date=`)에 반복 여정 포함 (비트마스크 네이티브 쿼리)
+- FCM 기반 푸시 알림: `FcmSender`(Data/Notification), `FirebaseConfig`, `FcmTokenUpdateRequest`
+  - FCM Data: 새벽 4시 READY 전환 시 → 프론트 GPS 폴링 시작 트리거
+  - FCM Notification: 그룹 참가자 도착 예정/완료 알림 (MOVING/ARRIVED 진입 시)
+- 플라스크 요청 `TransportMode` 통일: `TransportType + TransitType → DRIVING/SUBWAY/BUS/ALL` 단일 값 전달
+- 플라스크 요청에 `priorityType` 추가 (ODsay 경로 우선순위 필터링용)
+- `FlaskResponse` → `FlaskJourneyResponse`(departureAlarmTime, interval) / `FlaskParticipantResponse`(departureAlarmTime, estimatedArrival, interval) 분리
+- `/location` 응답에 `interval`(GPS 폴링 주기, 초) + `preparationTime`(준비 시간, 분) 추가
+- `Journey.estimatedArrival` 필드 제거 (Journey는 대시보드 없음, 사용 케이스 없음)
+  - EC2 적용 시 수동 SQL 필요: `ALTER TABLE journey DROP COLUMN estimated_arrival;`
+- `MemberSetting`을 `updateLocation()` 상단에서 1회만 조회 → `callFlaskAndUpdate()`에 파라미터로 전달 (중복 쿼리 제거)
+- 플라스크 호출 시점별 저장 정책 확정 (상태별 departureAlarmTime/interval 저장 규칙):
+
+  | 상태 | 플라스크 호출 조건 | departureAlarmTime 저장 | interval |
+  |------|-------------------|------------------------|----------|
+  | READY (진입/이탈 시점) | 최초 수신 / 500m 이탈 / 100m 이내 / P>=Q | O | O |
+  | READY 500m 이내 유지 중 | 미호출 | X | null (프론트가 직전 주기 유지) |
+  | NEARDEST 유지 중 | 미호출 — 서버 자체 시간 기반 계산 | X | O (30분↑→120초, 10~30분→60초, 10분↓→30초) |
+  | NEARDEST → READY 복귀 | 플라스크 호출 (Q 재계산) | O | O |
+  | DEPARTING 진입 시점 | 플라스크 1회 호출 (300m 이탈 감지용 주기 타이트하게) | O | O |
+  | DEPARTING 유지 중 | 미호출 (앵커 보존) | X | null |
+  | MOVING | 매 호출마다 | X (DEPARTING 확정값 보존) | O |
+- `Journey.updateAlarmInfo()` → `updateDepartureAlarmTime()` 리네이밍
+- `Participant.updateEstimatedArrival()` 메서드 추가 (MOVING 상태 ETA 단독 갱신용)
+- 플라스크 요청에 `memberId` 추가 (`FlaskJourneyRequest`, `FlaskParticipantRequest` 첫 번째 필드) — 지각 히스토리 조회, 유저별 패턴 학습 등 플라스크 내부 활용
+- EC2 MySQL `journey.estimated_arrival` 컬럼 삭제 완료 (`ALTER TABLE journey DROP COLUMN estimated_arrival` 적용됨)
 
 ### 미구현
 - Refresh Token
 - Redis (현재 위치 실시간 저장, Refresh Token 저장 용도)
-- 플라스크 연동 (JourneyService, ParticipantService 코드 완료 — 플라스크 서버 기동 후 실제 통신 테스트 필요)
-- FCM 푸시 알림 (프론트가 로컬 알림으로 대체)
+- 플라스크 실제 통신 테스트 (JourneyService, ParticipantService 코드 완료 — 플라스크 서버 기동 후 통신 테스트 필요)
 - 회원 탈퇴 실제 삭제 로직
 
 ### 설계 확정 사항

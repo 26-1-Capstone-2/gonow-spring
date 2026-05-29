@@ -1,5 +1,44 @@
 ### ================================================================
-### 회원가입 오류
+### member-error.http — 회원 API 에러 케이스
+### 매 테스트 전 서버를 재기동(DB create)하여 초기화할 것
+### ================================================================
+
+
+### ================================================================
+### STEP 1. 중복 확인용 계정 사전 생성
+### ================================================================
+
+### 0-1. 회원가입 (중복 테스트용)
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "영웅개발자",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+### 0-2. 로그인 → accessToken 저장 (인증 에러 테스트용)
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("accessToken", response.body.data.access_token);
+%}
+
+
+### ================================================================
+### 회원가입 에러
 ### ================================================================
 
 ### E-1. 이메일 누락 → 400
@@ -7,7 +46,6 @@ POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
-  "email": "",
   "password": "password123!",
   "nickname": "테스트유저",
   "home_name": "우리집",
@@ -32,14 +70,13 @@ Content-Type: application/json
   "preparation_time": 10
 }
 
-### E-3. 비밀번호 누락 → 400
+### E-3. 닉네임 누락 → 400
 POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
   "email": "test@cau.ac.kr",
-  "password": "",
-  "nickname": "테스트유저",
+  "password": "password123!",
   "home_name": "우리집",
   "home_address": "서울특별시 동작구 흑석로 84",
   "home_lat": 37.50490,
@@ -47,52 +84,7 @@ Content-Type: application/json
   "preparation_time": 10
 }
 
-### E-4. 닉네임 누락 → 400
-POST {{baseUrl}}/api/members
-Content-Type: application/json
-
-{
-  "email": "test@cau.ac.kr",
-  "password": "password123!",
-  "nickname": "",
-  "home_name": "우리집",
-  "home_address": "서울특별시 동작구 흑석로 84",
-  "home_lat": 37.50490,
-  "home_lng": 126.96147,
-  "preparation_time": 10
-}
-
-### E-4-1. 집 이름 누락 → 400
-POST {{baseUrl}}/api/members
-Content-Type: application/json
-
-{
-  "email": "test@cau.ac.kr",
-  "password": "password123!",
-  "nickname": "테스트유저",
-  "home_name": "",
-  "home_address": "서울특별시 동작구 흑석로 84",
-  "home_lat": 37.50490,
-  "home_lng": 126.96147,
-  "preparation_time": 10
-}
-
-### E-4-2. 집 주소 누락 → 400
-POST {{baseUrl}}/api/members
-Content-Type: application/json
-
-{
-  "email": "test@cau.ac.kr",
-  "password": "password123!",
-  "nickname": "테스트유저",
-  "home_name": "우리집",
-  "home_address": "",
-  "home_lat": 37.50490,
-  "home_lng": 126.96147,
-  "preparation_time": 10
-}
-
-### E-4-3. 여유시간 누락 → 400
+### E-4. 여유시간 누락 → 400
 POST {{baseUrl}}/api/members
 Content-Type: application/json
 
@@ -107,7 +99,6 @@ Content-Type: application/json
 }
 
 ### E-5. 이메일 중복 → 400 "이미 사용 중인 이메일입니다."
-# 사전 조건: hero@cau.ac.kr 계정이 DB에 존재해야 함 (member.http의 1번 실행 필요)
 POST {{baseUrl}}/api/members
 Content-Type: application/json
 
@@ -123,7 +114,6 @@ Content-Type: application/json
 }
 
 ### E-6. 닉네임 중복 → 400 "이미 사용 중인 닉네임입니다."
-# 사전 조건: 영웅개발자 닉네임이 DB에 존재해야 함 (member.http의 1번 실행 필요)
 POST {{baseUrl}}/api/members
 Content-Type: application/json
 
@@ -140,7 +130,7 @@ Content-Type: application/json
 
 
 ### ================================================================
-### 로그인 오류
+### 로그인 에러
 ### ================================================================
 
 ### E-7. 존재하지 않는 이메일 → 400
@@ -153,7 +143,6 @@ Content-Type: application/json
 }
 
 ### E-8. 비밀번호 불일치 → 400
-# 사전 조건: hero@cau.ac.kr 계정이 DB에 존재해야 함 (member.http의 1번 실행 필요)
 POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
@@ -173,7 +162,7 @@ Content-Type: application/json
 
 
 ### ================================================================
-### JWT 인증 오류
+### JWT 인증 에러
 ### ================================================================
 
 ### E-10. 토큰 없이 인증 필요 API 호출 → 403
@@ -185,11 +174,10 @@ Authorization: Bearer this.is.a.fake.token
 
 
 ### ================================================================
-### 닉네임 / 비밀번호 변경 오류
+### 회원 정보 변경 에러
 ### ================================================================
 
 ### E-12. 현재 비밀번호 불일치 → 400 "현재 비밀번호가 일치하지 않습니다."
-# 사전 조건: member.http의 3번(로그인) 실행 필요
 PATCH {{baseUrl}}/api/members/me/password
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -199,8 +187,7 @@ Authorization: Bearer {{accessToken}}
   "new_password": "newPassword123!"
 }
 
-### E-13. 기존과 동일한 비밀번호 → 400 "기존 비밀번호와 다른 비밀번호를 입력해주세요."
-# 사전 조건: member.http의 3번(로그인) 실행 필요
+### E-13. 기존과 동일한 비밀번호로 변경 → 400 "기존 비밀번호와 다른 비밀번호를 입력해주세요."
 PATCH {{baseUrl}}/api/members/me/password
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -210,57 +197,7 @@ Authorization: Bearer {{accessToken}}
   "new_password": "password123!"
 }
 
-### E-15. 다른 사람이 이미 사용 중인 닉네임으로 변경 시도 → 400 "이미 사용 중인 닉네임입니다."
-# 사전 조건: member.http의 3번(로그인) 실행 필요
-# 사전 조건: "다른유저" 닉네임을 가진 다른 계정이 DB에 존재해야 함
-PATCH {{baseUrl}}/api/members/me/nickname
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
-
-{
-  "nickname": "다른유저"
-}
-
-
-### ================================================================
-### 멤버 설정 변경 오류
-### ================================================================
-
-### E-16. transitType 누락 → 400 "선호 대중교통은 필수입니다."
-# 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH {{baseUrl}}/api/members/me/setting
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
-
-{
-  "priority_type": "MIN_TIME",
-  "preparation_time": 10
-}
-
-### E-17. priorityType 누락 → 400 "경로 우선순위는 필수입니다."
-# 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH {{baseUrl}}/api/members/me/setting
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
-
-{
-  "transit_type": "ALL",
-  "preparation_time": 10
-}
-
-### E-17-1. preparationTime 누락 → 400 "여유시간 필수"
-# 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH {{baseUrl}}/api/members/me/setting
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
-
-{
-  "transit_type": "ALL",
-  "priority_type": "MIN_TIME"
-}
-
-### E-18. 잘못된 Enum 값 → 400
-# 사전 조건: member.http의 3번(로그인) 실행 필요
+### E-14. 잘못된 transit_type Enum → 400
 PATCH {{baseUrl}}/api/members/me/setting
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
@@ -271,29 +208,11 @@ Authorization: Bearer {{accessToken}}
   "preparation_time": 10
 }
 
-
-### ================================================================
-### 귀가지 오류
-### ================================================================
-
-### E-19. 주소 누락 → 400
-# 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH {{baseUrl}}/api/members/me/home
+### E-15. FCM 토큰 누락 → 400
+PATCH {{baseUrl}}/api/members/me/fcm-token
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "lat": 37.50490,
-  "lng": 126.96147
-}
-
-### E-20. 위도 누락 → 400
-# 사전 조건: member.http의 3번(로그인) 실행 필요
-PATCH {{baseUrl}}/api/members/me/home
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
-
-{
-  "address": "서울특별시 동작구 흑석로 84",
-  "lng": 126.96147
+  "fcm_token": ""
 }
