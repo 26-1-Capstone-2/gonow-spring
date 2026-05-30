@@ -99,6 +99,7 @@ Authorization: Bearer {{accessToken}}
 }
 
 ### 4-2. 귀가 여정 생성 (막차 모드) → 200 { data: { journey_id, journey_status } }
+# target_time 생략 — 플라스크가 READY 첫 GPS 수신 시 막차 시각 계산 후 확정
 # transport_type 생략 — 서버가 TRANSIT으로 강제
 POST {{baseUrl}}/api/journeys/home
 Content-Type: application/json
@@ -107,7 +108,6 @@ Authorization: Bearer {{accessToken}}
 {
   "is_last_mode": true,
   "plan_date": "2026-12-31",
-  "target_time": "2026-12-31T23:58:00",
   "dest_name": "우리집",
   "dest_address": "서울특별시 동작구 흑석로 84",
   "dest_lat": 37.50490,

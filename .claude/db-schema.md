@@ -102,7 +102,7 @@
 | 이동 수단 | transport_type | ENUM | NOT NULL | DRIVING(자가용), TRANSIT(대중교통) |
 | 여정 예정 날짜 | plan_date | DATE | NOT NULL | - |
 | 막차 여부 | is_last_mode | BOOLEAN | NOT NULL | TRUE면 막차 시간 기준, FALSE면 직접 입력 기준 |
-| 목표 시간 | target_time | DATETIME | NOT NULL | 직접 입력값 혹은 API로 가져온 막차 시각 |
+| 목표 시간 | target_time | DATETIME | NULL 허용 | 데드라인 모드: 직접 입력값. 막차 모드: READY 첫 GPS 수신 시 플라스크가 계산 후 확정 (생성 시 null) |
 | 출발 알람 시각 | departure_alarm_time | DATETIME | - (SCHEDULED 상태에서는 null, READY 최초 GPS 수신 시 확정) | 서버가 계산한 출발 알람 시각 |
 | 반복 요일 | repeat_days | INT | NOT NULL | 요일 반복 비트마스크 (0: 반복 안 함) |
 | 여정 알람 스위치 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | 여정 활성화 ON/OFF |

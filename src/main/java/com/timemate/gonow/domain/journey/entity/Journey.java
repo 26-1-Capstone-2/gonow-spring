@@ -63,8 +63,7 @@ public class Journey {
     })
     private Location destination; // 목적지 이름/주소/위도/경도 (NOT NULL)
 
-    @Column(nullable = false)
-    private LocalDateTime targetTime; // 목표 시간 (NOT NULL)
+    private LocalDateTime targetTime; // 목표 시간 (막차 모드에서는 null → READY 첫 GPS 수신 시 플라스크 응답으로 확정)
 
     private LocalDateTime departureAlarmTime; // 출발 알람 시각 (SCHEDULED 상태에서는 null, READY 최초 GPS 수신 시 플라스크 호출로 확정)
 
@@ -138,6 +137,10 @@ public class Journey {
 
     public void updateDepartureAlarmTime(LocalDateTime departureAlarmTime) {
         this.departureAlarmTime = departureAlarmTime;
+    }
+
+    public void updateTargetTime(LocalDateTime targetTime) {
+        this.targetTime = targetTime;
     }
 
     // 단방향이므로 연관관계 편의 메소드 X

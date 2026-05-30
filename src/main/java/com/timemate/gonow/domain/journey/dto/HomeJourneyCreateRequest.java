@@ -19,7 +19,8 @@ public record HomeJourneyCreateRequest(
         @FutureOrPresent(message = "여정 예정 날짜는 오늘 이후여야 합니다.")
         LocalDate planDate,
 
-        @NotNull(message = "목표 시간 필수")
+        // 막차 모드(isLastMode=true)에서는 null 허용 — 플라스크가 READY 첫 GPS 수신 시 막차 시각 계산 후 확정
+        // 데드라인 모드(isLastMode=false)에서는 필수 — JourneyService에서 검증
         @FutureOrPresent(message = "목표 시간은 현재 시각 이후여야 합니다.")
         LocalDateTime targetTime,
 

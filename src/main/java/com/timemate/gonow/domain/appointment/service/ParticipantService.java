@@ -29,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
 
@@ -137,12 +136,10 @@ public class ParticipantService {
                     interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
                 }
 
-                boolean isPastAlarmTime = !LocalDateTime.now().isBefore(participant.getDepartureAlarmTime()); // P >= Q?
-
                 if (isNearDest) {
                     // 100m 이내 -> NEARDEST
                     participant.updateStatus(ParticipantStatus.NEARDEST);
-                } else if (isPastAlarmTime) {
+                } else if (isPastAlarmTime(participant.getDepartureAlarmTime())) { // P >= Q?
                     // P >= Q → DEPARTING, 300m 이탈 감지를 위해 주기를 타이트하게 갱신
                     participant.updateStatus(ParticipantStatus.DEPARTING);
                     interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
@@ -150,9 +147,7 @@ public class ParticipantService {
                 // P < Q → READY 유지
             }
             case NEARDEST -> {
-                boolean isPastAlarmTime = !LocalDateTime.now().isBefore(participant.getDepartureAlarmTime()); // P >= Q?
-
-                if (!isNearDest && !isPastAlarmTime) {
+                if (!isNearDest && !isPastAlarmTime(participant.getDepartureAlarmTime())) { // 100m 벗어남 + P < Q?
                     // 100m 벗어남 + P < Q → READY 복귀 (스쳐지나간 케이스)
                     participant.updateCurrentPos(newPoint);
                     participant.updateStatus(ParticipantStatus.READY);
@@ -162,10 +157,7 @@ public class ParticipantService {
                     // P >= Q면 100m 벗어나도 NEARDEST 고정 (알람 울리는 중)
                     // - 사용자 확인 → /arrive API → ARRIVED
                     // - targetTime 초과 → ArrivedTransitionScheduler가 자동 ARRIVED
-                    long minutesLeft = ChronoUnit.MINUTES.between(LocalDateTime.now(), appointment.getTargetTime());
-                    if (minutesLeft > 30) interval = 120;
-                    else if (minutesLeft > 10) interval = 60;
-                    else interval = 30;
+                    interval = GeoUtils.computeIntervalByTime(appointment.getTargetTime());
                 }
             }
             case DEPARTING -> {
@@ -279,6 +271,11 @@ public class ParticipantService {
             participant.updateEstimatedArrival(response.estimatedArrival()); // ETA만 갱신 (대시보드용)
         }
         return response.interval();
+    }
+
+    // departureAlarmTime이 null이면 false (미확정 = P < Q로 간주)
+    private boolean isPastAlarmTime(LocalDateTime departureAlarmTime) {
+        return departureAlarmTime != null && !LocalDateTime.now().isBefore(departureAlarmTime);
     }
 
     // TransportType + TransitType → TransportMode 변환
