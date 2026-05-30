@@ -1,0 +1,367 @@
+### ================================================================
+### location-journey-edge.http — 개인/귀가 여정 GPS 상태 전이 예외/엣지 케이스 테스트
+### 실행 전 서버 재기동(DB create)으로 초기화할 것
+### 각 시나리오는 독립 실행 가능 (자체 회원가입/로그인 포함)
+### 정상 흐름은 location-journey.http / 그룹 테스트는 location-group.http 참고
+### ================================================================
+
+
+### ================================================================
+### 공통 셋업 — 모든 시나리오 실행 전 1회 실행
+### ================================================================
+
+### 0-1. 회원가입
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "edge@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "엣지테스터",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+### 0-2. 로그인 → accessToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "edge@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("edgeToken", response.body.data.access_token);
+%}
+
+
+### ================================================================
+### EDGE-1. NEARDEST → 100m 벗어남 + P<Q → READY 복귀 (스쳐지나간 케이스)
+### ================================================================
+
+### E1-1. 여정 생성 (target_time = 현재+3시간 → P<Q 보장)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const later = new Date(today.getTime() + 3 * 60 * 60 * 1000);
+    const targetStr = `${later.getFullYear()}-${pad(later.getMonth()+1)}-${pad(later.getDate())}T${pad(later.getHours())}:${pad(later.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeLater", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "title": "엣지1 — NEARDEST→READY 복귀",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeLater}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyE1", response.body.data.journey_id);
+%}
+
+### E1-2. 최초 좌표 → READY 유지 + departureAlarmTime 확정 (미래)
+PATCH {{baseUrl}}/api/journeys/{{journeyE1}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### E1-3. 목적지 100m 이내 진입 → NEARDEST 전환
+# 예상 응답: journey_status=NEARDEST
+PATCH {{baseUrl}}/api/journeys/{{journeyE1}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### E1-4. 100m 밖으로 벗어남 (P<Q) → READY 복귀 + Q 재계산
+# 예상 응답: journey_status=READY (스쳐지나간 케이스 — 잘못 진입했다가 빠져나옴)
+PATCH {{baseUrl}}/api/journeys/{{journeyE1}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.50000,
+  "lng": 127.02000
+}
+
+
+### ================================================================
+### EDGE-2. NEARDEST → P>=Q → 100m 벗어나도 NEARDEST 고정
+### (알람 울리는 중 방향 감각 상실 방어)
+### target_time=현재+3시간으로 생성 → READY 유지
+### 최초 GPS로 departureAlarmTime 확정 후 DB에서 과거 시각으로 직접 수정하여 P>=Q 유도
+### ================================================================
+
+### E2-1. 여정 생성 (target_time = 현재+3시간 → READY 유지)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const later = new Date(today.getTime() + 3 * 60 * 60 * 1000);
+    const targetStr = `${later.getFullYear()}-${pad(later.getMonth()+1)}-${pad(later.getDate())}T${pad(later.getHours())}:${pad(later.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeLater", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "title": "엣지2 — NEARDEST P>=Q 고정",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeLater}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyE2", response.body.data.journey_id);
+%}
+
+### E2-2. 최초 좌표 수신 → READY 유지, departureAlarmTime 미래값으로 확정
+# 예상 응답: journey_status=READY
+PATCH {{baseUrl}}/api/journeys/{{journeyE2}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### E2-3. 목적지 100m 이내 진입 → NEARDEST 전환 (P<Q 상태)
+# 예상 응답: journey_status=NEARDEST
+PATCH {{baseUrl}}/api/journeys/{{journeyE2}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### [수동 조작 필요] E2-4. DB에서 departure_alarm_time을 과거 시각으로 직접 수정하여 P>=Q 상태 만들기
+# UPDATE journey SET departure_alarm_time = '2020-01-01 00:00:00' WHERE journey_id = {journeyE2};
+# 위 SQL 실행 후 E2-5 진행
+
+### E2-5. NEARDEST 상태에서 100m 밖으로 벗어남 + P>=Q → NEARDEST 고정 (READY 복귀 안 됨)
+# 예상 응답: journey_status=NEARDEST (100m 벗어났지만 P>=Q라 고정)
+PATCH {{baseUrl}}/api/journeys/{{journeyE2}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.50000,
+  "lng": 127.02000
+}
+
+
+### ================================================================
+### EDGE-3. SCHEDULED 상태에서 좌표 수신 → 무시
+### ================================================================
+
+### E3-1. 여정 생성 (미래 날짜 → SCHEDULED 상태)
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "title": "엣지4 — SCHEDULED 무시",
+  "plan_date": "2027-01-01",
+  "target_time": "2027-01-01T18:00:00",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyE3", response.body.data.journey_id);
+%}
+
+### E3-2. SCHEDULED 상태에서 GPS 수신 → 무시 (상태 변화 없음)
+# 예상 응답: journey_status=SCHEDULED (변화 없음)
+PATCH {{baseUrl}}/api/journeys/{{journeyE3}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+
+### ================================================================
+### EDGE-4. ARRIVED 상태에서 좌표 수신 → 무시
+### ================================================================
+
+### E4-1. 여정 생성 → READY
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const soon = new Date(today.getTime() + 1 * 60 * 1000);
+    const targetStr = `${soon.getFullYear()}-${pad(soon.getMonth()+1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeSoon", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "title": "엣지5 — ARRIVED 무시",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeSoon}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyE4", response.body.data.journey_id);
+%}
+
+### E4-2. 목적지 100m 이내 → NEARDEST
+PATCH {{baseUrl}}/api/journeys/{{journeyE4}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### E4-3. 도착 확인 → ARRIVED
+PATCH {{baseUrl}}/api/journeys/{{journeyE4}}/arrive
+Authorization: Bearer {{edgeToken}}
+
+### E4-4. ARRIVED 상태에서 GPS 수신 → 무시
+# 예상 응답: journey_status=ARRIVED (변화 없음)
+PATCH {{baseUrl}}/api/journeys/{{journeyE4}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.49810,
+  "lng": 127.02760
+}
+
+
+### ================================================================
+### EDGE-5. NEARDEST가 아닌 상태에서 /arrive 호출 → 400 에러
+### ================================================================
+
+### E5-1. 여정 생성 → READY
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const later = new Date(today.getTime() + 3 * 60 * 60 * 1000);
+    const targetStr = `${later.getFullYear()}-${pad(later.getMonth()+1)}-${pad(later.getDate())}T${pad(later.getHours())}:${pad(later.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeLater", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "title": "엣지5 — READY에서 arrive 호출",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeLater}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyE5", response.body.data.journey_id);
+%}
+
+### E5-2. READY 상태에서 /arrive 직접 호출 → 400 에러
+# 예상 응답: 400 Bad Request, "NEARDEST 상태에서만 도착 확인이 가능합니다."
+PATCH {{baseUrl}}/api/journeys/{{journeyE5}}/arrive
+Authorization: Bearer {{edgeToken}}
+
+
+### ================================================================
+### EDGE-6. 700m 이내 근거리 — ODsay -98 폴백 확인
+### (출발지↔목적지 700m 이내 → 플라스크 도보 기준 폴백으로 계산)
+### 플라스크 서버 기동 필수
+### ================================================================
+
+### E6-1. 여정 생성 (출발지↔목적지 약 400m 근거리, target_time = 현재+3시간)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const later = new Date(today.getTime() + 3 * 60 * 60 * 1000);
+    const targetStr = `${later.getFullYear()}-${pad(later.getMonth()+1)}-${pad(later.getDate())}T${pad(later.getHours())}:${pad(later.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeLater", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "title": "엣지6 — 700m 이내 근거리 ODsay 폴백",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeLater}}",
+  "dest_name": "흑석역 4번 출구",
+  "dest_address": "서울특별시 동작구 흑석로 지하 100",
+  "dest_lat": 37.50827,
+  "dest_lng": 126.96411,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyE6", response.body.data.journey_id);
+%}
+
+### E6-2. 출발지(흑석로 84) → 목적지(흑석역 4번 출구) 약 400m — ODsay -98 에러 유발
+# 예상 응답: journey_status=READY, departure_alarm_time=값 있음 (플라스크 도보 폴백)
+# 로그 확인: 플라스크 응답 — departureAlarmTime=미래값 (null이면 플라스크 폴백 미구현)
+PATCH {{baseUrl}}/api/journeys/{{journeyE6}}/location
+Content-Type: application/json
+Authorization: Bearer {{edgeToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}

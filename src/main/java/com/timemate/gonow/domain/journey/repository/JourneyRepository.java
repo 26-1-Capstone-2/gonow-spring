@@ -8,10 +8,14 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.timemate.gonow.domain.journey.dto.TokenJourneyIdsProjection;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public interface JourneyRepository extends JpaRepository<Journey, Long> {
     Optional<Journey> findByIdAndMemberId(Long journeyId, Long memberId);
@@ -59,14 +63,19 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
         return findIdsNeardestOverdueInternal(JourneyStatus.NEARDEST.name(), planDate, now, planDateBit);
     }
 
-    // 스케줄러: 당일 READY 전환 대상 여정 주인들의 FCM 토큰 조회 (null 토큰 제외)
-    // 비트마스크 연산으로 네이티브 쿼리 필수 — findFcmTokensForReadyTransition(LocalDate, int) 래퍼를 통해 호출할 것
-    @Query(value = "SELECT DISTINCT m.fcm_token FROM journey j JOIN member m ON j.member_id = m.member_id WHERE (j.plan_date = :today OR (j.repeat_days & :todayBit) > 0) AND j.plan_date <= :today AND j.status IN (:scheduledStatus, :arrivedStatus) AND m.fcm_token IS NOT NULL", nativeQuery = true)
-    List<String> findFcmTokensForReadyTransitionInternal(@Param("today") LocalDate today, @Param("todayBit") int todayBit, @Param("scheduledStatus") String scheduledStatus, @Param("arrivedStatus") String arrivedStatus);
+    // 스케줄러: 당일 READY 전환 대상 여정의 (fcmToken, journeyIds 콤마 문자열) 조회 (null 토큰 제외)
+    // GROUP_CONCAT으로 DB에서 토큰별 그룹화 — 비트마스크 연산으로 네이티브 쿼리 필수
+    @Query(value = "SELECT m.fcm_token AS fcmToken, GROUP_CONCAT(j.journey_id) AS journeyIds FROM journey j JOIN member m ON j.member_id = m.member_id WHERE (j.plan_date = :today OR (j.repeat_days & :todayBit) > 0) AND j.plan_date <= :today AND j.status IN (:scheduledStatus, :arrivedStatus) AND m.fcm_token IS NOT NULL GROUP BY m.fcm_token", nativeQuery = true)
+    List<TokenJourneyIdsProjection> findTokenJourneyIdPairsForReadyTransitionInternal(@Param("today") LocalDate today, @Param("todayBit") int todayBit, @Param("scheduledStatus") String scheduledStatus, @Param("arrivedStatus") String arrivedStatus);
 
-    // 외부 호출용 래퍼 — Enum.name() 조립을 캡슐화
-    default List<String> findFcmTokensForReadyTransition(LocalDate today, int todayBit) {
-        return findFcmTokensForReadyTransitionInternal(today, todayBit,
-                JourneyStatus.SCHEDULED.name(), JourneyStatus.ARRIVED.name());
+    // 외부 호출용 래퍼 — 반환: Map<fcmToken, journeyId 콤마 문자열>
+    default Map<String, String> findTokenToJourneyIdsForReadyTransition(LocalDate today, int todayBit) {
+        return findTokenJourneyIdPairsForReadyTransitionInternal(today, todayBit,
+                JourneyStatus.SCHEDULED.name(), JourneyStatus.ARRIVED.name())
+                .stream()
+                .collect(Collectors.toMap(
+                        TokenJourneyIdsProjection::getFcmToken,
+                        TokenJourneyIdsProjection::getJourneyIds
+                ));
     }
 }

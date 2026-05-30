@@ -1,0 +1,442 @@
+### ================================================================
+### location-group.http — 그룹 알람 GPS 상태 전이 테스트
+### 실행 전 서버 재기동(DB create)으로 초기화할 것
+### 플라스크 서버가 기동되어 있어야 정확한 departureAlarmTime 계산됨
+### 개인 여정 테스트는 location-journey.http / location-journey-edge.http 참고
+### NEARDEST → targetTime 초과 → 자동 ARRIVED 테스트는 scheduler.http 참고
+### ================================================================
+
+
+### ================================================================
+### STEP 1. 공통 셋업 — 방장 + 참여자 회원가입/로그인
+### ================================================================
+
+### 1-1. 방장 회원가입
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "host@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "방장",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+### 1-2. 참여자 회원가입
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "guest@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "참여자",
+  "home_name": "자취방",
+  "home_address": "서울특별시 마포구 양화로 160",
+  "home_lat": 37.55763,
+  "home_lng": 126.92525,
+  "preparation_time": 15
+}
+
+### 1-3. 방장 로그인 → hostToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "host@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("hostToken", response.body.data.access_token);
+%}
+
+### 1-4. 참여자 로그인 → guestToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "guest@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("guestToken", response.body.data.access_token);
+%}
+
+
+### ================================================================
+### SCENARIO A. 정상: DEPARTING → MOVING → ARRIVED
+### 참가자 MOVING 진입 → Appointment ACTIVE, 모두 ARRIVED → FINISHED
+### ================================================================
+
+### A-1. 그룹 알람 생성 (target_time = 현재+1분 → P>=Q 유도)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const soon = new Date(today.getTime() + 1 * 60 * 1000);
+    const targetStr = `${soon.getFullYear()}-${pad(soon.getMonth()+1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeSoon", targetStr);
+%}
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "title": "시나리오A — DEPARTING→MOVING",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeSoon}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT"
+}
+
+> {%
+    client.global.set("appointmentA", response.body.data.appointment_id);
+    client.global.set("inviteCodeA", response.body.data.invite_code);
+%}
+
+### A-2. 참여자 초대코드로 참여
+POST {{baseUrl}}/api/appointments/join
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "invite_code": "{{inviteCodeA}}",
+  "transport_type": "DRIVING"
+}
+
+### A-3. 참여자 최초 GPS → DEPARTING (P>=Q)
+# 예상 응답: participant_status=DEPARTING, appointment_status=WAITING
+PATCH {{baseUrl}}/api/appointments/{{appointmentA}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.55763,
+  "lng": 126.92525
+}
+
+### A-4. 참여자 300m 이탈 → MOVING → Appointment WAITING→ACTIVE
+# 예상 응답: participant_status=MOVING, appointment_status=ACTIVE
+PATCH {{baseUrl}}/api/appointments/{{appointmentA}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.56100,
+  "lng": 126.93000
+}
+
+### A-5. 참여자 목적지 100m 이내 → ARRIVED (방장 아직 미도착)
+# 예상 응답: participant_status=ARRIVED, appointment_status=ACTIVE
+PATCH {{baseUrl}}/api/appointments/{{appointmentA}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### A-6. 방장 최초 GPS → DEPARTING (P>=Q)
+# 예상 응답: participant_status=DEPARTING, appointment_status=ACTIVE
+PATCH {{baseUrl}}/api/appointments/{{appointmentA}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### A-7. 방장 300m 이탈 → MOVING
+# 예상 응답: participant_status=MOVING, appointment_status=ACTIVE
+PATCH {{baseUrl}}/api/appointments/{{appointmentA}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "lat": 37.50800,
+  "lng": 126.96700
+}
+
+### A-8. 방장 목적지 100m 이내 → ARRIVED → 모두 ARRIVED → Appointment FINISHED
+# 예상 응답: participant_status=ARRIVED, appointment_status=FINISHED
+PATCH {{baseUrl}}/api/appointments/{{appointmentA}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+
+### ================================================================
+### SCENARIO B. 정상: 근거리 DEPARTING → ARRIVED (MOVING 생략)
+### 목적지가 300m 이내 — MOVING 없이 바로 도착
+### ================================================================
+
+### B-1. 그룹 알람 생성 (목적지 = 출발지 근처 약 200m, target_time = 현재+1분)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const soon = new Date(today.getTime() + 1 * 60 * 1000);
+    const targetStr = `${soon.getFullYear()}-${pad(soon.getMonth()+1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeSoon", targetStr);
+%}
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "title": "시나리오B — 근거리 DEPARTING→ARRIVED",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeSoon}}",
+  "dest_name": "흑석역 근처",
+  "dest_address": "서울특별시 동작구 흑석로 100",
+  "dest_lat": 37.50650,
+  "dest_lng": 126.96200,
+  "transport_type": "TRANSIT"
+}
+
+> {%
+    client.global.set("appointmentB", response.body.data.appointment_id);
+    client.global.set("inviteCodeB", response.body.data.invite_code);
+%}
+
+### B-2. 참여자 초대코드로 참여
+POST {{baseUrl}}/api/appointments/join
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "invite_code": "{{inviteCodeB}}",
+  "transport_type": "DRIVING"
+}
+
+### B-3. 참여자 최초 GPS → DEPARTING (P>=Q, 출발지와 목적지 약 200m)
+# 예상 응답: participant_status=DEPARTING, appointment_status=WAITING
+PATCH {{baseUrl}}/api/appointments/{{appointmentB}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### B-4. 참여자 목적지 100m 이내 → ARRIVED (300m 이탈 전, MOVING 생략)
+# 예상 응답: participant_status=ARRIVED, appointment_status=WAITING (MOVING 없어서 ACTIVE 미전환)
+PATCH {{baseUrl}}/api/appointments/{{appointmentB}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.50640,
+  "lng": 126.96190
+}
+
+### B-5. 방장 최초 GPS → DEPARTING (P>=Q, 목적지 약 200m)
+# 예상 응답: participant_status=DEPARTING, appointment_status=WAITING
+PATCH {{baseUrl}}/api/appointments/{{appointmentB}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### B-6. 방장 목적지 100m 이내 → ARRIVED (300m 이탈 전, MOVING 생략) → Appointment FINISHED
+# 예상 응답: participant_status=ARRIVED, appointment_status=FINISHED
+PATCH {{baseUrl}}/api/appointments/{{appointmentB}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "lat": 37.50640,
+  "lng": 126.96190
+}
+
+
+### ================================================================
+### SCENARIO C. 정상: NEARDEST → /arrive 버튼 → ARRIVED
+### 일찍 도착해서 목적지 근처 대기 후 확인 버튼
+### ================================================================
+
+### C-1. 그룹 알람 생성 (target_time = 현재+3시간 → P<Q, READY 유지)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const later = new Date(today.getTime() + 3 * 60 * 60 * 1000);
+    const targetStr = `${later.getFullYear()}-${pad(later.getMonth()+1)}-${pad(later.getDate())}T${pad(later.getHours())}:${pad(later.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeLater", targetStr);
+%}
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "title": "시나리오C — NEARDEST→arrive 버튼",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeLater}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT"
+}
+
+> {%
+    client.global.set("appointmentC", response.body.data.appointment_id);
+    client.global.set("inviteCodeC", response.body.data.invite_code);
+%}
+
+### C-2. 참여자 초대코드로 참여
+POST {{baseUrl}}/api/appointments/join
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "invite_code": "{{inviteCodeC}}",
+  "transport_type": "TRANSIT"
+}
+
+### C-3. 참여자 최초 GPS → READY 유지 (P<Q)
+# 예상 응답: participant_status=READY, appointment_status=WAITING
+PATCH {{baseUrl}}/api/appointments/{{appointmentC}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.55763,
+  "lng": 126.92525
+}
+
+### C-4. 참여자 목적지 100m 이내 진입 → NEARDEST
+# 예상 응답: participant_status=NEARDEST, appointment_status=WAITING
+PATCH {{baseUrl}}/api/appointments/{{appointmentC}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### C-5. 참여자 도착 확인 버튼 → ARRIVED
+# 예상 응답: participant_status=ARRIVED, appointment_status=WAITING (방장 미도착)
+PATCH {{baseUrl}}/api/appointments/{{appointmentC}}/participants/arrive
+Authorization: Bearer {{guestToken}}
+
+### C-6. 방장 최초 GPS → READY 유지 (P<Q)
+# 예상 응답: participant_status=READY, appointment_status=WAITING
+PATCH {{baseUrl}}/api/appointments/{{appointmentC}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### C-7. 방장 목적지 100m 이내 → NEARDEST
+# 예상 응답: participant_status=NEARDEST, appointment_status=WAITING
+PATCH {{baseUrl}}/api/appointments/{{appointmentC}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### C-8. 방장 도착 확인 버튼 → ARRIVED → 모두 ARRIVED → Appointment FINISHED
+# 예상 응답: appointment_status=FINISHED
+PATCH {{baseUrl}}/api/appointments/{{appointmentC}}/participants/arrive
+Authorization: Bearer {{hostToken}}
+
+
+### ================================================================
+### SCENARIO D. 엣지: ARRIVED 상태에서 GPS 수신 → 무시
+### ================================================================
+
+### D-1. 그룹 알람 생성 (target_time = 현재+1분)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const soon = new Date(today.getTime() + 1 * 60 * 1000);
+    const targetStr = `${soon.getFullYear()}-${pad(soon.getMonth()+1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeSoon", targetStr);
+%}
+POST {{baseUrl}}/api/appointments
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "title": "시나리오D — ARRIVED 무시",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeSoon}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT"
+}
+
+> {%
+    client.global.set("appointmentD", response.body.data.appointment_id);
+    client.global.set("inviteCodeD", response.body.data.invite_code);
+%}
+
+### D-2. 참여자 초대코드로 참여
+POST {{baseUrl}}/api/appointments/join
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "invite_code": "{{inviteCodeD}}",
+  "transport_type": "DRIVING"
+}
+
+### D-3. 참여자 목적지 100m 이내 → NEARDEST
+# 예상 응답: participant_status=NEARDEST
+PATCH {{baseUrl}}/api/appointments/{{appointmentD}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### D-4. 참여자 도착 확인 버튼 → ARRIVED
+# 예상 응답: participant_status=ARRIVED
+PATCH {{baseUrl}}/api/appointments/{{appointmentD}}/participants/arrive
+Authorization: Bearer {{guestToken}}
+
+### D-5. ARRIVED 상태에서 GPS 수신 → 무시 (상태 변화 없음)
+# 예상 응답: participant_status=ARRIVED (그대로)
+PATCH {{baseUrl}}/api/appointments/{{appointmentD}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.49810,
+  "lng": 127.02760
+}

@@ -7,7 +7,7 @@
 ### "0 * * * * *" (매 분)으로 변경 후 테스트할 것
 ###
 ### [ArrivedTransitionScheduler 테스트]
-### NEARDEST 상태 진입 후 targetTime이 지난 케이스 확인
+### cron 변경 불필요 — 기본 1분 주기로 자동 실행됨
 ### ================================================================
 
 
@@ -45,20 +45,33 @@ Content-Type: application/json
 
 
 ### ================================================================
-### STEP 2. 오늘 날짜로 여정/약속 생성
-### (오늘 날짜 생성 → READY 상태 즉시 부여, 서버 재기동 후 SCHEDULED → READY 전환 테스트 시엔
-###  application.yml ddl-auto를 update로 바꾸고 직접 DB에서 status를 SCHEDULED로 변경 필요)
+### STEP 2. ReadyTransitionScheduler 테스트
+### 내일 날짜로 생성 → SCHEDULED 상태 확정
+### DB에서 plan_date를 오늘로 수정 후 스케줄러 대기
+###
+### SQL: UPDATE journey SET plan_date = CURDATE() WHERE title = 'READY 전환 테스트 여정';
+###      UPDATE participant p JOIN appointment a ON p.appointment_id = a.appointment_id
+###             SET a.plan_date = CURDATE() WHERE a.title = 'READY 전환 테스트 약속';
 ### ================================================================
 
-### 3-1. 개인 여정 생성 (오늘 날짜)
+### 3-1. 개인 여정 생성 (내일 날짜 → SCHEDULED 상태)
+< {%
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth()+1)}-${pad(tomorrow.getDate())}`;
+    const targetStr = `${dateStr}T09:00:00`;
+    client.global.set("tomorrow", dateStr);
+    client.global.set("tomorrowTarget", targetStr);
+%}
 POST {{baseUrl}}/api/journeys/personal
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "title": "스케줄러 테스트 여정",
-  "plan_date": "2026-05-30",
-  "target_time": "2026-05-30T22:00:00",
+  "title": "READY 전환 테스트 여정",
+  "plan_date": "{{tomorrow}}",
+  "target_time": "{{tomorrowTarget}}",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
@@ -67,33 +80,19 @@ Authorization: Bearer {{accessToken}}
   "repeat_days": 0
 }
 
-### 3-2. 반복 여정 생성 (매일 반복)
-# repeat_days: 127 = 매일
-POST {{baseUrl}}/api/journeys/personal
-Content-Type: application/json
-Authorization: Bearer {{accessToken}}
+> {%
+    client.global.set("schedJourneyId", response.body.data.journey_id);
+%}
 
-{
-  "title": "매일 반복 여정",
-  "plan_date": "2026-05-30",
-  "target_time": "2026-05-30T09:00:00",
-  "dest_name": "회사",
-  "dest_address": "서울특별시 중구 세종대로 110",
-  "dest_lat": 37.56648,
-  "dest_lng": 126.97797,
-  "transport_type": "TRANSIT",
-  "repeat_days": 127
-}
-
-### 3-3. 그룹 알람 생성 (오늘 날짜)
+### 3-2. 그룹 알람 생성 (내일 날짜 → 참가자 SCHEDULED 상태)
 POST {{baseUrl}}/api/appointments
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-  "title": "스케줄러 테스트 약속",
-  "plan_date": "2026-05-30",
-  "target_time": "2026-05-30T19:00:00",
+  "title": "READY 전환 테스트 약속",
+  "plan_date": "{{tomorrow}}",
+  "target_time": "{{tomorrowTarget}}",
   "dest_name": "홍대입구역 2번 출구",
   "dest_address": "서울특별시 마포구 양화로 160",
   "dest_lat": 37.55763,
@@ -101,38 +100,54 @@ Authorization: Bearer {{accessToken}}
   "transport_type": "TRANSIT"
 }
 
+> {%
+    client.global.set("schedAppointmentId", response.body.data.appointment_id);
+%}
 
-### ================================================================
-### STEP 3. 스케줄러 실행 후 상태 확인
-### (cron을 "0 * * * * *"으로 설정 시 1분 이내 READY 전환)
-### ================================================================
-
-### 4-1. 여정 상태 확인 → journey_status: READY
-# journey_id는 3-1번 응답값으로 교체
-GET {{baseUrl}}/api/journeys/1
+### 3-3. 생성 직후 상태 확인 → journey_status: SCHEDULED
+GET {{baseUrl}}/api/journeys/{{schedJourneyId}}
 Authorization: Bearer {{accessToken}}
 
-### 4-2. 그룹 알람 상태 확인 → participants[0].status: READY
-# appointment_id는 3-3번 응답값으로 교체
-GET {{baseUrl}}/api/appointments/1
+### 3-4. 생성 직후 상태 확인 → participants[0].status: SCHEDULED
+GET {{baseUrl}}/api/appointments/{{schedAppointmentId}}
+Authorization: Bearer {{accessToken}}
+
+### [수동 조작] 아래 SQL로 plan_date를 오늘로 변경 후 스케줄러 대기 (최대 1분)
+#  UPDATE journey SET plan_date = CURDATE() WHERE title = 'READY 전환 테스트 여정';
+#  UPDATE appointment SET plan_date = CURDATE() WHERE title = 'READY 전환 테스트 약속';
+
+### 3-5. 스케줄러 실행 후 여정 상태 확인 → journey_status: READY
+GET {{baseUrl}}/api/journeys/{{schedJourneyId}}
+Authorization: Bearer {{accessToken}}
+
+### 3-6. 스케줄러 실행 후 그룹 알람 상태 확인 → participants[0].status: READY
+GET {{baseUrl}}/api/appointments/{{schedAppointmentId}}
 Authorization: Bearer {{accessToken}}
 
 
 ### ================================================================
-### STEP 4. ArrivedTransitionScheduler 테스트
-### (NEARDEST 상태 + targetTime 초과 → 자동 ARRIVED)
-### targetTime을 과거 시각으로 설정하여 즉시 전환 확인
+### STEP 3. ArrivedTransitionScheduler 테스트
+### target_time = 현재+2분으로 생성 → NEARDEST 진입 → 2분 후 자동 ARRIVED
 ### ================================================================
 
-### 5. 과거 targetTime으로 여정 생성 (NEARDEST 수동 진입용)
+### 4-1. 여정 생성 (오늘, target_time = 현재+2분)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const soon = new Date(today.getTime() + 2 * 60 * 1000);
+    const targetStr = `${soon.getFullYear()}-${pad(soon.getMonth()+1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("soonTarget", targetStr);
+%}
 POST {{baseUrl}}/api/journeys/personal
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
   "title": "ArrivedTransition 테스트",
-  "plan_date": "2026-05-30",
-  "target_time": "2026-05-30T00:01:00",
+  "plan_date": "{{today}}",
+  "target_time": "{{soonTarget}}",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
@@ -141,9 +156,13 @@ Authorization: Bearer {{accessToken}}
   "repeat_days": 0
 }
 
-### 6. 목적지 100m 이내 좌표 전송 → NEARDEST 전환
-# journey_id는 5번 응답값으로 교체
-PATCH {{baseUrl}}/api/journeys/3/location
+> {%
+    client.global.set("arrivedJourneyId", response.body.data.journey_id);
+%}
+
+### 4-2. 목적지 100m 이내 좌표 전송 → NEARDEST 전환
+# 예상 응답: journey_status=NEARDEST
+PATCH {{baseUrl}}/api/journeys/{{arrivedJourneyId}}/location
 Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
@@ -152,6 +171,7 @@ Authorization: Bearer {{accessToken}}
   "lng": 127.02750
 }
 
-### 7. 1분 후 여정 조회 → journey_status: ARRIVED (스케줄러 자동 전환 확인)
-GET {{baseUrl}}/api/journeys/3
+### 4-3. target_time(현재+2분) 경과 후 조회 → journey_status: ARRIVED (스케줄러 자동 전환)
+# 2분 대기 후 실행
+GET {{baseUrl}}/api/journeys/{{arrivedJourneyId}}
 Authorization: Bearer {{accessToken}}

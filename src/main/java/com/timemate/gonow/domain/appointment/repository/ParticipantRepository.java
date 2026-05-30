@@ -8,10 +8,14 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.timemate.gonow.domain.appointment.dto.TokenAppointmentIdsProjection;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public interface ParticipantRepository extends JpaRepository<Participant, Long> {
     // 방장 권한 확인 + host.getAppointment() 사용 → appointment fetch join
@@ -99,12 +103,18 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
         return bulkUpdateToArrivedByAppointmentIdsInternal(ParticipantStatus.ARRIVED, appIds, ParticipantStatus.NEARDEST, now);
     }
 
-    // 스케줄러: 당일 READY 전환 대상 참가자들의 FCM 토큰 조회 (null 토큰 제외)
-    @Query("SELECT DISTINCT p.member.fcmToken FROM Participant p WHERE p.appointment.planDate = :today AND p.participantStatus = :status AND p.member.fcmToken IS NOT NULL")
-    List<String> findFcmTokensForReadyTransitionInternal(@Param("today") LocalDate today, @Param("status") ParticipantStatus status);
+    // 스케줄러: 당일 READY 전환 대상 참가자의 (fcmToken, appointmentIds 콤마 문자열) 조회 (null 토큰 제외)
+    // GROUP_CONCAT으로 DB에서 토큰별 그룹화
+    @Query(value = "SELECT m.fcm_token AS fcmToken, GROUP_CONCAT(p.appointment_id) AS appointmentIds FROM participant p JOIN member m ON p.member_id = m.member_id JOIN appointment a ON p.appointment_id = a.appointment_id WHERE a.plan_date = :today AND p.status = :status AND m.fcm_token IS NOT NULL GROUP BY m.fcm_token", nativeQuery = true)
+    List<TokenAppointmentIdsProjection> findTokenAppointmentIdPairsForReadyTransitionInternal(@Param("today") LocalDate today, @Param("status") String status);
 
-    // 외부 호출용 래퍼 — SCHEDULED 고정값 캡슐화
-    default List<String> findFcmTokensForReadyTransition(LocalDate today) {
-        return findFcmTokensForReadyTransitionInternal(today, ParticipantStatus.SCHEDULED);
+    // 외부 호출용 래퍼 — 반환: Map<fcmToken, appointmentId 콤마 문자열>
+    default Map<String, String> findTokenToAppointmentIdsForReadyTransition(LocalDate today) {
+        return findTokenAppointmentIdPairsForReadyTransitionInternal(today, ParticipantStatus.SCHEDULED.name())
+                .stream()
+                .collect(Collectors.toMap(
+                        TokenAppointmentIdsProjection::getFcmToken,
+                        TokenAppointmentIdsProjection::getAppointmentIds
+                ));
     }
 }

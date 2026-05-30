@@ -1,0 +1,374 @@
+### ================================================================
+### location-journey.http — 개인/귀가 여정 GPS 상태 전이 정상 흐름 테스트
+### 실행 전 서버 재기동(DB create)으로 초기화할 것
+### 플라스크 서버가 기동되어 있어야 정확한 departureAlarmTime 계산됨
+### 플라스크 미기동 시 503 반환 — 예외 케이스는 location-journey-edge.http 참고
+### 그룹 알람 테스트는 location-group.http 참고
+### ================================================================
+
+
+### ================================================================
+### STEP 1. 회원가입 + 로그인
+### ================================================================
+
+### 1-1. 회원가입
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "영웅개발자",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+### 1-2. 로그인 → accessToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("accessToken", response.body.data.access_token);
+%}
+
+
+### ================================================================
+### SCENARIO A. 정상 흐름 1: READY → DEPARTING → MOVING → ARRIVED
+### (출발 알람 시각 이후 출발, 300m 이탈 후 이동 — 가장 일반적인 흐름)
+### ================================================================
+
+### A-1. 여정 생성 (target_time = 현재+1분 → 플라스크가 departureAlarmTime을 과거로 계산하도록 유도)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const soon = new Date(today.getTime() + 1 * 60 * 1000);
+    const targetStr = `${soon.getFullYear()}-${pad(soon.getMonth()+1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeSoon", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "시나리오A — DEPARTING→MOVING 경로",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeSoon}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyA", response.body.data.journey_id);
+%}
+
+### A-2. 최초 좌표 수신 → P>=Q (출발 알람 이미 지남) → DEPARTING 전환
+# 예상 응답: journey_status=DEPARTING
+PATCH {{baseUrl}}/api/journeys/{{journeyA}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### A-3. DEPARTING 상태에서 300m 미만 이동 → DEPARTING 유지, 앵커 보존
+# 예상 응답: journey_status=DEPARTING
+PATCH {{baseUrl}}/api/journeys/{{journeyA}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50520,
+  "lng": 126.96200
+}
+
+### A-4. DEPARTING 상태에서 300m 이상 이탈 → MOVING 전환
+# 예상 응답: journey_status=MOVING
+PATCH {{baseUrl}}/api/journeys/{{journeyA}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50800,
+  "lng": 126.96700
+}
+
+### A-5. MOVING 상태에서 이동 중 → MOVING 유지, 플라스크 호출 (interval 갱신)
+# 예상 응답: journey_status=MOVING, interval=숫자
+PATCH {{baseUrl}}/api/journeys/{{journeyA}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.51200,
+  "lng": 126.97500
+}
+
+### A-6. 목적지 100m 이내 진입 → ARRIVED 자동 전환
+# 예상 응답: journey_status=ARRIVED
+PATCH {{baseUrl}}/api/journeys/{{journeyA}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+
+### ================================================================
+### SCENARIO B. 정상 흐름 2: READY → DEPARTING → ARRIVED (MOVING 생략)
+### (목적지가 300m 이내 근거리 — MOVING 없이 바로 도착)
+### ================================================================
+
+### B-1. 여정 생성 (목적지 = 출발지 근처 약 200m, target_time = 현재+1분)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const soon = new Date(today.getTime() + 1 * 60 * 1000);
+    const targetStr = `${soon.getFullYear()}-${pad(soon.getMonth()+1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeSoon", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "시나리오B — 근거리 DEPARTING→ARRIVED",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeSoon}}",
+  "dest_name": "흑석역 근처",
+  "dest_address": "서울특별시 동작구 흑석로 100",
+  "dest_lat": 37.50650,
+  "dest_lng": 126.96200,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyB", response.body.data.journey_id);
+%}
+
+### B-2. 최초 좌표 수신 → P>=Q → DEPARTING (출발지와 목적지 약 200m)
+# 예상 응답: journey_status=DEPARTING
+PATCH {{baseUrl}}/api/journeys/{{journeyB}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### B-3. 목적지 100m 이내 진입 → ARRIVED (300m 이탈 전에 도착, MOVING 생략)
+# 예상 응답: journey_status=ARRIVED
+PATCH {{baseUrl}}/api/journeys/{{journeyB}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50640,
+  "lng": 126.96190
+}
+
+
+### ================================================================
+### SCENARIO C. 정상 흐름 3: READY → NEARDEST → 확인 → ARRIVED
+### (일찍 출발해서 목적지 근처 도달 후 확인 버튼)
+### ================================================================
+
+### C-1. 여정 생성 (오늘 날짜, target_time = 현재+3시간 → READY로 생성)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const later = new Date(today.getTime() + 3 * 60 * 60 * 1000);
+    const targetStr = `${later.getFullYear()}-${pad(later.getMonth()+1)}-${pad(later.getDate())}T${pad(later.getHours())}:${pad(later.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTime", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "시나리오C — NEARDEST 경로",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTime}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyC", response.body.data.journey_id);
+%}
+
+### C-2. 최초 좌표 수신 (출발지 근처, 목적지 약 7km) → READY 유지, 플라스크 호출, interval 반환
+# 예상 응답: journey_status=READY, departure_alarm_time=미래값, interval=숫자
+PATCH {{baseUrl}}/api/journeys/{{journeyC}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### C-3. 500m 이내 미세 이동 → READY 유지, 플라스크 미호출
+# 예상 응답: journey_status=READY, interval=null (플라스크 미호출)
+PATCH {{baseUrl}}/api/journeys/{{journeyC}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50500,
+  "lng": 126.96200
+}
+
+### C-4. 앵커 기준 500m 이탈 → READY 유지, 플라스크 재호출, interval 반환
+# 예상 응답: journey_status=READY, interval=숫자 (재계산)
+PATCH {{baseUrl}}/api/journeys/{{journeyC}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50900,
+  "lng": 126.96800
+}
+
+### C-5. 목적지 100m 이내 진입 → NEARDEST 전환
+# 예상 응답: journey_status=NEARDEST, interval=숫자 (남은 시간 기반)
+PATCH {{baseUrl}}/api/journeys/{{journeyC}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### C-6. NEARDEST → 100m 이내 유지 → NEARDEST 유지
+# 예상 응답: journey_status=NEARDEST
+PATCH {{baseUrl}}/api/journeys/{{journeyC}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.49810,
+  "lng": 127.02760
+}
+
+### C-7. NEARDEST → 100m 밖으로 벗어남 (P<Q) → READY 복귀 + Q 재계산
+# 예상 응답: journey_status=READY (스쳐지나간 케이스)
+PATCH {{baseUrl}}/api/journeys/{{journeyC}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50000,
+  "lng": 127.02000
+}
+
+### C-8. READY 복귀 후 목적지 100m 이내 재진입 → NEARDEST 재전환
+# 예상 응답: journey_status=NEARDEST
+PATCH {{baseUrl}}/api/journeys/{{journeyC}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+
+### C-9. 도착 확인 버튼 → ARRIVED
+# 예상 응답: 200 OK
+PATCH {{baseUrl}}/api/journeys/{{journeyC}}/arrive
+Authorization: Bearer {{accessToken}}
+
+### C-10. ARRIVED 상태에서 좌표 수신 → 무시 (상태 변화 없음)
+# 예상 응답: journey_status=ARRIVED (그대로)
+PATCH {{baseUrl}}/api/journeys/{{journeyC}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.49810,
+  "lng": 127.02760
+}
+
+
+### ================================================================
+### SCENARIO D. 막차 모드 — target_time 플라스크 응답 확인
+### (is_last_mode=true, target_time 생략 → 첫 GPS 수신 시 플라스크가 target_time 계산)
+### 플라스크 서버 기동 필수
+### ================================================================
+
+### D-1. 귀가 여정 생성 (막차 모드, target_time 생략)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    client.global.set("today", dateStr);
+%}
+POST {{baseUrl}}/api/journeys/home
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "시나리오D — 막차 모드",
+  "plan_date": "{{today}}",
+  "is_last_mode": true,
+  "dest_name": "우리집",
+  "dest_address": "서울특별시 동작구 흑석로 84",
+  "dest_lat": 37.50490,
+  "dest_lng": 126.96147,
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyD", response.body.data.journey_id);
+%}
+
+### D-2. 생성 직후 상태 확인 → target_time: null (막차 모드 생성 시 미확정)
+GET {{baseUrl}}/api/journeys/{{journeyD}}
+Authorization: Bearer {{accessToken}}
+
+### D-3. 첫 GPS 수신 → 플라스크 호출 → target_time + departureAlarmTime 확정
+# 예상 응답: journey_status=READY, departure_alarm_time=미래값
+# 로그 확인: 플라스크 응답 — targetTime=막차시각, departureAlarmTime=출발알람시각
+# interval=null (플라스크 개인여정 endpoint 미반환 — 플라스크 팀원 요청 필요)
+PATCH {{baseUrl}}/api/journeys/{{journeyD}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.49794,
+  "lng": 127.02759
+}
+
+### D-4. GPS 수신 후 상태 확인 → target_time: 막차 시각으로 확정됨
+GET {{baseUrl}}/api/journeys/{{journeyD}}
+Authorization: Bearer {{accessToken}}
+
+

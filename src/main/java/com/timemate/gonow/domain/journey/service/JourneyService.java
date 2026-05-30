@@ -29,6 +29,7 @@ import com.timemate.gonow.domain.member.entity.MemberSetting;
 import com.timemate.gonow.domain.member.repository.MemberRepository;
 import com.timemate.gonow.domain.member.repository.MemberSettingRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +38,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
@@ -317,6 +319,7 @@ public class JourneyService {
         );
 
         FlaskJourneyResponse response = flaskClient.calculateJourneyAlarm(request);
+        log.info("플라스크 응답 — targetTime={}, departureAlarmTime={}, interval={}", response.targetTime(), response.departureAlarmTime(), response.interval());
 
         if (journey.isLastMode() && response.targetTime() != null && !isPastAlarmTime(journey.getDepartureAlarmTime())) {
             // P < Q(출발 알람 전)일 때만 갱신 — P >= Q 시점부터 막차 시각 확정

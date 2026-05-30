@@ -23,6 +23,7 @@ import com.timemate.gonow.global.client.dto.TransportMode;
 import com.timemate.gonow.global.fcm.FcmSender;
 import com.timemate.gonow.global.util.GeoUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +33,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 
+@Slf4j
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
@@ -265,6 +267,7 @@ public class ParticipantService {
         );
 
         FlaskParticipantResponse response = flaskClient.calculateParticipantAlarm(request);
+        log.info("플라스크 응답 — departureAlarmTime={}, estimatedArrival={}, interval={}", response.departureAlarmTime(), response.estimatedArrival(), response.interval());
         if (participant.getParticipantStatus() != ParticipantStatus.MOVING) {
             participant.updateAlarmInfo(response.departureAlarmTime(), response.estimatedArrival());
         } else {

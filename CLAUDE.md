@@ -202,13 +202,14 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 #### GPS 폴링 주기 조절
 - `/location` 응답에 `interval`(초) 포함 — 플라스크 호출 시에만 값 설정, 미호출 시 `null`
 - 프론트는 `interval != null`이면 폴링 주기를 해당 값으로 갱신, `null`이면 마지막 주기 유지
-- 새벽 4시 `ReadyTransitionService`에서 FCM Data(`type: "READY"`) 발송 → 프론트가 GPS 폴링 시작
+- 새벽 4시 `ReadyTransitionService`에서 FCM Data 토큰별 개별 발송 → 프론트가 GPS 폴링 시작
+- FCM Data 페이로드: `journey_ids: "1,3"` (해당 유저의 당일 여정 ID 콤마 문자열) + `appointment_ids: "2,4"` (해당 유저의 당일 약속 ID 콤마 문자열, 없으면 미포함)
 
 #### 알람 울리기 방식
 | 방식 | 작동 조건 | 용도 |
 |------|----------|------|
 | expo-notifications (로컬 알림) | 앱 꺼져 있어도 작동 (OS 등록) | `departure_alarm_time` + `preparationTime` 기반 단계별 알람 시퀀스 (1→4단계) |
-| FCM Data | 앱 포그라운드/백그라운드 | 새벽 4시 READY 전환 → GPS 가동 트리거 (`type: "READY"`) |
+| FCM Data | 앱 포그라운드/백그라운드 | 새벽 4시 READY 전환 → GPS 가동 트리거 (`journey_ids`, `appointment_ids` 포함) |
 | FCM Notification | 앱 완전 종료 포함 | 그룹 알람 도착 예정/완료 알림 (MOVING 진입, ARRIVED 진입 시) |
 
 #### 단계별 출발 알람 (프론트 처리)
