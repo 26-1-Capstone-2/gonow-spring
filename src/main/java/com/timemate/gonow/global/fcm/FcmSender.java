@@ -35,7 +35,7 @@ public class FcmSender {
 
         try {
             firebaseMessaging.send(message);
-            log.info("FCM Data 단건 발송 완료 — token={}", token);
+            log.info("FCM Data 단건 발송 완료 — token={}, payload={}", token, data);
         } catch (FirebaseMessagingException e) {
             log.error("FCM Data 단건 발송 실패 — token={}, error={}", token, e.getMessage());
         }

@@ -14,17 +14,24 @@ public class ArrivedTransitionScheduler {
 
     private final ArrivedTransitionService arrivedTransitionService;
 
-    // 매 1분마다: NEARDEST + targetTime 초과 → 자동 ARRIVED
-    // 반복 여정 포함
+    // 매 1분마다: targetTime 초과 → 자동 ARRIVED
+    // - NEARDEST: targetTime 즉시 ARRIVED
+    // - READY/DEPARTING/MOVING: targetTime+1시간 후 ARRIVED (지각 1시간 여유)
     @Scheduled(cron = "0 * * * * *")
     public void transitionToArrived() {
         LocalDateTime now = LocalDateTime.now();
         log.info("[스케줄러] 자동 ARRIVED 전환 시작 - {}", now);
 
         try {
-            arrivedTransitionService.transitionToArrived(now);
+            arrivedTransitionService.transitionNeardestToArrived(now);
         } catch (Exception e) {
-            log.error("[스케줄러] 자동 ARRIVED 전환 실패 - {}", now, e);
+            log.error("[스케줄러] NEARDEST 자동 ARRIVED 전환 실패 - {}", now, e);
+        }
+
+        try {
+            arrivedTransitionService.transitionActiveToArrived(now);
+        } catch (Exception e) {
+            log.error("[스케줄러] 지각 자동 ARRIVED 전환 실패 - {}", now, e);
         }
     }
 }

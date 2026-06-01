@@ -25,30 +25,52 @@ public class ArrivedTransitionService {
     @Value("${scheduler.day-boundary-hour}")
     private int dayBoundaryHour;
 
-    // 매 1분마다: NEARDEST + targetTime 초과 → 자동 ARRIVED 벌크 업데이트
+    // NEARDEST + targetTime 초과 → 즉시 ARRIVED
     @Transactional
-    public void transitionToArrived(LocalDateTime now) {
+    public void transitionNeardestToArrived(LocalDateTime now) {
         // 자정~새벽 dayBoundaryHour 이전은 어제 날짜로 보정 (막차 모드 자정 넘김 커버)
         LocalDate planDate = now.getHour() < dayBoundaryHour ? now.toLocalDate().minusDays(1) : now.toLocalDate();
         LocalDate today = now.toLocalDate();
+        int planDateBit = 1 << (planDate.getDayOfWeek().getValue() - 1);
 
         // [Journey] NEARDEST + targetTime 초과 → ARRIVED
-        int planDateBit = 1 << (planDate.getDayOfWeek().getValue() - 1);
         List<Long> journeyIds = journeyRepository.findIdsNeardestOverdue(planDate, now, planDateBit);
         if (!journeyIds.isEmpty()) {
             int count = journeyRepository.bulkUpdateToArrived(journeyIds);
-            log.info("[스케줄러] 여정 자동 ARRIVED 전환 완료 - {}건", count);
+            log.info("[스케줄러] 여정 NEARDEST 자동 ARRIVED 전환 완료 - {}건", count);
         }
 
-        // [Participant] 1단계: 영향받는 약속 ID 목록 추출
+        // [Participant] NEARDEST + targetTime 초과 → ARRIVED + 약속 상태 동기화
         List<Long> appointmentIds = participantRepository.findAppointmentIdsWithOverdueParticipants(today, now);
-
         if (!appointmentIds.isEmpty()) {
-            // 2단계: 해당 약속의 NEARDEST 참가자 → ARRIVED 벌크 전환
-            int count = participantRepository.bulkUpdateToArrivedByAppointmentIds(appointmentIds, now);
-            log.info("[스케줄러] 참가자 자동 ARRIVED 전환 완료 - {}건", count);
+            int count = participantRepository.bulkUpdateToArrivedByAppointmentIds(appointmentIds);
+            log.info("[스케줄러] 참가자 NEARDEST 자동 ARRIVED 전환 완료 - {}건", count);
+            appointmentRepository.bulkUpdateToActive(appointmentIds);
+            appointmentRepository.bulkUpdateToFinished(appointmentIds);
+            log.info("[스케줄러] 약속 상태 동기화 완료 - {}건", appointmentIds.size());
+        }
+    }
 
-            // 3단계: Appointment 상태 동기화
+    // READY/DEPARTING/MOVING + targetTime+1시간 초과 → ARRIVED (지각 1시간 여유)
+    @Transactional
+    public void transitionActiveToArrived(LocalDateTime now) {
+        LocalDate planDate = now.getHour() < dayBoundaryHour ? now.toLocalDate().minusDays(1) : now.toLocalDate();
+        LocalDate today = now.toLocalDate();
+        LocalDateTime oneHourAgo = now.minusHours(1);
+        int planDateBit = 1 << (planDate.getDayOfWeek().getValue() - 1);
+
+        // [Journey] READY/DEPARTING/MOVING + targetTime+1시간 초과 → ARRIVED
+        List<Long> journeyIds = journeyRepository.findIdsActiveOverdue(planDate, oneHourAgo, planDateBit);
+        if (!journeyIds.isEmpty()) {
+            int count = journeyRepository.bulkUpdateToArrived(journeyIds);
+            log.info("[스케줄러] 여정 지각 자동 ARRIVED 전환 완료 - {}건", count);
+        }
+
+        // [Participant] READY/DEPARTING/MOVING + targetTime+1시간 초과 → ARRIVED + 약속 상태 동기화
+        List<Long> appointmentIds = participantRepository.findAppointmentIdsWithActiveOverdueParticipants(today, oneHourAgo);
+        if (!appointmentIds.isEmpty()) {
+            int count = participantRepository.bulkUpdateActiveToArrivedByAppointmentIds(appointmentIds);
+            log.info("[스케줄러] 참가자 지각 자동 ARRIVED 전환 완료 - {}건", count);
             appointmentRepository.bulkUpdateToActive(appointmentIds);
             appointmentRepository.bulkUpdateToFinished(appointmentIds);
             log.info("[스케줄러] 약속 상태 동기화 완료 - {}건", appointmentIds.size());

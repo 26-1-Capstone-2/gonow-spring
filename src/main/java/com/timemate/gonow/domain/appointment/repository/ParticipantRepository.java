@@ -84,7 +84,7 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
     @Query("SELECT p.member.fcmToken FROM Participant p WHERE p.appointment.id = :appointmentId AND p.member.id != :excludeMemberId AND p.member.fcmToken IS NOT NULL")
     List<String> findFcmTokensByAppointmentIdExcluding(@Param("appointmentId") Long appointmentId, @Param("excludeMemberId") Long excludeMemberId);
 
-    // NEARDEST 상태 + targetTime 초과 참가자가 속한 약속 ID 목록 조회 (중복 제거)
+    // NEARDEST 상태 + targetTime 초과 참가자가 속한 약속 ID 목록 조회 (즉시 ARRIVED)
     @Query("SELECT DISTINCT p.appointment.id FROM Participant p WHERE p.participantStatus = :status AND p.appointment.planDate = :today AND p.appointment.targetTime < :now")
     List<Long> findAppointmentIdsWithOverdueParticipantsInternal(@Param("status") ParticipantStatus status, @Param("today") LocalDate today, @Param("now") LocalDateTime now);
 
@@ -93,14 +93,38 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
         return findAppointmentIdsWithOverdueParticipantsInternal(ParticipantStatus.NEARDEST, today, now);
     }
 
-    // 약속 ID 목록 기준으로 NEARDEST + targetTime 초과 참가자 → ARRIVED 벌크 전환
+    // 약속 ID 목록 기준으로 NEARDEST 참가자 → ARRIVED 벌크 전환
+    // appIds는 이미 targetTime 조건으로 필터링된 목록 — 연관 엔티티 조인 불필요
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("UPDATE Participant p SET p.participantStatus = :arrived WHERE p.appointment.id IN :appIds AND p.participantStatus = :neardest AND p.appointment.targetTime < :now")
-    int bulkUpdateToArrivedByAppointmentIdsInternal(@Param("arrived") ParticipantStatus arrived, @Param("appIds") List<Long> appIds, @Param("neardest") ParticipantStatus neardest, @Param("now") LocalDateTime now);
+    @Query("UPDATE Participant p SET p.participantStatus = :arrived WHERE p.appointment.id IN :appIds AND p.participantStatus = :neardest")
+    int bulkUpdateToArrivedByAppointmentIdsInternal(@Param("arrived") ParticipantStatus arrived, @Param("appIds") List<Long> appIds, @Param("neardest") ParticipantStatus neardest);
 
     // 외부 호출용 래퍼 — Enum 파라미터 조립을 캡슐화
-    default int bulkUpdateToArrivedByAppointmentIds(List<Long> appIds, LocalDateTime now) {
-        return bulkUpdateToArrivedByAppointmentIdsInternal(ParticipantStatus.ARRIVED, appIds, ParticipantStatus.NEARDEST, now);
+    default int bulkUpdateToArrivedByAppointmentIds(List<Long> appIds) {
+        return bulkUpdateToArrivedByAppointmentIdsInternal(ParticipantStatus.ARRIVED, appIds, ParticipantStatus.NEARDEST);
+    }
+
+    // READY/DEPARTING/MOVING + targetTime+1시간 초과 참가자가 속한 약속 ID 목록 조회 (지각 1시간 후 자동 정리)
+    @Query("SELECT DISTINCT p.appointment.id FROM Participant p WHERE p.participantStatus IN (:ready, :departing, :moving) AND p.appointment.planDate = :today AND p.appointment.targetTime < :oneHourAgo")
+    List<Long> findAppointmentIdsWithActiveOverdueParticipantsInternal(@Param("ready") ParticipantStatus ready, @Param("departing") ParticipantStatus departing, @Param("moving") ParticipantStatus moving, @Param("today") LocalDate today, @Param("oneHourAgo") LocalDateTime oneHourAgo);
+
+    // 외부 호출용 래퍼
+    default List<Long> findAppointmentIdsWithActiveOverdueParticipants(LocalDate today, LocalDateTime oneHourAgo) {
+        return findAppointmentIdsWithActiveOverdueParticipantsInternal(
+                ParticipantStatus.READY, ParticipantStatus.DEPARTING, ParticipantStatus.MOVING, today, oneHourAgo);
+    }
+
+    // 약속 ID 목록 기준으로 READY/DEPARTING/MOVING 참가자 → ARRIVED 벌크 전환
+    // appIds는 이미 targetTime+1시간 조건으로 필터링된 목록 — 연관 엔티티 조인 불필요
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Participant p SET p.participantStatus = :arrived WHERE p.appointment.id IN :appIds AND p.participantStatus IN (:ready, :departing, :moving)")
+    int bulkUpdateActiveToArrivedByAppointmentIdsInternal(@Param("arrived") ParticipantStatus arrived, @Param("appIds") List<Long> appIds, @Param("ready") ParticipantStatus ready, @Param("departing") ParticipantStatus departing, @Param("moving") ParticipantStatus moving);
+
+    // 외부 호출용 래퍼
+    default int bulkUpdateActiveToArrivedByAppointmentIds(List<Long> appIds) {
+        return bulkUpdateActiveToArrivedByAppointmentIdsInternal(
+                ParticipantStatus.ARRIVED, appIds,
+                ParticipantStatus.READY, ParticipantStatus.DEPARTING, ParticipantStatus.MOVING);
     }
 
     // 스케줄러: 당일 READY 전환 대상 참가자의 (fcmToken, appointmentIds 콤마 문자열) 조회 (null 토큰 제외)
