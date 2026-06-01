@@ -76,7 +76,8 @@ public class AlarmService {
                 journey.isLastMode(),
                 journey.getRepeatDays(),
                 null,
-                null
+                null,
+                journey.getJourneyStatus().name()
         );
     }
 
@@ -97,7 +98,8 @@ public class AlarmService {
                 false,
                 null,
                 appointment.getAppointmentStatus(),
-                participantCount
+                participantCount,
+                participant.getParticipantStatus().name()
         );
     }
 }

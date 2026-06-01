@@ -20,5 +20,6 @@ public record AlarmResponse(
         boolean isLastMode,                  // HOME이면 true, 나머지 false
         Integer repeatDays,                  // PERSONAL/HOME이면 값, GROUP이면 null
         AppointmentStatus appointmentStatus, // GROUP이면 값, 나머지 null
-        Integer participantCount             // GROUP이면 값, 나머지 null
+        Integer participantCount,            // GROUP이면 값, 나머지 null
+        String myStatus                      // 나의 상태 (SCHEDULED, READY, DEPARTING, MOVING, NEARDEST, ARRIVED)
 ) {}

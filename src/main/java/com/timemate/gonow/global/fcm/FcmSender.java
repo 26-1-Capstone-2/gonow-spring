@@ -41,6 +41,30 @@ public class FcmSender {
         }
     }
 
+    // 다중 기기 Data 메시지 발송 (동일 페이로드 — 약속 수정 시 참가자 일괄 알림)
+    public void sendAllData(Collection<String> tokens, Map<String, String> data) {
+        List<String> validTokens = tokens.stream()
+                .filter(StringUtils::hasText)
+                .toList();
+
+        if (validTokens.isEmpty()) {
+            log.warn("유효한 FCM 토큰 없음 — Data 다중 발송 건너뜀");
+            return;
+        }
+
+        MulticastMessage message = MulticastMessage.builder()
+                .addAllTokens(validTokens)
+                .putAllData(data)
+                .build();
+
+        try {
+            BatchResponse response = firebaseMessaging.sendEachForMulticast(message);
+            log.info("FCM Data 다중 발송 완료 — 성공: {}건, 실패: {}건, payload={}", response.getSuccessCount(), response.getFailureCount(), data);
+        } catch (FirebaseMessagingException e) {
+            log.error("FCM Data 다중 발송 실패 — {}", e.getMessage());
+        }
+    }
+
     // 다중 기기 Notification 메시지 발송 (상단바 알림 — 소리/진동 포함)
     public void sendAllNotification(Collection<String> tokens, String title, String body) {
         List<String> validTokens = tokens.stream()

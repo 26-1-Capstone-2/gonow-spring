@@ -7,6 +7,7 @@ import com.timemate.gonow.domain.appointment.dto.AppointmentJoinRequest;
 import com.timemate.gonow.domain.appointment.dto.AppointmentJoinResponse;
 import com.timemate.gonow.domain.appointment.dto.AppointmentResponse;
 import com.timemate.gonow.domain.appointment.dto.AppointmentUpdateRequest;
+import com.timemate.gonow.domain.appointment.dto.AppointmentUpdateResponse;
 import com.timemate.gonow.domain.appointment.dto.DashboardResponse;
 import com.timemate.gonow.domain.appointment.entity.Appointment;
 import com.timemate.gonow.domain.appointment.entity.Participant;
@@ -17,6 +18,7 @@ import com.timemate.gonow.domain.common.Point;
 import com.timemate.gonow.domain.appointment.constant.ParticipantStatus;
 import com.timemate.gonow.domain.member.entity.Member;
 import com.timemate.gonow.domain.member.repository.MemberRepository;
+import com.timemate.gonow.global.fcm.FcmSender;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @Transactional(readOnly = true)
@@ -36,6 +39,7 @@ public class AppointmentService {
     private final AppointmentRepository appointmentRepository;
     private final ParticipantRepository participantRepository;
     private final MemberRepository memberRepository;
+    private final FcmSender fcmSender;
 
     // 그룹 알람 생성 (방장 Participant 동시 생성)
     @Transactional
@@ -70,7 +74,7 @@ public class AppointmentService {
 
         participantRepository.save(host);
 
-        return AppointmentCreateResponse.from(appointment);
+        return AppointmentCreateResponse.from(appointment, host);
     }
 
     // 초대코드로 참여
@@ -100,14 +104,18 @@ public class AppointmentService {
 
         participantRepository.save(participant);
 
-        return AppointmentJoinResponse.from(appointment);
+        return AppointmentJoinResponse.from(appointment, participant);
     }
 
     // 그룹 알람 수정 (방장 전용 — 목적지/날짜/시간/이동수단)
     @Transactional
-    public void updateAppointment(Long memberId, Long appointmentId, AppointmentUpdateRequest request) {
+    public AppointmentUpdateResponse updateAppointment(Long memberId, Long appointmentId, AppointmentUpdateRequest request) {
         Participant host = participantRepository.findHostWithAppointment(appointmentId, memberId)
                 .orElseThrow(() -> new IllegalArgumentException("약속을 찾을 수 없거나 방장 권한이 없습니다."));
+
+        if (host.getAppointment().getAppointmentStatus() == AppointmentStatus.ACTIVE) {
+            throw new IllegalStateException("이미 이동 중인 참가자가 있는 약속은 수정할 수 없습니다.");
+        }
 
         Location destination = new Location(
                 request.destName(),
@@ -117,6 +125,21 @@ public class AppointmentService {
 
         host.getAppointment().update(request.planDate(), request.targetTime(), destination);
         host.updateTransportType(request.transportType());
+
+        // 날짜 변경 시 참가자 상태 일괄 재조정 (SCHEDULED/READY/DEPARTING 대상)
+        ParticipantStatus newStatus = resolveInitialStatus(request.planDate());
+        participantRepository.bulkResetStatusByAppointmentId(appointmentId, newStatus);
+
+        // 방장 제외 나머지 참가자들에게 FCM Data 발송 (날짜/상태 변경 알림)
+        List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);
+        if (!tokens.isEmpty()) {
+            fcmSender.sendAllData(tokens, Map.of(
+                    "appointment_id", String.valueOf(appointmentId),
+                    "participant_status", newStatus.name()
+            ));
+        }
+
+        return AppointmentUpdateResponse.from(newStatus);
     }
 
     // 도착 예정 대시보드 조회

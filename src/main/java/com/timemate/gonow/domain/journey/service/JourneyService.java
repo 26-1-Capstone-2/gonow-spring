@@ -37,12 +37,17 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.Set;
 
 @Slf4j
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class JourneyService {
+
+    private static final Set<JourneyStatus> UNMODIFIABLE_STATUSES = Set.of(
+            JourneyStatus.MOVING, JourneyStatus.NEARDEST, JourneyStatus.ARRIVED
+    );
     private final JourneyRepository journeyRepository;
     private final MemberRepository memberRepository;
     private final MemberSettingRepository memberSettingRepository;
@@ -82,6 +87,10 @@ public class JourneyService {
     public JourneySaveResponse updatePersonalJourney(Long memberId, Long journeyId, PersonalJourneyUpdateRequest request) {
         Journey journey = journeyRepository.findByIdAndMemberId(journeyId, memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 여정이거나 수정 권한이 없습니다."));
+
+        if (UNMODIFIABLE_STATUSES.contains(journey.getJourneyStatus())) {
+            throw new IllegalStateException("이미 이동 중인 여정은 수정할 수 없습니다.");
+        }
 
         Location destination = new Location(
                 request.destName(),
@@ -132,6 +141,10 @@ public class JourneyService {
     public JourneySaveResponse updateHomeJourney(Long memberId, Long journeyId, HomeJourneyUpdateRequest request) {
         Journey journey = journeyRepository.findByIdAndMemberId(journeyId, memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 여정이거나 수정 권한이 없습니다."));
+
+        if (UNMODIFIABLE_STATUSES.contains(journey.getJourneyStatus())) {
+            throw new IllegalStateException("이미 이동 중인 여정은 수정할 수 없습니다.");
+        }
 
         if (!request.isLastMode() && request.targetTime() == null) {
             throw new IllegalArgumentException("데드라인 모드에서는 목표 시간 필수");

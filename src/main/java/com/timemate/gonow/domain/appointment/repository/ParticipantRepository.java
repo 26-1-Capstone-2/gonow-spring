@@ -66,6 +66,20 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
     @Query("UPDATE Participant p SET p.participantStatus = :ready WHERE p.appointment.planDate = :today AND p.participantStatus = :scheduled")
     int bulkUpdateToReadyInternal(@Param("ready") ParticipantStatus ready, @Param("today") LocalDate today, @Param("scheduled") ParticipantStatus scheduled);
 
+
+
+    // 약속 수정 시 참가자 상태 일괄 재조정 (SCHEDULED/READY/DEPARTING 대상 — MOVING 이상은 건드리지 않음)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Participant p SET p.participantStatus = :newStatus WHERE p.appointment.id = :appointmentId AND p.participantStatus IN (:scheduled, :ready, :departing)")
+    int bulkResetStatusByAppointmentIdInternal(@Param("newStatus") ParticipantStatus newStatus, @Param("appointmentId") Long appointmentId, @Param("scheduled") ParticipantStatus scheduled, @Param("ready") ParticipantStatus ready, @Param("departing") ParticipantStatus departing);
+
+    default int bulkResetStatusByAppointmentId(Long appointmentId, ParticipantStatus newStatus) {
+        return bulkResetStatusByAppointmentIdInternal(newStatus, appointmentId, ParticipantStatus.SCHEDULED, ParticipantStatus.READY, ParticipantStatus.DEPARTING);
+    }
+
+
+
+
     // 외부 호출용 래퍼 — Enum 파라미터 조립을 캡슐화
     default int bulkUpdateToReady(LocalDate today) {
         return bulkUpdateToReadyInternal(ParticipantStatus.READY, today, ParticipantStatus.SCHEDULED);

@@ -6,6 +6,7 @@ import com.timemate.gonow.domain.appointment.dto.AppointmentJoinRequest;
 import com.timemate.gonow.domain.appointment.dto.AppointmentJoinResponse;
 import com.timemate.gonow.domain.appointment.dto.AppointmentResponse;
 import com.timemate.gonow.domain.appointment.dto.AppointmentUpdateRequest;
+import com.timemate.gonow.domain.appointment.dto.AppointmentUpdateResponse;
 import com.timemate.gonow.domain.appointment.dto.DashboardResponse;
 import com.timemate.gonow.domain.appointment.service.AppointmentService;
 import com.timemate.gonow.global.auth.MemberId;
@@ -62,13 +63,13 @@ public class AppointmentController {
 
     // 그룹 알람 수정 (방장 전용)
     @PatchMapping("/{appointmentId}")
-    public ApiResult<Void> updateAppointment(
+    public ApiResult<AppointmentUpdateResponse> updateAppointment(
             @MemberId Long memberId,
             @PathVariable Long appointmentId,
             @Valid @RequestBody AppointmentUpdateRequest request) {
-        appointmentService.updateAppointment(memberId, appointmentId, request);
+        AppointmentUpdateResponse response = appointmentService.updateAppointment(memberId, appointmentId, request);
 
-        return ApiResult.success("그룹 알람 수정 완료");
+        return ApiResult.success("그룹 알람 수정 완료", response);
     }
 
     // 그룹 알람 삭제
