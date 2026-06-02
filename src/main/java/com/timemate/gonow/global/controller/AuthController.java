@@ -7,8 +7,7 @@ import com.timemate.gonow.global.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
+import com.timemate.gonow.global.auth.MemberId;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,16 +28,10 @@ public class AuthController {
         return ApiResult.success("로그인 완료", response);
     }
 
-    // 미완성 -----------------------------------------------------------------------------------
-    // 로그아웃
-    // 현재는 AT만 사용하므로 실제 서버 처리 없음 — 클라이언트가 토큰을 삭제하는 것으로 로그아웃 처리.
-    // 추후 RT 도입 시 이 메서드에 RT 무효화 로직을 추가하면 됨.
+    // 로그아웃 — FCM 토큰 null 처리 (같은 기기로 다른 계정 로그인 시 알림 오발송 방지)
     @PostMapping("/logout")
-    public ApiResult<Void> logout(@AuthenticationPrincipal UserDetails userDetails) {
-        log.info("회원 로그아웃 - memberId: {}", userDetails.getUsername());
-
-        // TODO: RT 만료 로직 추가 예정 (RT 도입 시)
-
+    public ApiResult<Void> logout(@MemberId Long memberId) {
+        authService.logout(memberId);
         return ApiResult.success("로그아웃 완료");
     }
 }

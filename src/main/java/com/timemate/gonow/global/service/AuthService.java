@@ -19,6 +19,14 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
 
+    // 로그아웃 — FCM 토큰 null 처리
+    @Transactional
+    public void logout(Long memberId) {
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 회원입니다."));
+        member.updateFcmToken(null);
+    }
+
     // 로그인 후 JWT 토큰 발급
     public LoginResponse login(LoginRequest request) {
         Member member = memberRepository.findByEmail(request.email())

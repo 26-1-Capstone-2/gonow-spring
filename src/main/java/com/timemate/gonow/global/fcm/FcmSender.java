@@ -1,5 +1,6 @@
 package com.timemate.gonow.global.fcm;
 
+import com.google.firebase.messaging.AndroidConfig;
 import com.google.firebase.messaging.BatchResponse;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
@@ -31,6 +32,9 @@ public class FcmSender {
         Message message = Message.builder()
                 .setToken(token)
                 .putAllData(data)
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(AndroidConfig.Priority.HIGH)
+                        .build())
                 .build();
 
         try {
@@ -55,6 +59,9 @@ public class FcmSender {
         MulticastMessage message = MulticastMessage.builder()
                 .addAllTokens(validTokens)
                 .putAllData(data)
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(AndroidConfig.Priority.HIGH)
+                        .build())
                 .build();
 
         try {

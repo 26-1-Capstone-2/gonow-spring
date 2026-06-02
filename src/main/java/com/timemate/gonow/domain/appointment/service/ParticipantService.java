@@ -97,6 +97,7 @@ public class ParticipantService {
     // GPS 좌표 수신 + 상태 전이
     @Transactional
     public ParticipantLocationUpdateResponse updateLocation(Long memberId, Long appointmentId, LocationUpdateRequest request) {
+        log.info("[/location 호출] appointmentId={}, memberId={}, lat={}, lng={}", appointmentId, memberId, request.lat(), request.lng());
         Participant participant = participantRepository.findWithAppointmentByAppointmentIdAndMemberId(appointmentId, memberId)
                 .orElseThrow(() -> new IllegalArgumentException("해당 약속의 참여자가 아닙니다."));
 
@@ -126,6 +127,7 @@ public class ParticipantService {
         boolean isNearDest = distToDest < GeoConstants.ARRIVAL_THRESHOLD_METERS; // 목적지 100m 이내?
 
         Integer interval = null;
+        FlaskParticipantResponse flaskResponse = null;
 
         switch (participant.getParticipantStatus()) {
             case READY -> {
@@ -135,7 +137,8 @@ public class ParticipantService {
                 // 앵커 갱신 및 Q 계산이 필요한 조건 통합 (isPastAlarmTime 계산 전에 반드시 실행)
                 if (isNearDest || isFirstReceive || isOutOfAnchor) {
                     participant.updateCurrentPos(newPoint);
-                    interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
+                    flaskResponse = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
+                    interval = flaskResponse.interval();
                 }
 
                 if (isNearDest) {
@@ -144,7 +147,8 @@ public class ParticipantService {
                 } else if (isPastAlarmTime(participant.getDepartureAlarmTime())) { // P >= Q?
                     // P >= Q → DEPARTING, 300m 이탈 감지를 위해 주기를 타이트하게 갱신
                     participant.updateStatus(ParticipantStatus.DEPARTING);
-                    interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
+                    flaskResponse = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
+                    interval = flaskResponse.interval();
                 }
                 // P < Q → READY 유지
             }
@@ -153,7 +157,8 @@ public class ParticipantService {
                     // 100m 벗어남 + P < Q → READY 복귀 (스쳐지나간 케이스)
                     participant.updateCurrentPos(newPoint);
                     participant.updateStatus(ParticipantStatus.READY);
-                    interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting); // Q 재계산
+                    flaskResponse = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting); // Q 재계산
+                    interval = flaskResponse.interval();
                 } else {
                     // 100m 이내 대기 중 → targetTime까지 남은 시간 기반으로 주기 조절 (플라스크 미호출)
                     // P >= Q면 100m 벗어나도 NEARDEST 고정 (알람 울리는 중)
@@ -168,7 +173,6 @@ public class ParticipantService {
                 if (isNearDest) {
                     // 100m 진입 → ARRIVED
                     participant.updateCurrentPos(newPoint);
-
                     participant.updateStatus(ParticipantStatus.ARRIVED);
                     finishAppointment(appointment);
                     sendGroupNotification(memberId, appointmentId, "도착 완료 알림",
@@ -176,10 +180,10 @@ public class ParticipantService {
                 } else if (isDepartedFromAnchor) {
                     // 300m 이탈 → MOVING
                     participant.updateCurrentPos(newPoint);
-
                     participant.updateStatus(ParticipantStatus.MOVING);
                     activateAppointment(appointment);
-                    interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
+                    flaskResponse = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting);
+                    interval = flaskResponse.interval();
 
                     String eta = participant.getEstimatedArrival().format(TIME_FORMATTER);
                     sendGroupNotification(memberId, appointmentId, "도착 예정 알림",
@@ -189,7 +193,8 @@ public class ParticipantService {
             }
             case MOVING -> {
                 participant.updateCurrentPos(newPoint); // 대시보드용 위치 갱신
-                interval = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting); // ETA 재계산
+                flaskResponse = callFlaskAndUpdate(memberId, participant, appointment, newPoint, setting); // ETA 재계산
+                interval = flaskResponse.interval();
 
                 if (isNearDest) {
                     // 100m 진입 → ARRIVED
@@ -204,7 +209,7 @@ public class ParticipantService {
             }
         }
 
-        return ParticipantLocationUpdateResponse.from(participant, appointment, interval, setting.getPreparationTime());
+        return ParticipantLocationUpdateResponse.from(participant, appointment, interval, setting.getPreparationTime(), flaskResponse);
     }
 
     // 도착 확인 (사용자가 확인 버튼 눌렀을 때 ARRIVED로 전환)
@@ -249,9 +254,9 @@ public class ParticipantService {
         fcmSender.sendAllNotification(tokens, title, body);
     }
 
-    // 플라스크 호출 → interval 반환, MOVING이 아닐 때만 departureAlarmTime 저장
+    // 플라스크 호출 → FlaskParticipantResponse 반환, MOVING이 아닐 때만 departureAlarmTime 저장
     // (MOVING에서는 DEPARTING 진입 시 확정된 departureAlarmTime을 덮어쓰지 않음, estimatedArrival은 항상 갱신)
-    private Integer callFlaskAndUpdate(Long memberId, Participant participant, Appointment appointment, Point currentPoint, MemberSetting setting) {
+    private FlaskParticipantResponse callFlaskAndUpdate(Long memberId, Participant participant, Appointment appointment, Point currentPoint, MemberSetting setting) {
         TransportMode transportMode = resolveTransportMode(participant.getTransportType(), setting.getTransitType());
 
         FlaskParticipantRequest request = new FlaskParticipantRequest(
@@ -267,13 +272,13 @@ public class ParticipantService {
         );
 
         FlaskParticipantResponse response = flaskClient.calculateParticipantAlarm(request);
-        log.info("플라스크 응답 — departureAlarmTime={}, estimatedArrival={}, interval={}", response.departureAlarmTime(), response.estimatedArrival(), response.interval());
+        log.info("플라스크 응답 — departureAlarmTime={}, estimatedArrival={}, interval={}, whichStation={}, boardingTime={}", response.departureAlarmTime(), response.estimatedArrival(), response.interval(), response.whichStation(), response.boardingTime());
         if (participant.getParticipantStatus() != ParticipantStatus.MOVING) {
             participant.updateAlarmInfo(response.departureAlarmTime(), response.estimatedArrival());
         } else {
             participant.updateEstimatedArrival(response.estimatedArrival()); // ETA만 갱신 (대시보드용)
         }
-        return response.interval();
+        return response;
     }
 
     // departureAlarmTime이 null이면 false (미확정 = P < Q로 간주)

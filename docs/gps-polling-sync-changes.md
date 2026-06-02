@@ -17,8 +17,13 @@
 | `AppointmentController.java` | 수정 | 수정 API 응답 타입 변경 (`Void` → `AppointmentUpdateResponse`) |
 | `AppointmentService.java` | 수정 | 수정 차단 로직, 참가자 상태 재조정, FCM Data 발송, `FcmSender` 주입 |
 | `ParticipantRepository.java` | 수정 | `bulkResetStatusByAppointmentId` 쿼리 추가 |
-| `JourneyService.java` | 수정 | 수정 차단 로직 추가 (`UNMODIFIABLE_STATUSES`) |
+| `JourneyService.java` | 수정 | 수정 차단 로직 추가 (`UNMODIFIABLE_STATUSES`), `callFlaskAndUpdate()` 반환 타입 변경 |
 | `FcmSender.java` | 수정 | `sendAllData()` 메서드 추가 |
+| `FlaskJourneyResponse.java` | 수정 | `whichStation`, `boardingTime` 필드 추가 |
+| `FlaskParticipantResponse.java` | 수정 | `whichStation`, `boardingTime` 필드 추가 |
+| `LocationUpdateResponse.java` | 수정 | `whichStation`, `boardingTime` 필드 추가, `from()` 시그니처 변경 |
+| `ParticipantLocationUpdateResponse.java` | 수정 | `whichStation`, `boardingTime` 필드 추가, `from()` 시그니처 변경 |
+| `ParticipantService.java` | 수정 | `callFlaskAndUpdate()` 반환 타입 변경 |
 
 ---
 
@@ -33,8 +38,7 @@
   "alarm_type": "PERSONAL",
   "journey_id": 1,
   "appointment_id": null,
-  "my_status": "READY",
-  ...
+  "my_status": "READY"
 }
 ```
 
@@ -107,6 +111,50 @@
 
 동일 페이로드를 여러 기기에 FCM Data 발송하는 메서드 추가
 (기존 `sendData()`는 단건, 신규 `sendAllData()`는 다중)
+
+---
+
+### 7. `/location` 응답에 `which_station`, `boarding_time` 추가
+
+**목적:** DEPARTING 진입 시 프론트가 단계별 로컬 알람 텍스트 구성에 사용
+
+**개인/귀가 (`PATCH /api/journeys/{journeyId}/location`):**
+```json
+{
+  "journey_status": "DEPARTING",
+  "departure_alarm_time": "2026-06-01T22:45:00",
+  "interval": 30,
+  "preparation_time": 10,
+  "which_station": "강남역 2번 출구",
+  "boarding_time": "2026-06-01T08:30:00"
+}
+```
+
+**그룹 (`PATCH /api/appointments/{appointmentId}/participants/location`):**
+```json
+{
+  "participant_status": "DEPARTING",
+  "appointment_status": "WAITING",
+  "departure_alarm_time": "2026-06-01T22:45:00",
+  "estimated_arrival": "2026-06-01T23:15:00",
+  "interval": 60,
+  "preparation_time": 10,
+  "which_station": "강남역사거리 정류장",
+  "boarding_time": "2026-06-01T08:35:00"
+}
+```
+
+**특이사항:**
+- `which_station`, `boarding_time`: 플라스크 미호출 시 `null` (DEPARTING 앵커 보존 구간, NEARDEST 등)
+- `which_station`: DRIVING(자가용)이면 `null`
+- `boarding_time`: DRIVING(자가용)이면 `null`
+- 프론트는 DEPARTING 진입 시 두 값으로 1~4단계 로컬 알람을 OS에 고정 텍스트로 미리 등록
+
+**프론트 로컬 알람 텍스트 예시 (`boarding_time` 기준):**
+- 1단계 (`boarding_time - 25분` 시각): `[강남역 2번 출구] 강남역 탑승까지 25분 남았어요`
+- 2단계 (`boarding_time - 20분` 시각): `[강남역 2번 출구] 강남역 탑승까지 20분 남았어요`
+- 3단계 (`boarding_time - 15분` 시각): `[강남역 2번 출구] 강남역 탑승까지 15분 남았어요`
+- 4단계 (`boarding_time - 10분` 시각): `[강남역 2번 출구] 강남역 탑승까지 10분 남았어요`
 
 ---
 

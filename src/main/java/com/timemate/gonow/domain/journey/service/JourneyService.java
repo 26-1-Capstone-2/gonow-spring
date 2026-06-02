@@ -206,6 +206,7 @@ public class JourneyService {
     // GPS 좌표 수신 + 상태 전이
     @Transactional
     public LocationUpdateResponse updateLocation(Long memberId, Long journeyId, LocationUpdateRequest request) {
+        log.info("[/location 호출] journeyId={}, memberId={}, lat={}, lng={}", journeyId, memberId, request.lat(), request.lng());
         Journey journey = journeyRepository.findByIdAndMemberId(journeyId, memberId).orElseThrow(
                 () -> new IllegalArgumentException("존재하지 않는 여정이거나 권한이 없습니다."));
         MemberSetting setting = memberSettingRepository.findByMemberId(memberId).orElseThrow(
@@ -232,6 +233,7 @@ public class JourneyService {
         boolean isNearDest = (distToDest < GeoConstants.ARRIVAL_THRESHOLD_METERS); // 목적지 100m 이내?
 
         Integer interval = null;
+        FlaskJourneyResponse flaskResponse = null;
 
         switch (journey.getJourneyStatus()) {
             case READY -> {
@@ -241,7 +243,8 @@ public class JourneyService {
                 // 앵커 갱신 및 Q 계산이 필요한 조건 통합 (isPastAlarmTime 계산 전에 반드시 실행)
                 if (isNearDest || isFirstReceive || isOutOfAnchor) {
                     journey.updateCurrentPoint(newPoint);
-                    interval = callFlaskAndUpdate(memberId, journey, newPoint, setting);
+                    flaskResponse = callFlaskAndUpdate(memberId, journey, newPoint, setting);
+                    interval = flaskResponse.interval();
                 }
 
                 if (isNearDest) {
@@ -250,7 +253,8 @@ public class JourneyService {
                 } else if (isPastAlarmTime(journey.getDepartureAlarmTime())) { // P >= Q?
                     // P >= Q → DEPARTING, 300m 이탈 감지를 위해 주기를 타이트하게 갱신
                     journey.updateStatus(JourneyStatus.DEPARTING);
-                    interval = callFlaskAndUpdate(memberId, journey, newPoint, setting);
+                    flaskResponse = callFlaskAndUpdate(memberId, journey, newPoint, setting);
+                    interval = flaskResponse.interval();
                 }
                 // P < Q → READY 유지
             }
@@ -259,7 +263,8 @@ public class JourneyService {
                     // 100m 벗어남 + P < Q → READY 복귀 (스쳐지나간 케이스)
                     journey.updateCurrentPoint(newPoint);
                     journey.updateStatus(JourneyStatus.READY);
-                    interval = callFlaskAndUpdate(memberId, journey, newPoint, setting); // Q 재계산
+                    flaskResponse = callFlaskAndUpdate(memberId, journey, newPoint, setting); // Q 재계산
+                    interval = flaskResponse.interval();
                 } else {
                     // 100m 이내 대기 중 → targetTime까지 남은 시간 기반으로 주기 조절 (플라스크 미호출)
                     // P >= Q면 100m 벗어나도 NEARDEST 고정 (알람 울리는 중)
@@ -284,7 +289,8 @@ public class JourneyService {
             }
             case MOVING -> {
                 journey.updateCurrentPoint(newPoint);
-                interval = callFlaskAndUpdate(memberId, journey, newPoint, setting); // interval 갱신 (departureAlarmTime은 무시)
+                flaskResponse = callFlaskAndUpdate(memberId, journey, newPoint, setting); // interval 갱신 (departureAlarmTime은 무시)
+                interval = flaskResponse.interval();
                 if (isNearDest) {
                     // 100m 진입 → ARRIVED
                     journey.updateStatus(JourneyStatus.ARRIVED);
@@ -295,7 +301,7 @@ public class JourneyService {
             }
         }
 
-        return LocationUpdateResponse.from(journey, interval, setting.getPreparationTime());
+        return LocationUpdateResponse.from(journey, interval, setting.getPreparationTime(), flaskResponse);
     }
 
 
@@ -313,9 +319,9 @@ public class JourneyService {
         journey.updateStatus(JourneyStatus.ARRIVED);
     }
 
-    // 플라스크 호출 → interval 반환, MOVING이 아닐 때만 departureAlarmTime 저장
+    // 플라스크 호출 → FlaskJourneyResponse 반환, MOVING이 아닐 때만 departureAlarmTime 저장
     // (MOVING에서는 DEPARTING 진입 시 확정된 departureAlarmTime을 덮어쓰지 않음)
-    private Integer callFlaskAndUpdate(Long memberId, Journey journey, Point currentPoint, MemberSetting setting) {
+    private FlaskJourneyResponse callFlaskAndUpdate(Long memberId, Journey journey, Point currentPoint, MemberSetting setting) {
         TransportMode transportMode = resolveTransportMode(journey.getTransportType(), setting.getTransitType());
 
         FlaskJourneyRequest request = new FlaskJourneyRequest(
@@ -332,7 +338,7 @@ public class JourneyService {
         );
 
         FlaskJourneyResponse response = flaskClient.calculateJourneyAlarm(request);
-        log.info("플라스크 응답 — targetTime={}, departureAlarmTime={}, interval={}", response.targetTime(), response.departureAlarmTime(), response.interval());
+        log.info("플라스크 응답 — targetTime={}, departureAlarmTime={}, interval={}, whichStation={}, boardingTime={}", response.targetTime(), response.departureAlarmTime(), response.interval(), response.whichStation(), response.boardingTime());
 
         if (journey.isLastMode() && response.targetTime() != null && !isPastAlarmTime(journey.getDepartureAlarmTime())) {
             // P < Q(출발 알람 전)일 때만 갱신 — P >= Q 시점부터 막차 시각 확정
@@ -341,7 +347,7 @@ public class JourneyService {
         if (journey.getJourneyStatus() != JourneyStatus.MOVING) {
             journey.updateDepartureAlarmTime(response.departureAlarmTime());
         }
-        return response.interval();
+        return response;
     }
 
     // departureAlarmTime이 null이면 false (미확정 = P < Q로 간주)
