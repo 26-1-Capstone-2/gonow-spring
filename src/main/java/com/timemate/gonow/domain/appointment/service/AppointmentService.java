@@ -129,6 +129,8 @@ public class AppointmentService {
         // 날짜 변경 시 참가자 상태 일괄 재조정 (SCHEDULED/READY/DEPARTING 대상)
         ParticipantStatus newStatus = resolveInitialStatus(request.planDate());
         participantRepository.bulkResetStatusByAppointmentId(appointmentId, newStatus);
+        // target_time 변경 시 departureAlarmTime + currentPos 리셋 → 앵커 초기화로 플라스크 강제 재호출
+        participantRepository.bulkResetAlarmInfoByAppointmentId(appointmentId);
 
         // 방장 제외 나머지 참가자들에게 FCM Data 발송 (날짜/상태 변경 알림)
         List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);

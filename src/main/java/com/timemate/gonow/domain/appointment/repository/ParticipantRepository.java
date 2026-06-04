@@ -68,6 +68,11 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
 
 
 
+    // 약속 수정 시 참가자 departureAlarmTime + currentPos 일괄 리셋 (앵커 초기화 → 플라스크 강제 재호출)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "UPDATE participant SET departure_alarm_time = null, current_lat = null, current_lng = null WHERE appointment_id = :appointmentId", nativeQuery = true)
+    void bulkResetAlarmInfoByAppointmentId(@Param("appointmentId") Long appointmentId);
+
     // 약속 수정 시 참가자 상태 일괄 재조정 (SCHEDULED/READY/DEPARTING 대상 — MOVING 이상은 건드리지 않음)
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Participant p SET p.participantStatus = :newStatus WHERE p.appointment.id = :appointmentId AND p.participantStatus IN (:scheduled, :ready, :departing)")

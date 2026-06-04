@@ -64,8 +64,8 @@ Content-Type: application/json
 GET {{baseUrl}}/health
 
 > {%
-    client.global.set("inviteCode", "9572CLAR");
-    client.global.set("appointmentId", 125); // 여기에 appointment_id 입력
+    client.global.set("inviteCode", "H9ECQLRG");
+    client.global.set("appointmentId", 146); // 여기에 appointment_id 입력
 %}
 
 

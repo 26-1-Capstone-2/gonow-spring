@@ -46,7 +46,7 @@ import java.util.Set;
 public class JourneyService {
 
     private static final Set<JourneyStatus> UNMODIFIABLE_STATUSES = Set.of(
-            JourneyStatus.MOVING, JourneyStatus.NEARDEST, JourneyStatus.ARRIVED
+            JourneyStatus.MOVING, JourneyStatus.NEARDEST
     );
     private final JourneyRepository journeyRepository;
     private final MemberRepository memberRepository;
@@ -99,6 +99,8 @@ public class JourneyService {
         );
 
         journey.updatePersonal(request.title(), request.planDate(), request.targetTime(), destination, request.transportType(), request.repeatDays(), resolveInitialStatus(request.planDate()));
+        journey.updateDepartureAlarmTime(null); // target_time 변경 시 재계산 유도
+        journey.updateCurrentPoint(null); // 앵커 리셋 → 다음 /location 호출 시 플라스크 강제 재호출
         return JourneySaveResponse.from(journey);
     }
 
@@ -159,6 +161,8 @@ public class JourneyService {
         );
 
         journey.updateHome(request.title(), request.isLastMode(), request.planDate(), request.targetTime(), destination, transportType, request.repeatDays(), resolveInitialStatus(request.planDate()));
+        journey.updateDepartureAlarmTime(null); // target_time 변경 시 재계산 유도
+        journey.updateCurrentPoint(null); // 앵커 리셋 → 다음 /location 호출 시 플라스크 강제 재호출
         return JourneySaveResponse.from(journey);
     }
 
