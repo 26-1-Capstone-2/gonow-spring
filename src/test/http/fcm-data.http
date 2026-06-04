@@ -48,14 +48,14 @@ Content-Type: application/json
 ### (plan_date = 오늘, target_time = 오늘 날짜 기준 2시간 후)
 ### ================================================================
 
-### 2-1. 개인 여정 생성
+### 2-1. 개인 여정 생성 (내일 날짜로 생성 → SCHEDULED 상태)
 < {%
-    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
     const pad = n => String(n).padStart(2, '0');
-    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
-    const later = new Date(today.getTime() + 2 * 60 * 60 * 1000);
-    const targetStr = `${dateStr}T${pad(later.getHours())}:${pad(later.getMinutes())}:00`;
-    client.global.set("today", dateStr);
+    const dateStr = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth()+1)}-${pad(tomorrow.getDate())}`;
+    const targetStr = `${dateStr}T09:00:00`;
+    client.global.set("tomorrow", dateStr);
     client.global.set("targetTimeLater", targetStr);
 %}
 POST {{baseUrl}}/api/journeys/personal
@@ -63,13 +63,13 @@ Content-Type: application/json
 Authorization: Bearer {{token}}
 
 {
-  "plan_date": "{{today}}",
+  "plan_date": "{{tomorrow}}",
   "target_time": "{{targetTimeLater}}",
   "dest_name": "강남역",
   "dest_address": "서울특별시 강남구 강남대로 396",
   "dest_lat": 37.49794,
   "dest_lng": 127.02759,
-  "transport_type": "DRIVING",
+  "transport_type": "TRANSIT",
   "repeat_days": 0
 }
 
@@ -77,29 +77,33 @@ Authorization: Bearer {{token}}
     client.global.set("journeyId", response.body.data.journey_id);
 %}
 
-### 2-2. 그룹 약속 생성
+### 2-2. 그룹 약속 생성 (내일 날짜로 생성 → 참가자 SCHEDULED 상태)
 POST {{baseUrl}}/api/appointments
 Content-Type: application/json
 Authorization: Bearer {{token}}
 
 {
   "title": "FCM Data 테스트 약속",
-  "plan_date": "{{today}}",
+  "plan_date": "{{tomorrow}}",
   "target_time": "{{targetTimeLater}}",
   "dest_name": "홍대입구역",
   "dest_address": "서울특별시 마포구 양화로 160",
   "dest_lat": 37.55763,
   "dest_lng": 126.92525,
-  "transport_type": "DRIVING"
+  "transport_type": "TRANSIT"
 }
 
 > {%
     client.global.set("appointmentId", response.body.data.appointment_id);
 %}
 
-### 2-3. 생성 직후 상태 확인 → status: READY (당일 생성이므로)
+### 2-3. 생성 직후 상태 확인 → status: SCHEDULED (내일 날짜이므로)
 GET {{baseUrl}}/api/journeys/{{journeyId}}
 Authorization: Bearer {{token}}
+
+### [수동 조작] 아래 SQL로 plan_date를 오늘로 변경 후 스케줄러 트리거
+#  UPDATE journey SET plan_date = CURDATE() WHERE journey_id = 80;
+#  UPDATE appointment SET plan_date = CURDATE() WHERE appointment_id = 88;
 
 
 ### ================================================================
@@ -113,6 +117,7 @@ Authorization: Bearer {{token}}
 # ★ FCM Data 발송: a@gmail.com 폰에 Data 메시지 와야 함
 # 서버 로그 확인: "FCM Data 단건 발송 완료 — token=..."
 POST {{baseUrl}}/internal/scheduler/ready
+
 
 ### 3-2. 스케줄러 실행 후 상태 확인 → status: READY
 GET {{baseUrl}}/api/journeys/{{journeyId}}

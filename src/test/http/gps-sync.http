@@ -1,0 +1,164 @@
+### ================================================================
+### gps-sync.http — GPS 폴링 동기화 테스트
+###
+### 목적: 알람 생성/참여/수정 시 앱이 GPS 폴링을 즉각 시작/중단하는지 확인
+###
+### 사전 준비:
+###   1. 폰에서 a@gmail.com 앱 로그인 (포그라운드 유지)
+###   2. 태블릿에서 b@gmail.com 앱 로그인 (포그라운드 유지)
+###   3. Run with: prod 선택 (baseUrl = https://gonow-api.uk)
+###
+### ★ 중요: STEP 2, 3, 4, 5는 앱에서 직접 실행해야 함
+###         HTTP로 대신하면 앱이 응답을 못 받아서 GPS 폴링 동기화 안 됨
+###         (단, b의 FCM Data는 서버가 자동 발송하므로 b는 앱 조작 불필요)
+###
+### 확인 방법:
+###   서버 로그에 아래 패턴이 찍히면 GPS 폴링 중:
+###   binding parameter (1:NUMERIC) <- [37.XXXXX]  ← 위도
+###   binding parameter (2:NUMERIC) <- [126.XXXXX] ← 경도
+###   플라스크 응답 — departureAlarmTime=...
+### ================================================================
+
+
+### ================================================================
+### STEP 1. 로그인 (HTTP) — hostToken, guestToken 저장용
+### ================================================================
+
+### 1-1. 방장(a@gmail.com) 로그인 → hostToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "a@gmail.com",
+  "password": "a1234"
+}
+
+> {%
+    client.global.set("hostToken", response.body.data.access_token);
+%}
+
+### 1-2. 참여자(b@gmail.com) 로그인 → guestToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "b@gmail.com",
+  "password": "b1234"
+}
+
+> {%
+    client.global.set("guestToken", response.body.data.access_token);
+%}
+
+
+### ================================================================
+### STEP 2. 폰(방장 앱)에서 직접 그룹 알람 생성
+###
+### ★ 폰 앱에서 직접: 오늘 날짜로 그룹 알람 생성
+### ★ 생성 후 폰 앱에서 GPS 폴링 시작 확인 (서버 로그 위도/경도 찍힘)
+### ★ 생성 후 invite_code와 appointment_id를 아래 슬롯에 입력
+###   (서버 로그 또는 앱 화면에서 확인)
+### ================================================================
+
+### ★ 앱에서 생성 후 아래 값 입력 후 실행
+GET {{baseUrl}}/health
+
+> {%
+    client.global.set("inviteCode", "9572CLAR");
+    client.global.set("appointmentId", 125); // 여기에 appointment_id 입력
+%}
+
+
+### ================================================================
+### STEP 3. 태블릿(참여자 앱)에서 직접 초대코드로 참여
+###
+### ★ 태블릿 앱에서 직접: STEP 2에서 확인한 초대코드 입력 후 참여
+### ★ 참여 후 태블릿 앱에서 GPS 폴링 시작 확인 (서버 로그 위도/경도 찍힘)
+### ================================================================
+
+
+### ================================================================
+### STEP 4. 폰(방장 앱)에서 직접 날짜를 내일로 수정
+###
+### ★ 폰 앱에서 직접: 날짜를 내일로 수정
+### ★ 수정 후:
+###   - 폰(방장): 응답에서 participant_status=SCHEDULED → GPS 폴링 중단
+###   - 태블릿(참여자): FCM Data 수신 → GPS 폴링 중단
+###
+### 확인:
+###   서버 로그에 "FCM Data 발송" 찍혀야 함
+###   이후 서버 로그에 위도/경도 멈추면 ✅
+### ================================================================
+
+
+### ================================================================
+### STEP 5. 폰(방장 앱)에서 직접 날짜를 다시 오늘로 수정
+###
+### ★ 폰 앱에서 직접: 날짜를 오늘로 수정
+### ★ 수정 후:
+###   - 폰(방장): 응답에서 participant_status=READY → GPS 폴링 재시작
+###   - 태블릿(참여자): FCM Data 수신 → GPS 폴링 재시작
+###
+### 확인:
+###   서버 로그에 "FCM Data 발송" 찍혀야 함
+###   이후 서버 로그에 위도/경도 다시 찍히면 ✅
+### ================================================================
+
+
+### ================================================================
+### STEP 6. 수정 버튼 비활성화 확인 (HTTP + 앱 UI 확인)
+###
+### ★ 이 단계는 HTTP로 실행
+### MOVING 상태 진입 → appointment_status=ACTIVE 전환
+### → 폰/태블릿 앱에서 그룹 카드 터치 시 수정 불가 확인
+###
+### target_time = 현재+1분으로 설정해서 P>=Q 유도
+### ================================================================
+
+### 6-1. target_time을 현재+1분으로 수정 (DEPARTING 유도용)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const soon = new Date(today.getTime() + 1 * 60 * 1000);
+    const soonStr = `${soon.getFullYear()}-${pad(soon.getMonth()+1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("soonTarget", soonStr);
+%}
+PATCH {{baseUrl}}/api/appointments/{{appointmentId}}
+Content-Type: application/json
+Authorization: Bearer {{hostToken}}
+
+{
+  "plan_date": "{{today}}",
+  "target_time": "{{soonTarget}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "TRANSIT"
+}
+
+### 6-2. 참여자 GPS → DEPARTING (P>=Q)
+PATCH {{baseUrl}}/api/appointments/{{appointmentId}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.55763,
+  "lng": 126.92525
+}
+
+### 6-3. 참여자 300m 이탈 → MOVING → appointment_status=ACTIVE
+PATCH {{baseUrl}}/api/appointments/{{appointmentId}}/participants/location
+Content-Type: application/json
+Authorization: Bearer {{guestToken}}
+
+{
+  "lat": 37.56100,
+  "lng": 126.93000
+}
+
+### ★ 응답: appointment_status=ACTIVE 확인
+### ★ 폰 앱: 그룹 카드 터치 → 수정 불가 (반투명 처리) 확인
+### ★ 태블릿 앱: 동일하게 수정 불가 확인

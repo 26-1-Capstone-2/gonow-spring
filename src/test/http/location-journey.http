@@ -372,3 +372,73 @@ GET {{baseUrl}}/api/journeys/{{journeyD}}
 Authorization: Bearer {{accessToken}}
 
 
+### ================================================================
+### SCENARIO E. DRIVING 모드 — which_station/boarding_time null 확인
+### (transport_type=DRIVING → which_station: null, boarding_time: null 이어야 함)
+### departure_alarm_time, interval은 카카오 API로 계산됨
+### ================================================================
+
+### E-1. 여정 생성 (DRIVING, target_time = 현재+1분 → P>=Q 유도)
+< {%
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const soon = new Date(today.getTime() + 1 * 60 * 1000);
+    const targetStr = `${soon.getFullYear()}-${pad(soon.getMonth()+1)}-${pad(soon.getDate())}T${pad(soon.getHours())}:${pad(soon.getMinutes())}:00`;
+    client.global.set("today", dateStr);
+    client.global.set("targetTimeSoon", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "시나리오E — DRIVING 모드",
+  "plan_date": "{{today}}",
+  "target_time": "{{targetTimeSoon}}",
+  "dest_name": "강남역",
+  "dest_address": "서울특별시 강남구 강남대로 396",
+  "dest_lat": 37.49794,
+  "dest_lng": 127.02759,
+  "transport_type": "DRIVING",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyE", response.body.data.journey_id);
+%}
+
+### E-2. 최초 좌표 수신 → DEPARTING (P>=Q)
+# 예상 응답: journey_status=DEPARTING, departure_alarm_time=값, interval=값
+# which_station: null, boarding_time: null 이어야 함
+PATCH {{baseUrl}}/api/journeys/{{journeyE}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50490,
+  "lng": 126.96147
+}
+
+### E-3. DEPARTING 상태에서 300m 이상 이탈 → MOVING
+# 예상 응답: journey_status=MOVING, interval=값
+PATCH {{baseUrl}}/api/journeys/{{journeyE}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.50800,
+  "lng": 126.96700
+}
+
+### E-4. 목적지 100m 이내 진입 → ARRIVED
+# 예상 응답: journey_status=ARRIVED
+PATCH {{baseUrl}}/api/journeys/{{journeyE}}/location
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "lat": 37.49800,
+  "lng": 127.02750
+}
+

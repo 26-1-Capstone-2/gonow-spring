@@ -97,7 +97,7 @@ Authorization: Bearer {{accessToken}}
 ### ================================================================
 
 ### 4-1. 날짜별 조회 → 200 { data: [ 개인+귀가+그룹 혼합 ] }
-GET {{baseUrl}}/api/alarms?date=2026-05-30
+GET {{baseUrl}}/api/alarms?date=2026-06-03
 Authorization: Bearer {{accessToken}}
 
 ### 4-2. 개인 알람 전체 조회 → 200 { data: [ ...개인 알람 목록 ] }

@@ -9,15 +9,19 @@
 
 ### ================================================================
 ### STEP 1. 공통 셋업 — 방장 + 참여자 회원가입/로그인
+###
+### [로컬] 1-1, 1-2 회원가입 + 1-3, 1-4 로그인 순서대로 실행
+### [prod] 1-1, 1-2 회원가입 생략, 1-3, 1-4 로그인만 실행
+###        폰에서 a@gmail.com 앱 로그인, 태블릿에서 b@gmail.com 앱 로그인 (FCM 토큰 등록 필수)
 ### ================================================================
 
-### 1-1. 방장 회원가입
+### 1-1. 방장 회원가입 (로컬 전용)
 POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
-  "email": "host@cau.ac.kr",
-  "password": "password123!",
+  "email": "a@gmail.com",
+  "password": "a1234",
   "nickname": "방장",
   "home_name": "우리집",
   "home_address": "서울특별시 동작구 흑석로 84",
@@ -26,13 +30,13 @@ Content-Type: application/json
   "preparation_time": 10
 }
 
-### 1-2. 참여자 회원가입
+### 1-2. 참여자 회원가입 (로컬 전용)
 POST {{baseUrl}}/api/members
 Content-Type: application/json
 
 {
-  "email": "guest@cau.ac.kr",
-  "password": "password123!",
+  "email": "b@gmail.com",
+  "password": "b1234",
   "nickname": "참여자",
   "home_name": "자취방",
   "home_address": "서울특별시 마포구 양화로 160",
@@ -41,13 +45,16 @@ Content-Type: application/json
   "preparation_time": 15
 }
 
+
+
+
 ### 1-3. 방장 로그인 → hostToken 저장
 POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
-  "email": "host@cau.ac.kr",
-  "password": "password123!"
+  "email": "a@gmail.com",
+  "password": "a1234"
 }
 
 > {%
@@ -59,8 +66,8 @@ POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
-  "email": "guest@cau.ac.kr",
-  "password": "password123!"
+  "email": "b@gmail.com",
+  "password": "b1234"
 }
 
 > {%

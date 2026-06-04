@@ -1,0 +1,151 @@
+### ================================================================
+### location-neardest.http — NEARDEST 상태 진입 테스트
+###
+### 목적: 앱이 GPS 폴링 중 NEARDEST 응답을 수신했을 때
+###       도착 확인 로컬 알람이 울리는지 확인
+###
+### 사전 준비:
+###   1. 앱 포그라운드 상태로 켜두기 (a@gmail.com 로그인 완료)
+###   2. Run with: prod 선택 (baseUrl = https://gonow-api.uk)
+###
+### 테스트 흐름:
+###   STEP 1. 로그인
+###   STEP 2. 내일 날짜로 여정 생성 (목적지 = 현재 위치 근처 50m 이내)
+###   STEP 3. DB 수동 조작: plan_date → 오늘
+###   STEP 4. 스케줄러 수동 트리거 → READY 전환 + FCM Data 발송 → 앱 GPS 폴링 시작
+###   STEP 5. [대기] 앱이 /location 폴링하면서 자연스럽게 NEARDEST 진입
+###           ★ 앱이 NEARDEST 응답 수신 → 도착 확인 알람 울려야 함
+###   STEP 6. /arrive 호출 → ARRIVED
+###
+### ★ 핵심: 목적지를 현재 실제 위치 근처 50m 이내로 설정해야 함
+###         앱이 GPS 폴링할 때 자연스럽게 NEARDEST 진입하게 됨
+###         HTTP로 좌표를 강제 조작하면 앱 폴링이 바로 READY로 되돌려버림
+###
+### ================================================================
+
+
+### ================================================================
+### STEP 1. 로그인
+### ================================================================
+
+### 1-1. a@gmail.com 로그인 → accessToken 저장
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "a@gmail.com",
+  "password": "a1234"
+}
+
+> {%
+    client.global.set("accessToken", response.body.data.access_token);
+%}
+
+
+### ================================================================
+### STEP 2. 내일 날짜로 여정 생성
+###
+### ★ dest_lat/dest_lng를 현재 실제 위치 근처 50m 이내 좌표로 수정할 것
+###   (현재 위치: 앱 GPS 또는 지도앱에서 확인)
+### ================================================================
+
+### 2-1. 여정 생성
+< {%
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const pad = n => String(n).padStart(2, '0');
+    const dateStr = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth()+1)}-${pad(tomorrow.getDate())}`;
+    const targetStr = `${dateStr}T10:00:00`;
+    client.global.set("tomorrow", dateStr);
+    client.global.set("targetTime", targetStr);
+%}
+POST {{baseUrl}}/api/journeys/personal
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "title": "NEARDEST 테스트",
+  "plan_date": "{{tomorrow}}",
+  "target_time": "{{targetTime}}",
+  "dest_name": "현재위치근처",
+  "dest_address": "현재위치주소",
+  "dest_lat": 37.50260,
+  "dest_lng": 126.95330,
+  "transport_type": "TRANSIT",
+  "repeat_days": 0
+}
+
+> {%
+    client.global.set("journeyId", response.body.data.journey_id);
+%}
+
+### 2-2. 생성 직후 상태 확인 → status: SCHEDULED
+GET {{baseUrl}}/api/journeys/{{journeyId}}
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### STEP 3. DB 수동 조작 — plan_date를 오늘로 변경
+###
+### ★ EC2 MySQL에서 아래 SQL 실행 후 STEP 4 진행
+###   UPDATE journey SET plan_date = '2026-06-03' WHERE journey_id = {journeyId};
+### ================================================================
+
+
+### ================================================================
+### STEP 4. 스케줄러 수동 트리거
+###
+### ★ 앱이 포그라운드 상태인지 확인
+### ★ 서버 로그: "FCM Data 단건 발송 완료" 확인
+### ★ 앱 폴링 시작 확인 (서버 로그에 /location 호출 찍히면 됨)
+### ================================================================
+
+### 4-1. 스케줄러 트리거 → READY 전환 + FCM Data 발송
+POST {{baseUrl}}/internal/scheduler/ready
+
+### 4-2. 상태 확인 (목적지가 현재 위치 근처라 첫 폴링에서 바로 NEARDEST 될 수 있음)
+# 예상 응답: journey_status=NEARDEST (또는 READY — 폴링 타이밍에 따라 다름)
+GET {{baseUrl}}/api/journeys/{{journeyId}}
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### STEP 5. [대기] 앱이 GPS 폴링 → 자연스럽게 NEARDEST 진입
+###
+### 서버 로그에서 아래 확인:
+###   1. 플라스크 응답 찍히면 → 앱 폴링 정상
+###   2. status=NEARDEST 업데이트 찍히면 → NEARDEST 진입
+###   3. ★ 이 시점에 앱에서 도착 확인 알람 울려야 함 ("나님 현재위치근처에 도착하신건가요?")
+###
+### ★ 알람이 안 울리면: 앱 포그라운드 상태인지, nearDestSent 플래그 확인
+### ================================================================
+
+
+### ================================================================
+### STEP 6. 도착 확인 → ARRIVED
+### ★ 앱 알람의 "예" 버튼으로 처리 (자동으로 /arrive 호출됨)
+###   앱에서 처리 안 한 경우에만 아래 API 직접 호출
+### ================================================================
+
+### 6-1. 상태 확인 → ARRIVED 여부 확인
+GET {{baseUrl}}/api/journeys/{{journeyId}}
+Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### [선택] 알람 "아니오" 또는 무시한 경우 — targetTime 초과 자동 ARRIVED 테스트
+###
+### 흐름:
+###   NEARDEST 상태에서 알람 무시 → 앱 폴링 계속 →
+###   스케줄러(매 1분)가 targetTime 초과 감지 → 자동 ARRIVED 전환
+###   앱이 다음 폴링에서 ARRIVED 응답 받음 → "도착 완료" 알람 + GPS 폴링 중단
+###
+### ★ EC2 MySQL에서 아래 SQL 실행 (현재 시각 기준 1~2분 후로 설정)
+###   UPDATE journey SET target_time = '2026-06-03 09:XX:00' WHERE journey_id = {journeyId};
+###   (XX = 현재 분 + 1~2)
+###
+### ★ 최대 1분 기다리면 ArrivedTransitionScheduler가 자동 ARRIVED 처리
+### ★ 서버 로그: ArrivedTransitionScheduler UPDATE 찍히면 성공
+### ★ 앱: "도착 완료" 알람 울리고 GPS 폴링 중단 확인
+### ================================================================
+

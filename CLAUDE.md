@@ -394,3 +394,11 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 ## 데이터베이스 스키마
 
 @.claude/db-schema.md
+
+## 프론트엔드 구현 현황
+
+@.claude/frontend-impl-status.md
+
+## 백그라운드/FCM 테스트 가이드
+
+@TEST_GUIDE.md

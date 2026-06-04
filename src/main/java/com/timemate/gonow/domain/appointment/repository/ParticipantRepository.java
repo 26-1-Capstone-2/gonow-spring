@@ -94,8 +94,8 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
         return countNotArrivedByAppointmentIdInternal(appointmentId, ParticipantStatus.ARRIVED);
     }
 
-    // 나를 제외한 다른 참가자들의 FCM 토큰 조회 (null 토큰 제외)
-    @Query("SELECT p.member.fcmToken FROM Participant p WHERE p.appointment.id = :appointmentId AND p.member.id != :excludeMemberId AND p.member.fcmToken IS NOT NULL")
+    // 나를 제외한 다른 참가자들의 FCM 토큰 조회 (null 토큰 제외, 알람 스위치 OFF 제외)
+    @Query("SELECT p.member.fcmToken FROM Participant p WHERE p.appointment.id = :appointmentId AND p.member.id != :excludeMemberId AND p.member.fcmToken IS NOT NULL AND p.isActive = true")
     List<String> findFcmTokensByAppointmentIdExcluding(@Param("appointmentId") Long appointmentId, @Param("excludeMemberId") Long excludeMemberId);
 
     // NEARDEST 상태 + targetTime 초과 참가자가 속한 약속 ID 목록 조회 (즉시 ARRIVED)
