@@ -1,6 +1,6 @@
 # GPS 폴링 버그 목록
 
-마지막 업데이트: 2026-06-04
+마지막 업데이트: 2026-06-06
 
 ---
 
@@ -8,11 +8,17 @@
 
 | 커밋 | 브랜치 | 내용 |
 |------|--------|------|
+| `9779d4a` | fix | 단계별 알람 trigger ID AsyncStorage 저장으로 앱 재실행 후 X 버튼 취소 정상화 |
 | `b6c98ed` | fix | GPS 폴링 좀비 버그 전면 수정 및 포그라운드/백그라운드 폴링 안정화 |
 | `81e515f` | fix | 앱 재실행 시 DEPARTING/MOVING/NEARDEST 상태 알람도 폴링 재개 |
 | `7112d52` | fix | 단계별 알람 중복 등록 방지 및 스위치 ON 시 상태 범위 확장 |
 | `085f831` | fix | STAGING_DONE_KEY 관리 개선 및 알람 상태 처리 보완 |
 | `795a2fd` | fix | 단계별 알람 X버튼 취소, NEARDEST P>=Q 알람, 수정 차단 조건 개선 |
+| `c77ea30` | fix | 개인/귀가 알람 수정 차단 조건 MOVING만으로 완화 |
+| `03e0bf1` | feat | 자동 로그인, 401 인터셉터, GPS High 정밀도 적용 |
+| `67dbf2c` | feat | 백그라운드 알람 취소 구현 및 자동 로그인 타이밍 수정 |
+| `d86d7d9` | fix | 그룹 알람 대시보드 버튼 활성화 조건 수정 |
+| `482ab72` | fix | 날짜별 리스트 알람 추가/수정 화면 다이렉트 진입 및 UX 개선 |
 
 ---
 
@@ -59,6 +65,27 @@
 | NEARDEST 상태에서 P>=Q 시 단계별 알람 미발송 | `alarmService.ts` | ✅ NEARDEST 진입 시 departure_alarm_time 비교 후 scheduleAlarmStages() 호출 |
 | 개인/귀가 알람 ARRIVED 상태에서 수정 불가 | `JourneyService.java`, `PersonalAlarmSheet.tsx`, `HomeAlarmSheet.tsx` | ✅ UNMODIFIABLE_STATUSES에서 ARRIVED 제거, 프론트 MOVING/NEARDEST만 차단 |
 | 그룹 알람 WAITING 외 상태에서 수정 가능 | `GroupAlarmSheet.tsx` | ✅ `isArrivalActive: appointment_status !== 'WAITING'` |
+| `GroupAllAlarmSheet` 대시보드 버튼 항상 비활성화 (`IN_PROGRESS` 잘못된 값) | `GroupAllAlarmSheet.tsx` | ✅ `appointment_status !== 'WAITING'`으로 수정 |
+| `DailyAlarmScreen` 그룹 카드 비활성화/대시보드 버튼 미반영 | `DailyAlarmScreen.tsx` | ✅ 서버 `appointment_status` 직접 사용 |
+| 날짜별 알람 카드 터치 시 목록 화면 거쳐서 수정 화면 진입 (2단계) | `PersonalAlarmSheet.tsx`, `HomeAlarmSheet.tsx`, `GroupAlarmSheet.tsx` | ✅ `initialMode=edit` 시 바로 수정 화면 진입 |
+| 수정/X 버튼 후 목록 화면 거쳐 닫힘 (2단계) | 동일 3개 파일 | ✅ `initialMode=edit` 시 `onClose()` 직접 호출 |
+| `ArrivalDashboardSheet` 하드코딩 더미 데이터 사용 | `daily-alarm.tsx` | ✅ `appointmentId` 전달하여 실제 API 호출 |
+| 수정 화면 열릴 때 빈 화면 찰나 표시 | `PersonalAlarmSheet.tsx` 등 | ✅ `initialAlarm` prop 전달로 즉시 기본 데이터 표시 |
+| 수정 화면 제목 불일치 (개인: "알람 수정", 귀가: 없음) | 4개 파일 | ✅ 개인/귀가/그룹 수정 화면 제목 통일 |
+| `GroupAlarmSheet` handleLeave 탈퇴 후 `setView('list')` | `GroupAlarmSheet.tsx` | ✅ `initialMode=edit`이면 `onClose()` 호출 |
+| `daily-alarm.tsx` 불필요한 `useAppointmentStatusStore` 코드 | `daily-alarm.tsx` | ✅ 제거 |
+| 대시보드 버튼 `appointmentId` 미전달 | `DailyAlarmScreen.tsx`, `daily-alarm.tsx` | ✅ `onArrivalPress(appointmentId)` 전달 |
+| 앱 재실행 시 로그인 화면 강제 이동 (토큰 미복원) | `_layout.tsx`, `index.tsx`, `client.ts` | ✅ 자동 로그인 + 401 인터셉터 구현 |
+| 백그라운드 X버튼/YES버튼 단계별 알람 미취소 (버그10-B) | `notifications.ts` | ✅ trigger ID AsyncStorage 저장 + onBackgroundEvent 처리 추가 |
+| GPS 정밀도 Balanced (100m 오차) | `alarmService.ts`, `backgroundLocationTask.ts`, `backgroundAlarmTask.ts` | ✅ Accuracy.High로 변경 |
+| 개인/귀가 NEARDEST 상태 수정 차단 | `JourneyService.java`, `PersonalAlarmSheet.tsx`, `HomeAlarmSheet.tsx` | ✅ MOVING만 차단으로 완화 |
+| 날짜별 리스트 카드 터치 시 목록 화면 찰나 표시 후 수정 화면 진입 | `PersonalAlarmSheet.tsx`, `HomeAlarmSheet.tsx`, `GroupAlarmSheet.tsx` | ✅ `view` 초기값을 `initialMode` 기반으로 설정 |
+| + 버튼 터치 시 목록 화면 찰나 표시 후 추가 화면 진입 | 동일 3개 파일 | ✅ `initialMode='add'`일 때도 `view` 초기값으로 바로 진입 |
+| X/저장/삭제 후 목록 화면 거쳐 닫힘 | 동일 3개 파일 | ✅ `initialMode` 있으면 `onClose()` 직접 호출 |
+| `addChoice` 화면 `<` 버튼 → 목록 화면 거쳐 닫힘 | `GroupAlarmSheet.tsx` | ✅ `initialMode` 있으면 `onClose()` 호출 |
+| 수정 화면 진입 시 `editAlarm` 초기값이 DEFAULT_ALARM → 데이터 파박 교체 | `PersonalAlarmSheet.tsx`, `HomeAlarmSheet.tsx`, `GroupAlarmSheet.tsx` | ✅ `useState` 초기값에 `initialAlarm` 데이터 반영 |
+| `HomeAlarmSheet` 수정 진입 시 막차/데드라인 모드 파박 전환 | `HomeAlarmSheet.tsx` | ✅ `editAlarm` 초기값에 `mode` 포함 |
+| 날짜별 리스트 Sheet `animateOnMount` 미설정으로 끝에서 튀는 현상 | `PersonalAlarmSheet.tsx`, `HomeAlarmSheet.tsx`, `GroupAlarmSheet.tsx` | ✅ `animateOnMount={false}` 추가 |
 
 ### ✅ 수정 완료 — 스와이프 킬 후 재실행 시 로그인 전 `/location` 호출
 
@@ -99,6 +126,77 @@
 ---
 
 ## 미수정 버그 목록
+
+> 중요도 높은 순으로 정렬
+
+---
+
+### 🔴 버그18 — DEPARTING 진입 시 단계별 알람 중복 발송 [영향 높음]
+
+**파일**: `src/services/alarmService.ts`
+
+**증상**: 임계 구간(4단계) 알람이 두 세트((1/3)(2/3)(3/3) × 2) 울림
+
+**원인**:
+- READY에서 `interval !== null` 조건으로 1~4단계 OS 등록 (방금 수정)
+- DEPARTING 진입 시 `cancelRemainingStages()` + 재등록 → 4단계만 남으면 또 3번짜리로 재등록
+- 결과: READY 등록분 + DEPARTING 재등록분 중복
+
+**수정 방향**: DEPARTING 진입 시 `cancelRemainingStages()` + `scheduleAlarmStages()` 호출 제거. READY에서 이미 정확한 시각으로 등록해놨으므로 DEPARTING에서 건드릴 필요 없음.
+
+**주의**: `handlePersonalStatus`(223번 줄), `handleGroupStatus` 두 곳 모두 수정 필요.
+
+---
+
+### ⚠️ 임시 변경 — 테스트용 interval 30초 고정 (원복 필요) [즉시]
+
+→ 아래 임시 변경 상세 참고
+
+---
+
+### 🟡 버그14 — 추방/방 삭제 시 OS 등록 단계별 알람 미취소 [영향 낮음]
+
+→ 아래 버그14 상세 참고
+
+---
+
+### 🟡 버그13 — 잘못된 초대코드 "네트워크 오류" 문구 [영향 낮음, 쉬움]
+
+→ 아래 버그13 상세 참고
+
+---
+
+### 🟡 버그3 — 백그라운드 폴링 interval 30초 고정 [영향 낮음]
+
+→ 아래 버그3 상세 참고
+
+---
+
+### 🟡 버그9 — 상단바 알림 깜빡임 [영향 매우 낮음]
+
+→ 아래 버그9 상세 참고
+
+---
+
+### 🟡 버그8 — 포그라운드 GPS 중복 찌르기 [영향 매우 낮음]
+
+→ 아래 버그8 상세 참고
+
+---
+
+### 🟡 버그1 — FCM Data 포그라운드 수신 시 backgroundAlarmTask와 타이밍 gap [간헐적, 영향 미미]
+
+→ 아래 버그1 상세 참고
+
+---
+
+### 🟡 버그2 — 앱 재실행 시 로그인 전 공백 [영향 매우 낮음]
+
+→ 아래 버그2 상세 참고
+
+---
+
+## 미수정 버그 상세
 
 ---
 
@@ -163,28 +261,12 @@ TRANSIT이면 `departure_time + walk_min`, DRIVING이면 `null` 반환.
 
 ---
 
-### 🟡 버그7 — 그룹 알람 스위치 OFF 시 프론트 로컬 알람 미억제
+### ~~버그7 — 그룹 알람 스위치 OFF 시 프론트 로컬 알람 미억제~~ → ✅ 해결됨
 
-**파일**: `src/services/alarmService.ts`, `app/_layout.tsx`, `src/screens/auth/LoginScreen.tsx`, `GroupAlarmSheet.tsx`, `GroupAllAlarmSheet.tsx`
-
-**현황**:
-- `alarmService.ts`에 `isActive` 플래그 및 억제 로직 구현 완료
-- 서버 `ParticipantRepository.findFcmTokensByAppointmentIdExcluding` 쿼리에 `AND p.isActive = true` 추가 완료 (다른 참가자에게 FCM 미발송)
-- **미완료**: `alarmService.start()` 호출부에서 `isActive: a.is_active` 전달 누락
-
-**수정 필요 위치**:
-```ts
-// _layout.tsx startReadyAlarms — AlarmItem 기반
-alarmService.start({ alarmType: 'group', destination: a.dest_name, appointmentId: a.appointment_id, isActive: a.is_active })
-
-// LoginScreen.tsx 로그인 후 복구 — AlarmItem 기반
-alarmService.start({ alarmType: 'group', destination: a.dest_name, appointmentId: a.appointment_id, isActive: a.is_active })
-
-// GroupAlarmSheet.tsx, GroupAllAlarmSheet.tsx — 생성/참여 시 응답의 is_active 전달
-// getAppointment() 경로(FCM 수신)는 is_active 없으므로 기본값 true 유지
-```
-
-**현재 영향**: 스위치 OFF여도 로컬 출발 알람(1~4단계), MOVING/ARRIVED/NEARDEST 알람이 울림.
+- `alarmService.setActive(isActive)` 메서드 추가 — 스위치 토글 시 runner의 `isActive` 즉시 반영
+- OFF 시 `cancelRemainingStages()` 호출 → 등록된 2~4단계 취소
+- ON 시 DEPARTING 상태면 현재 단계부터 재등록
+- `GroupAlarmSheet`, `GroupAllAlarmSheet`, `DailyAlarmScreen` 토글 핸들러에 `setActive()` 호출 추가
 
 ---
 
@@ -203,32 +285,11 @@ alarmService.start({ alarmType: 'group', destination: a.dest_name, appointmentId
 
 ---
 
-### ⚠️ 임시 변경 — 테스트용 interval 30초 고정 (원복 필요)
+### ~~⚠️ 임시 변경 — 테스트용 interval 30초 고정~~ → ✅ 원복 완료
 
 **파일**: `src/services/alarmService.ts`
 
-**변경 내용**: 서버가 내려주는 `interval` 값을 무시하고 포그라운드 폴링 주기를 30초로 고정.
-테스트 목적으로만 적용. **테스트 완료 후 반드시 원복.**
-
-**원복 위치**: `alarmService.ts`에서 `TODO` 주석 검색 → 고정값 줄 삭제 + 주석 해제
-
-```
-// pollPersonal (약 190번 줄)
-if (interval !== null) {
-  // TODO: 테스트 완료 후 아래 두 줄 원복
-  // console.log(`[포그라운드] interval 갱신 ...`);
-  // this.intervalSec = interval;
-  this.intervalSec = 30; // ← 이 줄 삭제
-}
-
-// pollGroup (약 226번 줄)
-if (interval !== null) {
-  // TODO: 테스트 완료 후 아래 두 줄 원복
-  // console.log(`[포그라운드] interval 갱신 ...`);
-  // this.intervalSec = interval;
-  this.intervalSec = 30; // ← 이 줄 삭제
-}
-```
+`pollPersonal`, `pollGroup` 두 곳 모두 `this.intervalSec = interval`로 원복. 서버가 내려주는 `interval` 값으로 포그라운드 폴링 주기 동적 갱신.
 
 ---
 
@@ -244,21 +305,6 @@ if (interval !== null) {
 
 ---
 
-### 🟡 버그11 — NEARDEST 상태에서 P >= Q 시 단계별 알람 미발송 [영향 높음]
-
-**파일**: `src/services/alarmService.ts`
-
-**원인**:
-- 스펙: `P >= Q AND (status == DEPARTING OR status == NEARDEST)` 조건으로 단계별 알람 처리
-- 현재 코드: `DEPARTING` 진입 시에만 `scheduleAlarmStages()` 호출
-- `NEARDEST` 상태에서 출발 알람 시각(`P >= Q`)이 도달해도 단계별 알람 미발송
-- 사용자가 일찍 목적지 근처에 도착(READY→NEARDEST)했다가 시간이 지나 출발 알람 시각이 되면 알람이 안 울림
-
-**수정 방향**: `/location` 응답에서 `P >= Q`(현재 시각 >= departureAlarmTime) 조건을 NEARDEST 상태에서도 체크하여 `scheduleAlarmStages()` 호출 추가.
-
-**롤백 방법**: NEARDEST 상태 P >= Q 체크 블록 제거.
-
----
 
 ### ~~버그10-A — 포그라운드 X 버튼 눌러도 2~4단계 취소 안 됨~~ → ✅ 해결됨
 
@@ -363,47 +409,32 @@ if (now - lastForegroundAt < 3000) {    // 중복 판별
 
 ## 플라스크 버그 목록
 
-### 🔴 플라스크 버그1 — `estimated_arrival` 계산 오류 (그룹 알람)
+### ~~플라스크 버그1 — `estimated_arrival` 계산 오류~~ → ✅ 해결됨
 
-**파일**: `gps_api/routes/alarm.py` — `_compute_appointment_alarm()` 409번 줄
-
-**원인**:
 ```python
-# 현재 (버그)
-departure_time    = target_time - timedelta(seconds=duration_sec)
-estimated_arrival = departure_time + timedelta(seconds=duration_sec)  # = target_time과 동일
+# 수정 후
+estimated_arrival = datetime.now() + timedelta(seconds=duration_sec)
 ```
-수학적으로 `estimated_arrival == target_time`이 되어 대시보드에 항상 약속 시각이 표시됨.
-
-**수정**:
-```python
-estimated_arrival = datetime.now() + timedelta(seconds=duration_sec)  # 현재 위치 기준 예상 도착
-```
-
-**영향**: 그룹 알람 대시보드 ETA 표시 오류.
+현재 위치 기준 실제 ETA로 수정. `_compute_appointment_alarm()` 및 `_compute_alarm()` 모두 반영.
 
 ---
 
-### 🔴 플라스크 버그2 — 막차 모드 `target_time` 의미 오류
+### ~~플라스크 버그2 — 막차 모드 `target_time` 의미 오류~~ → ✅ 해결됨
 
-**파일**: `gps_api/routes/alarm.py` — `_compute_alarm()` 210번 줄
-
-**원인**:
 ```python
-# 현재 (버그) — 막차 출발 시각을 target_time으로 반환
-"target_time": last_departure_dt.strftime("%Y-%m-%dT%H:%M:%S")
-```
-스프링 서버는 `target_time`을 "목적지 도착 시각" 기준으로 NEARDEST/DEPARTING/MOVING 자동 ARRIVED 처리에 사용.
-막차 출발 시각으로 설정하면 스프링의 자동 ARRIVED 타이밍이 틀어짐.
-
-**수정**:
-```python
-# 막차 타고 집 도착 예상 시각
+# 수정 후
 "target_time": last_arrival_dt.strftime("%Y-%m-%dT%H:%M:%S")
-# last_arrival_dt = last_departure_dt + timedelta(seconds=last_duration_sec) (이미 계산됨)
 ```
+막차 출발 시각 → 막차 타고 집 도착 시각으로 수정. 스프링의 자동 ARRIVED 타이밍 정상화.
 
-**영향**: 막차 모드에서 NEARDEST 자동 ARRIVED 타이밍 오류, DEPARTING/MOVING +1시간 자동 ARRIVED 타이밍 오류.
+---
+
+### ~~버그15 — 스위치 OFF→ON / 앱 재실행 시 DEPARTING 1단계 재발송~~ → ✅ 해결됨
+
+- READY 상태에서 `departure_alarm_time` + `which_station` 수신 시 1~4단계 전부 절대 시각으로 OS 예약
+- DEPARTING 진입 시 기존 취소 + `startIdx` 현재 시각 기준으로 해당 단계부터 재등록
+- 앱 재실행/알람 수정 후 DEPARTING 직접 진입 시에도 `scheduleAlarmStages()` 호출로 정상 처리
+- `backgroundLocationTask.ts`도 동일 로직 적용 (취소 후 재등록, 건너뛰기)
 
 ---
 
@@ -427,16 +458,63 @@ estimated_arrival = datetime.now() + timedelta(seconds=duration_sec)  # 현재 �
 
 ---
 
+---
+
+### ~~버그16 — 시간대(TimeZone) 미통일~~ → ✅ 확인 완료 (문제 없음)
+
+**확인 결과**:
+- **스프링**: `hibernate.jdbc.time_zone: Asia/Seoul` 설정 완료 ✅
+- **MySQL**: TZ 미설정(UTC)이나 스프링 JPA가 KST로 변환해서 저장/읽기 → 실질적 문제 없음 ✅
+- **플라스크**: KST 기준으로 수정 완료 ✅
+- **프론트**: JS `new Date()`는 기기 시간대 자동 사용, 한국 폰 기준 KST ✅
+
+실제 테스트에서 출발 알람 시각 정상 확인됨 — 레이어 간 시간대 불일치 없음.
+
+---
+
+### 🟡 버그17 — 자정~새벽 4시 날짜 경계 처리 [영향 미확인]
+
+**관련 레이어**: 프론트, 스프링 스케줄러
+
+**현황**: 스케줄러가 매일 새벽 4시에 당일 알람을 READY로 전환하므로, 00:00~04:00 구간은 아직 "어제" 기준으로 동작함. 그러나 앱은 자정이 넘으면 날짜를 오늘(`new Date()`)로 계산하여 "오늘 알람"을 조회함.
+
+**증상 시나리오**:
+- 자정 넘긴 새벽 1시에 앱 실행 → 캘린더는 6월 6일 표시
+- 서버는 아직 6월 6일 알람을 READY 전환 안 함 (새벽 4시 전)
+- 알람 목록 조회 시 6월 6일 알람이 SCHEDULED 상태로 표시됨 (정상이긴 하나 혼란)
+- FCM도 새벽 4시에 오므로 GPS 폴링 미시작
+
+**정책 결정 필요**:
+- 00:00~04:00을 "전날"로 간주하여 날짜 조회 시 하루 빼기
+- 또는 현행 유지 (SCHEDULED 상태로 보여주되 사용자 혼란 감수)
+
+**수정 방향 (정책 확정 후)**:
+```ts
+// 프론트: 현재 시각이 04:00 이전이면 전날 날짜 사용
+function getEffectiveDate(): string {
+  const now = new Date();
+  if (now.getHours() < 4) now.setDate(now.getDate() - 1);
+  return now.toISOString().slice(0, 10);
+}
+```
+
+---
+
 ## 인과관계 요약
 
 ```
 현재 남은 실질적 문제:
 
+버그18 (DEPARTING 단계별 알람 중복)  → 임계 구간 두 세트 울림, 수정 필요
+
 버그1 (FCM 포그라운드 타이밍 gap)    → 간헐적 /location 1회 추가, 기능 영향 없음, 완전 방어 불가
 버그2 (앱 재실행 폴링 복구)           → 로그인 전까지 폴링 없음, 로그인 후 즉시 복구되므로 영향 낮음
 버그3 (백그라운드 30초 고정)          → 배터리 비효율, 기능 영향 없음, 후순위
-버그5 (플라스크 boarding_time)        → ✅ 이미 수정됨 (alarm.py 257번 줄 확인)
-버그7 (그룹 스위치 OFF 알람 미억제)   → 호출부에서 isActive 전달만 추가하면 완성
+버그7 (그룹 스위치 OFF 알람 미억제)   → ✅ 해결됨 (setActive() 메서드 추가, 토글 핸들러 연결)
 버그9 (3초 중복 active 상단바 깜빡임) → 기능 영향 없음, 후순위
-⚠️ interval 30초 고정               → 테스트 완료 후 원복 필수
+버그14 (추방/방 삭제 시 단계별 알람 미취소) → 낮음, FCM 연동 필요
+버그15 (앱 재실행/스위치 ON 시 1단계 재발송) → ✅ 해결됨 (READY에서 절대 시각 예약, 건너뛰기 로직)
+버그16 (시간대 미통일)               → ✅ 확인 완료, 문제 없음
+버그17 (자정~새벽 4시 날짜 경계)     → 정책 결정 후 수정, 현행 유지도 가능
+⚠️ interval 30초 고정               → ✅ 원복 완료
 ```

@@ -1,6 +1,7 @@
 # 프론트엔드 구현 현황
 
 프론트 경로: `D:\gonow-app\GoNow_Fronted`
+플라스크 경로: `D:\gonow-flask\CounterClockEngine`
 마지막 확인일: 2026-06-03
 
 ---
@@ -144,21 +145,11 @@
 | `departure_alarm_time` | ✅ | ✅ | ✅ |
 | `interval` | ✅ | ✅ | ✅ |
 | `which_station` | null (정상) | ✅ | ✅ |
-| `boarding_time` | null (정상) | ❌ **버그** | ✅ |
+| `boarding_time` | null (정상) | ✅ | ✅ |
 
-### 플라스크 버그: `boarding_time` 누락
+### ~~플라스크 버그: `boarding_time` 누락~~ → ✅ 수정 완료
 
-- **증상**: TRANSIT + 일반 모드(`is_last_mode=false`)에서 `boarding_time` 키 자체가 응답에 없음
-- **영향 범위**: 개인 여정(데드라인 모드), 귀가 여정(데드라인 모드), 그룹 참가자 — 모두 동일
-- **정상 동작**: 막차 모드(`is_last_mode=true`)에서는 `boarding_time` 정상 반환
-- **원인**: `alarm.py` `_compute_alarm()` 일반 모드 응답 딕셔너리에 `boarding_time` 키 누락 (실수)
-- **수정 위치**: `alarm.py` 250~258번 줄 일반 모드 response 딕셔너리
-- **수정 내용**:
-  ```python
-  # AFTER (is_transit일 때만 departure_time 기준으로 boarding_time 추가)
-  "boarding_time": departure_time.strftime("%Y-%m-%dT%H:%M:%S") if is_transit else None,
-  ```
-- **상태**: 플라스크 팀원 전달 필요
+- `alarm.py` 코드 확인 결과 `boarding_dt.strftime(...)` 정상 구현되어 있음 (TRANSIT이면 반환, DRIVING이면 null)
 
 ---
 
