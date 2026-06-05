@@ -46,7 +46,7 @@ import java.util.Set;
 public class JourneyService {
 
     private static final Set<JourneyStatus> UNMODIFIABLE_STATUSES = Set.of(
-            JourneyStatus.MOVING, JourneyStatus.NEARDEST
+            JourneyStatus.MOVING
     );
     private final JourneyRepository journeyRepository;
     private final MemberRepository memberRepository;
