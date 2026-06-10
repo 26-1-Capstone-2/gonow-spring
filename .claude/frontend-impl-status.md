@@ -42,8 +42,7 @@
 - `_layout.tsx`에서 앱 실행 시 1회 `GET /api/alarms?date=오늘` 호출
 - `my_status == READY`인 항목만 필터링 → 각각 GPS 폴링 시작
 - 새벽 4시 FCM Data 못 받은 경우 복구용
-- **⚠️ 버그**: 앱 완전 종료 후 재실행 시 로그인 화면으로 튕기므로 토큰 없음 → `getAlarms` 401 실패 → GPS 폴링 복구 안 됨
-- **수정 필요**: `LoginScreen.tsx` 로그인 성공 직후에도 `getAlarms` 호출하여 READY 알람 GPS 폴링 시작하도록 추가 필요
+- ✅ 앱 완전 종료 후 재실행 시 로그인 화면 진입 → 로그인 성공 직후 `LoginScreen.tsx`에서 `getAlarms` 호출 + `alarmService.start()` → READY 알람 폴링 즉시 복구
 
 ### FCM Data 수신 처리 (`_layout.tsx`)
 
@@ -55,16 +54,30 @@
 
 ### 알람 수정 버튼 비활성화
 
-- **개인/귀가**: `my_status`가 `MOVING`, `NEARDEST`, `ARRIVED`이면 카드 터치 차단 + 반투명 처리
+- **개인/귀가**: `my_status`가 `MOVING`이면 카드 터치 차단 + 반투명 처리 (NEARDEST, ARRIVED는 수정 허용)
 - **그룹**: `appointment_status == ACTIVE`이면 카드 터치 차단 + 반투명 처리
 
-### 단계별 출발 알람 (DEPARTING 진입 시)
+### 단계별 출발 알람 등록 로직
 
-- 1단계: 즉시 `notifee.displayNotification()` 발송
-- 2~4단계: `notifee.createTriggerNotification()` (OS 스케줄 등록 — 앱 꺼져도 울림)
-- `which_station` 있으면 알람 텍스트에 탑승역 + 남은 분 표시
-- `which_station` 없으면 기본 메시지 표시
-- NEARDEST 상태 진입 시 단계별 알람 **미발송** (도착 확인 알람만 표시)
+#### READY 상태에서 1~4단계 전부 OS 예약
+- `/location` 응답으로 `departure_alarm_time`이 변경되면(`departureAlarmTime !== lastDepartureAlarmTime`) 즉시 1~4단계 전부 `scheduleFutureAlarm()` (OS 스케줄 등록)
+- **1단계 포함 전부 OS 등록** → 앱 완전 종료 상태에서도 예정 시각에 울림
+- `lastDepartureAlarmTime` 메모리 변수로 중복 재등록 방지 (같은 값이면 skip)
+- 앱 재실행 시 `lastDepartureAlarmTime = null` 초기화 → `/location` 응답 받으면 `cancelRemainingStages()` 후 재등록 (중복 없음)
+
+#### 단계별 시각 계산
+- `stepTimes[0] = departure_alarm_time` (1단계)
+- `stepTimes[1~3]` = `departure_alarm_time + preparationTime * 25% * (1~3)` (2~4단계)
+- 등록 시점에 이미 지난 단계는 `startIdx`로 건너뜀 → 남은 단계부터 등록
+
+#### 알람 텍스트
+- `which_station` 있으면: `[목적지] {역명} 탑승까지 N분 남았어요`
+- `which_station` 없으면: 기본 메시지 (`귀가 준비를 시작하세요` 등)
+- 4단계(이미 지난 경우): `즉시 출발하세요!`
+
+#### NEARDEST 상태
+- NEARDEST 진입 시 단계별 알람 **미발송** (도착 확인 알람만 표시)
+- 단, `departure_alarm_time` 변경 시 재등록 조건은 동일하게 적용
 
 ### `which_station`, `boarding_time` 응답 처리
 

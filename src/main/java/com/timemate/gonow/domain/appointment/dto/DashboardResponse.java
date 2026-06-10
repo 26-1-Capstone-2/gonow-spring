@@ -1,5 +1,6 @@
 package com.timemate.gonow.domain.appointment.dto;
 
+import com.timemate.gonow.domain.appointment.constant.ParticipantStatus;
 import com.timemate.gonow.domain.appointment.entity.Appointment;
 import com.timemate.gonow.domain.appointment.entity.Participant;
 import com.timemate.gonow.domain.common.constant.TransportType;
@@ -16,6 +17,7 @@ public record DashboardResponse(
             String nickname,
             TransportType transportType,
             LocalDateTime estimatedArrival,
+            ParticipantStatus participantStatus,
             boolean isMe
     ) {}
 
@@ -25,6 +27,7 @@ public record DashboardResponse(
                         p.getMember().getNickname(),
                         p.getTransportType(),
                         p.getEstimatedArrival(),
+                        p.getParticipantStatus(),
                         p.getMember().getId().equals(myMemberId)
                 ))
                 .toList();
