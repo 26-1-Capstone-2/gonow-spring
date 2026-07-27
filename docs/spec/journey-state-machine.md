@@ -35,6 +35,8 @@ NEARDEST: P >= Q → 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방
 반복 여정: ARRIVED → 다음 반복 요일 새벽 4시 → READY (SCHEDULED 생략)
 ```
 
+**추가**: `READY`/`DEPARTING`/`MOVING` 상태가 `targetTime` + 1시간이 지나도록 `ARRIVED`에 도달하지 못하면 `ArrivedTransitionScheduler`가 강제로 `ARRIVED` 처리한다 (지각/노쇼 정리, 여정·참가자 공통).
+
 ---
 
 ## 3. 상태별 상세 정의 (State Definitions)
@@ -112,7 +114,7 @@ NEARDEST: P >= Q → 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방
 
 ### GPS 폴링 방식
 - 지오펜싱 대신 N초마다 좌표를 서버에 전송 (`PATCH /location`)
-- 폴링 주기는 앱이 결정 (목적지에 가까울수록 짧게)
+- 폴링 주기(`interval`)는 서버가 계산해서 `/location` 응답으로 지시 (목적지에 가까울수록/시간이 급할수록 짧게) — 앱은 이 값을 받아 다음 호출 주기를 조정
 - 서버는 좌표를 받아 Haversine 공식으로 거리 계산 후 상태 전이 판단
 
 ### 앵커 (Anchor) 개념
@@ -129,7 +131,7 @@ NEARDEST: P >= Q → 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방
 | 스케줄러 | 주기 | 역할 |
 |---|---|---|
 | `ReadyTransitionScheduler` | 매일 새벽 4시 | 당일 `SCHEDULED` → `READY` 벌크 전환 + 반복 여정 `ARRIVED` → `READY` 직접 전환 |
-| `ArrivedTransitionScheduler` | 매 1분 | `NEARDEST` + 오늘 날짜 + `targetTime` 초과 → 자동 `ARRIVED` |
+| `ArrivedTransitionScheduler` | 매 1분 | ① `NEARDEST` + 오늘 날짜 + `targetTime` 초과 → 자동 `ARRIVED`  ② `READY`/`DEPARTING`/`MOVING` + `targetTime` + 1시간 초과 → 자동 `ARRIVED` (지각 정리, 여정·참가자 공통) |
 
 ### 반복 여정 사이클
 ```
@@ -153,3 +155,4 @@ NEARDEST: P >= Q → 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방
 | `DEPARTING → ARRIVED` | `distToDest < 100m` (이동 중) | 서버 (좌표 수신 시) |
 | `DEPARTING → MOVING` | `distFromAnchor >= 300m` | 서버 (좌표 수신 시) |
 | `MOVING → ARRIVED` | `distToDest < 100m` | 서버 (좌표 수신 시) |
+| `READY`/`DEPARTING`/`MOVING` → `ARRIVED` | `targetTime` + 1시간 초과 (지각 정리) | 서버 스케줄러 |

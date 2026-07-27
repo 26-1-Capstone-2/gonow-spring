@@ -84,6 +84,11 @@ Controller → Service → Repository → Entity → MySQL
 - 사용자가 `isActive = false` → 상태는 스케줄러가 READY로 올려놓지만 앱은 GPS를 깨우지 않음
 - 사용자가 나중에 `isActive = true`로 켜면 → 이미 READY 상태이므로 앱이 즉시 GPS 가동 가능
 
+#### 알람 수정 시 재계산 정책
+- 개인/귀가/그룹 알람 수정(PUT/PATCH) 시 `departureAlarmTime`과 현재 위치 앵커(`current_lat/lng`)를 `null`로 리셋 → 다음 GPS 수신 시 READY 단계부터 재계산 유도
+- 개인/귀가: `JourneyService`에서 `updateDepartureAlarmTime(null)` + `updateCurrentPoint(null)` 호출
+- 그룹: `AppointmentService`에서 `bulkResetAlarmInfoByAppointmentId` 호출로 전체 참가자 일괄 리셋
+
 ### 패키지 구조
 ```
 com.timemate.gonow/
@@ -127,7 +132,7 @@ com.timemate.gonow/
 |--------|------|------|------|
 | GET | `/health` | 불필요 | 헬스 체크 |
 | POST | `/api/auth/login` | 불필요 | 로그인 (JWT 발급) |
-| POST | `/api/auth/logout` | 필요 | 로그아웃 (클라이언트 토큰 삭제, 스켈레톤) |
+| POST | `/api/auth/logout` | 필요 | 로그아웃 (서버가 FCM 토큰을 null로 처리, 클라이언트 토큰 삭제는 앱 담당) |
 | POST | `/api/members` | 불필요 | 회원가입 (MemberSetting 기본값 동시 생성) |
 | GET | `/api/members/check?email=` | 불필요 | 이메일 중복 확인 |
 | GET | `/api/members/check?nickname=` | 불필요 | 닉네임 중복 확인 |
@@ -155,12 +160,12 @@ com.timemate.gonow/
 | GET | `/api/alarms` | 필요 | 알람 조회 (`?date=` 날짜별 혼합 조회 또는 `?type=PERSONAL\|HOME\|GROUP` 타입별 조회, 둘 중 하나 필수) |
 | GET | `/api/journeys/{journeyId}` | 필요 | 여정 상세 조회 (개인/귀가 공통, `journeyType`+`isLastMode`로 프론트 분기) |
 | GET | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 상세 조회 (참여자 본인만, 참가자 목록 포함) |
-| GET | `/api/appointments/{appointmentId}/dashboard` | 필요 | 도착 예정 대시보드 조회 (참여자 본인만, estimatedArrival은 플라스크 연동 전 null) |
+| GET | `/api/appointments/{appointmentId}/dashboard` | 필요 | 도착 예정 대시보드 조회 (참여자 본인만, 참가자별 participantStatus 포함, estimatedArrival은 최초엔 null, 참가자 GPS 수신(플라스크 연동) 후 채워짐) |
 | PATCH | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 수정 (방장 전용 — 목적지/날짜/시간/이동수단) |
 | PATCH | `/api/appointments/{appointmentId}/participants/transport` | 필요 | 이동 수단 변경 (일반 참가자 전용, 방장 호출 시 에러) |
-| PATCH | `/api/journeys/{journeyId}/location` | 필요 | 여정 GPS 좌표 수신 + 상태 전이 (응답: journeyStatus, departureAlarmTime, interval, preparationTime) |
+| PATCH | `/api/journeys/{journeyId}/location` | 필요 | 여정 GPS 좌표 수신 + 상태 전이 (응답: journeyStatus, departureAlarmTime, interval, preparationTime, whichStation, boardingTime) |
 | PATCH | `/api/journeys/{journeyId}/arrive` | 필요 | 여정 도착 확인 (NEARDEST → ARRIVED, 사용자 확인 버튼) |
-| PATCH | `/api/appointments/{appointmentId}/participants/location` | 필요 | 참가자 GPS 좌표 수신 + 상태 전이 (응답: participantStatus, appointmentStatus, departureAlarmTime, estimatedArrival, interval, preparationTime) |
+| PATCH | `/api/appointments/{appointmentId}/participants/location` | 필요 | 참가자 GPS 좌표 수신 + 상태 전이 (응답: participantStatus, appointmentStatus, departureAlarmTime, estimatedArrival, interval, preparationTime, whichStation, boardingTime) |
 | PATCH | `/api/appointments/{appointmentId}/participants/arrive` | 필요 | 참가자 도착 확인 (NEARDEST → ARRIVED, 응답: appointmentStatus) |
 
 ### API 응답 형식
@@ -190,7 +195,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 
 ### 알람 메커니즘 (Universal Journey State Machine)
 
-@.claude/universal_journey_state_machine.md
+상세 상태 전이 규칙: `docs/spec/journey-state-machine.md` 참고 (상태머신/알람 로직 작업 시 확인)
 
 ### 알람 구현 방식 결정 사항
 
@@ -225,6 +230,8 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 | ARRIVED (NEARDEST→ARRIVED, 확인 버튼) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
 | ARRIVED (DEPARTING→ARRIVED, 100m 자동) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
 | ARRIVED (MOVING→ARRIVED, 100m 자동) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
+
+- `isActive = false`인 참가자에게는 위 알림을 발송하지 않음 (`ParticipantRepository.findFcmTokensByAppointmentIdExcluding` 쿼리에 `isActive = true` 조건 포함)
 
 ### 도메인 설계 원칙
 
@@ -270,7 +277,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `findHostWithAppointment(appointmentId, memberId)` — 방장 권한 확인 + Appointment fetch join (`@Query`)
 - `findByAppointmentIdAndMemberId(appointmentId, memberId)` — 본인 Participant 조회 (탈퇴/추방/알람스위치용)
 - `findWithAppointmentByAppointmentIdAndMemberId(appointmentId, memberId)` — 본인 Participant + Appointment fetch join (`@EntityGraph`, 상세 조회용)
-- `findAllByAppointmentId(appointmentId)` — 전체 참가자 조회 + Member fetch join (`@EntityGraph`, 상세 조회용)
+- `findAllByAppointmentId(appointmentId)` — 전체 참가자 조회 + Member·Appointment fetch join (`@EntityGraph`, 상세 조회용)
 - `existsByAppointmentIdAndMemberId(appointmentId, memberId)` — 중복 참여 확인
 - `findAllByAppointmentIdAndMemberIdIn(appointmentId, memberIds)` — 탈퇴/추방 시 요청자+대상자 한 번에 조회
 - `bulkDeleteByAppointmentId(appointmentId)` — 약속 삭제 시 전체 참가자 벌크 삭제
@@ -361,16 +368,15 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 그룹 알람: 생성(초대코드 자동)·참여·수정·삭제·상세 조회·대시보드
 - 참가자: 알람 스위치·탈퇴(본인)/추방(방장)·이동수단 변경
 - 알람 조회: 날짜별(`?date=`) 혼합 조회, 타입별(`?type=PERSONAL|HOME|GROUP`) 조회
-- 스케줄러: 새벽 4시 SCHEDULED/ARRIVED → READY 벌크 전환 + FCM Data 발송, 매 1분 NEARDEST+targetTime 초과 → 자동 ARRIVED
+- 스케줄러: 새벽 4시 SCHEDULED/ARRIVED → READY 벌크 전환 + FCM Data 발송, 매분 정각 NEARDEST+targetTime 초과 → 자동 ARRIVED, READY/DEPARTING/MOVING 상태가 targetTime+1시간 초과해도 ARRIVED에 도달 못 하면 자동 ARRIVED(지각 정리, 여정·참가자 공통)
 - 여정/참가자 GPS 상태 전이 (`/location`, `/arrive`) — 상태 머신 전체 구현 완료
 - FCM: `FcmSender`(Data/Notification), `FirebaseConfig` — READY 트리거·그룹 도착 알림
-- 플라스크 연동: `FlaskJourneyRequest/Response`, `FlaskParticipantRequest/Response`, memberId 포함
+- 플라스크 연동: `FlaskJourneyRequest/Response`, `FlaskParticipantRequest/Response`, memberId 포함 — 실제 통신 테스트 완료 (2026-06-03, `docs/status/frontend-impl-status.md` 참고)
 - NEARDEST 상태 interval 서버 자체 계산 (시간 기반: 30분↑→120초, 10~30분→60초, 10분↓→30초)
 
 ### 미구현
 - Refresh Token
 - Redis (현재 위치 실시간 저장, Refresh Token 저장 용도)
-- 플라스크 실제 통신 테스트 (JourneyService, ParticipantService 코드 완료 — 플라스크 서버 기동 후 통신 테스트 필요)
 - 회원 탈퇴 실제 삭제 로직
 
 ### 설계 확정 사항
@@ -380,6 +386,32 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 조회 시 `status != FINISHED` 필터링 (자동 삭제 없음, 이력 보존)
 - 현재 위치(current_lat/lng)는 향후 Redis로 이전 예정, 현재는 MySQL
 - Appointment ACTIVE 트리거: MOVING 또는 ARRIVED 진입 시만 (DEPARTING 제외 — 아직 출발 전)
+
+## 문서 관리 원칙
+
+#### 내용 동기화
+- 도메인 로직(상태 전이, 스케줄러, API 응답 필드, DB 스키마, Repository 메서드)을 변경하면 관련 문서(`CLAUDE.md` 해당 섹션, `docs/spec/*`)도 같은 작업에서 함께 갱신을 검토한다.
+- 확신이 없거나 누적된 변경이 많으면 `/sync-docs` 스킬로 문서-코드 및 문서 간 정합성을 전체 점검할 수 있다.
+
+#### 새 문서는 어디에 둘지
+- `docs/spec/` — 지금 유효한 설계/스펙 (DB 스키마, 상태머신 등 자주 안 바뀌는 것)
+- `docs/status/` — 특정 시점 상태 스냅샷 (구현 현황, 테스트 결과 등 주기적으로 갱신되는 것)
+- `docs/testing/` — 테스트 절차/가이드
+- `docs/history/` — 이미 끝났거나 대체된 기록 (해결된 버그, 지난 변경 이력, 구버전 설계안 — 참고용 아카이브)
+- 루트는 `CLAUDE.md`(상시 로드)와 `BUGS.md`(지금도 계속 갱신되는 활성 이슈 트래커)만 유지한다. 그 외 새 md는 원칙적으로 루트가 아니라 위 `docs/` 하위에 만든다.
+
+#### 새 파일 생성 vs 기존 파일에 추가
+- 관련 있는 내용이면 새 파일보다 기존 파일에 섹션을 추가하는 쪽을 우선 고려한다 (파일 수가 늘어날수록 관리 부담도 늘어난다).
+- 다음 경우에만 파일을 분리한다: 기존 파일이 과도하게 커져서(대략 150~200줄 이상) 한 문서 안에 이질적인 내용이 섞이거나, 문서 성격(스펙/상태/가이드/이력)이 명백히 다를 때.
+- 반대로 성격이 같고 항상 같이 읽히는 문서라면 합친다.
+
+#### `@import` 규칙
+- `CLAUDE.md`에서 `@경로`로 문서를 끌어오면 그 문서는 **매 세션 자동으로 전부 로드**된다 — 아주 작고(수십 줄 이하) 모든 세션에 보편적으로 유용한 "색인" 성격의 문서에만 사용한다 (현재는 `docs/README.md`가 유일하게 이 조건을 만족).
+- 그 외 문서는 `@` 없이 경로 텍스트로만 언급해서, 필요할 때만 Read로 불러온다. 기본값은 온디맨드이고, `@import`는 예외적으로만 쓴다.
+
+#### 문서 추가/이동/삭제 시 반드시 할 것
+- `docs/README.md` 색인에 새 행 추가/경로 수정을 함께 반영한다.
+- 애매한 경우 매번 되묻기보다 위 기준으로 스스로 판단하고, 판단 이유를 한 줄로 남긴다.
 
 ## 새 도메인 추가 시 체크리스트
 
@@ -393,12 +425,16 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 
 ## 데이터베이스 스키마
 
-@.claude/db-schema.md
+전체 테이블 정의: `docs/spec/db-schema.md` 참고 (엔티티/테이블 작업 시 확인)
 
 ## 프론트엔드 구현 현황
 
-@.claude/frontend-impl-status.md
+최신 현황: `docs/status/frontend-impl-status.md` 참고 (프론트-백엔드 연동 작업 시 확인)
 
 ## 백그라운드/FCM 테스트 가이드
 
-@TEST_GUIDE.md
+테스트 절차: `docs/testing/TEST_GUIDE.md` 참고 (GPS 폴링/FCM 테스트 시 확인)
+
+## 문서 색인
+
+@docs/README.md

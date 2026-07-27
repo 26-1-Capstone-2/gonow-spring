@@ -69,7 +69,7 @@
 |---|---|---|---|---|
 | 참석자 ID | participant_id | BIGINT | PK, AUTO_INCREMENT | 고유 식별자 |
 | 멤버 ID | member_id | BIGINT | FK(member), NOT NULL, 복합 UK | 약속 ID랑 복합 UK를 이룸 |
-| 약속 ID | appointment_id | BIGINT | FK(meeting), NOT NULL, 복합 UK | 멤버 ID랑 복합 UK를 이룸 |
+| 약속 ID | appointment_id | BIGINT | FK(appointment), NOT NULL, 복합 UK | 멤버 ID랑 복합 UK를 이룸 |
 | 방장 여부 | is_host | BOOLEAN | NOT NULL, DEFAULT FALSE | TRUE면 방장(권한 있음), FALSE면 일반 참여자 |
 | 현재 위도 | current_lat | DECIMAL(10, 8) | - | 유저의 실시간 위도 |
 | 현재 경도 | current_lng | DECIMAL(11, 8) | - | 유저의 실시간 경도 |
@@ -81,7 +81,7 @@
 
 - 방장이 친구를 초대 → insert
 - 방장이 친구를 내보냄 / 친구가 스스로 나감 → delete
-- 약속  시간 이후 1시간이 지나도 친구가 도착 안하면 → delete
+- 약속 시간(target_time) 이후 1시간이 지나도 친구가 도착 안 하면 → 자동 ARRIVED 처리 (삭제 아님, `ArrivedTransitionScheduler`가 지각 정리)
 ---
 
 ## 6. journey (여정) 테이블
