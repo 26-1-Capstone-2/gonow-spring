@@ -104,6 +104,15 @@ public class AppointmentService {
 
         participantRepository.save(participant);
 
+        // 기존 참가자들에게 참가자 목록 변경 FCM Data 발송 (신규 참여자 제외)
+        List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointment.getId(), memberId);
+        if (!tokens.isEmpty()) {
+            fcmSender.sendAllData(tokens, Map.of(
+                    "appointment_id", String.valueOf(appointment.getId()),
+                    "sync_event", "participants_changed"
+            ));
+        }
+
         return AppointmentJoinResponse.from(appointment, participant);
     }
 
@@ -175,11 +184,23 @@ public class AppointmentService {
         Participant host = participantRepository.findHostWithAppointment(appointmentId, memberId)
                 .orElseThrow(() -> new IllegalArgumentException("약속을 찾을 수 없거나 방장 권한이 없습니다."));
 
-        // 2. 벌크 연산으로 참여자들 한 번에 삭제
+        // 2. 삭제 전에 통지 대상(방장 제외 참가자) 토큰 확보
+        //    (bulkDeleteByAppointmentId 이후엔 조회해도 대상이 이미 사라져 빈 목록이 됨)
+        List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);
+
+        // 3. 벌크 연산으로 참여자들 한 번에 삭제
         participantRepository.bulkDeleteByAppointmentId(appointmentId);
 
-        // 3. 약속 삭제
+        // 4. 약속 삭제
         appointmentRepository.delete(host.getAppointment());
+
+        // 5. 남은 참가자들에게 삭제 통지 (포그라운드에서 화면 보고 있으면 프론트가 강제 종료 처리하도록 트리거)
+        if (!tokens.isEmpty()) {
+            fcmSender.sendAllData(tokens, Map.of(
+                    "appointment_id", String.valueOf(appointmentId),
+                    "sync_event", "appointment_deleted"
+            ));
+        }
     }
 
     // 당일 생성이면 READY, 그 외엔 SCHEDULED

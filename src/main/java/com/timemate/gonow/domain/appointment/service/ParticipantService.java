@@ -32,6 +32,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -65,6 +66,15 @@ public class ParticipantService {
         }
 
         participant.updateTransportType(request.transportType());
+
+        // 본인 제외 나머지 참가자들에게 참가자 정보 변경 FCM Data 발송
+        List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);
+        if (!tokens.isEmpty()) {
+            fcmSender.sendAllData(tokens, Map.of(
+                    "appointment_id", String.valueOf(appointmentId),
+                    "sync_event", "participants_changed"
+            ));
+        }
     }
 
     // 탈퇴(본인) & 추방(방장) 공통
@@ -91,7 +101,27 @@ public class ParticipantService {
             if (!requester.isHost()) throw new IllegalArgumentException("방장 권한이 없습니다.");
         }
 
+        boolean isKick = !memberId.equals(targetMemberId);
+        String targetToken = target.getMember().getFcmToken();
+
         participantRepository.delete(target);
+
+        // 남은 참가자들에게 참가자 목록 변경 FCM Data 발송 (요청자 제외 — 대상자는 이미 삭제되어 조회에 안 잡힘)
+        List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);
+        if (!tokens.isEmpty()) {
+            fcmSender.sendAllData(tokens, Map.of(
+                    "appointment_id", String.valueOf(appointmentId),
+                    "sync_event", "participants_changed"
+            ));
+        }
+
+        // 추방인 경우, 쫓겨난 당사자에게 강제 종료 신호 단건 발송 (본인 탈퇴는 이미 알고 하는 행동이라 불필요)
+        if (isKick) {
+            fcmSender.sendData(targetToken, Map.of(
+                    "appointment_id", String.valueOf(appointmentId),
+                    "sync_event", "removed_from_appointment"
+            ));
+        }
     }
 
     // GPS 좌표 수신 + 상태 전이

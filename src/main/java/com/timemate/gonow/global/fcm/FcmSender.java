@@ -22,7 +22,7 @@ import java.util.Map;
 public class FcmSender {
     private final FirebaseMessaging firebaseMessaging; // FirebaseConfig의 빈 주입
 
-    // 단일 기기 Data 메시지 발송 (토큰별 개인화 데이터 — 스케줄러 READY 전환 시 사용)
+    // 단일 기기 Data 메시지 발송 (토큰별 개인화 데이터 — 스케줄러 READY 전환 시, 참가자 추방 시 사용)
     public void sendData(String token, Map<String, String> data) {
         if (!StringUtils.hasText(token)) {
             log.warn("유효한 FCM 토큰 없음 — Data 단건 발송 건너뜀");
