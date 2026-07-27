@@ -4,6 +4,7 @@ import com.timemate.gonow.domain.common.constant.TransportType;
 import jakarta.validation.constraints.FutureOrPresent;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.hibernate.validator.constraints.Range;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -36,5 +37,6 @@ public record PersonalJourneyUpdateRequest(
         TransportType transportType,
 
         @NotNull(message = "반복 요일 필수")
+        @Range(min = 0, max = 127, message = "반복 요일 값이 올바르지 않습니다")
         Integer repeatDays
 ) {}

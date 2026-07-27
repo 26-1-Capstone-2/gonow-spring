@@ -2,6 +2,7 @@ package com.timemate.gonow.domain.member.dto;
 
 import com.timemate.gonow.domain.member.constant.PriorityType;
 import com.timemate.gonow.domain.member.constant.TransitType;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
 public record SettingUpdateRequest(
@@ -12,5 +13,6 @@ public record SettingUpdateRequest(
         PriorityType priorityType,
 
         @NotNull(message = "여유시간 필수")
+        @Min(value = 0, message = "여유시간은 0 이상이어야 합니다")
         Integer preparationTime
 ) {}

@@ -1,6 +1,7 @@
 package com.timemate.gonow.domain.member.dto;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
@@ -31,5 +32,6 @@ public record SignupRequest(
         BigDecimal homeLng,
 
         @NotNull(message = "여유시간 필수")
+        @Min(value = 0, message = "여유시간은 0 이상이어야 합니다")
         Integer preparationTime
 ) {}
