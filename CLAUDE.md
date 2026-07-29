@@ -214,7 +214,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 | 방식 | 작동 조건 | 용도 |
 |------|----------|------|
 | expo-notifications (로컬 알림) | 앱 꺼져 있어도 작동 (OS 등록) | `departure_alarm_time` + `preparationTime` 기반 단계별 알람 시퀀스 (1→4단계) |
-| FCM Data | 앱 포그라운드/백그라운드 | 새벽 4시 READY 전환 → GPS 가동 트리거 (`journey_ids`, `appointment_ids` 포함) |
+| FCM Data | 앱 포그라운드/백그라운드 | ① 새벽 4시 READY 전환 → GPS 가동 트리거 (`journey_ids`, `appointment_ids`) ② 그룹 참가자/약속 정보 변경 동기화 (`sync_event`, 아래 표 참고) |
 | FCM Notification | 앱 완전 종료 포함 | 그룹 알람 도착 예정/완료 알림 (MOVING 진입, ARRIVED 진입 시) |
 
 #### 단계별 출발 알람 (프론트 처리)
@@ -232,6 +232,22 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 | ARRIVED (MOVING→ARRIVED, 100m 자동) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
 
 - `isActive = false`인 참가자에게는 위 알림을 발송하지 않음 (`ParticipantRepository.findFcmTokensByAppointmentIdExcluding` 쿼리에 `isActive = true` 조건 포함)
+
+#### FCM Data 그룹 참가자/약속 동기화
+
+그룹 알람 화면을 열어둔 다른 참가자에게 변경사항을 실시간 반영하기 위한 용도(상세화면 재조회·강제 종료·목록 새로고침 트리거). 위 표의 도착 알림(Notification)과 달리 화면에 직접 뭔가 표시하지 않고, 프론트가 신호를 받아 API를 다시 호출하게 만드는 것이 목적이다.
+
+| 시점 | sync_event / 필드 | 발송 대상 | 발송 메서드 |
+|------|-------------------|-----------|-------------|
+| 참가자 참여(join) | `participants_changed` | 기존 참가자 전원(신규 참여자 제외) | `AppointmentService.joinAppointment()` → `sendAllData` |
+| 참가자 탈퇴/추방 | `participants_changed` | 남은 참가자 전원(요청자 제외) | `ParticipantService.deleteParticipant()` → `sendAllData` |
+| 참가자 추방(대상자 전용) | `removed_from_appointment` | 쫓겨난 당사자 1명 | `ParticipantService.deleteParticipant()` → `sendData`(단건) |
+| 이동수단 변경 | `participants_changed` | 본인 제외 나머지 | `ParticipantService.updateTransportType()` → `sendAllData` |
+| 방장의 약속 정보 수정(목적지/날짜/시간/이동수단) | `participant_status`(READY/SCHEDULED) | 방장 제외 나머지 | `AppointmentService.updateAppointment()` → `sendAllData` |
+| 약속 삭제 | `appointment_deleted` | 방장 제외 나머지 | `AppointmentService.deleteAppointment()` → `sendAllData` |
+
+- 모든 이벤트에 `appointment_id` 필드 포함. `findFcmTokensByAppointmentIdExcluding` 사용 시 위와 동일하게 `isActive = false` 참가자는 제외됨(단, `removed_from_appointment` 단건 발송은 이 쿼리를 쓰지 않으므로 `isActive`와 무관하게 항상 발송)
+- 약속 삭제/추방 시 OS에 이미 등록된 로컬 단계별 알람 취소는 아직 미구현 (`BUGS.md` 버그14 참고)
 
 ### 도메인 설계 원칙
 
@@ -283,6 +299,17 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `bulkDeleteByAppointmentId(appointmentId)` — 약속 삭제 시 전체 참가자 벌크 삭제
 - `findAllByMemberId(memberId)` — 내가 참여한 약속 전체 조회 + Appointment fetch join (알람 타입별 조회용)
 - `findAllByMemberIdAndPlanDate(memberId, planDate)` — 내가 참여한 약속 날짜별 조회 + Appointment fetch join (알람 날짜별 조회용)
+- `countByAppointmentId(appointmentId)` — 약속별 참가자 수 조회
+- `bulkUpdateToReady(today)` — 당일 SCHEDULED → READY 벌크 전환 (새벽 4시 스케줄러용)
+- `bulkResetAlarmInfoByAppointmentId(appointmentId)` — 약속 수정 시 참가자 departureAlarmTime + currentPos 일괄 리셋 (앵커 초기화 → 플라스크 재호출 유도)
+- `bulkResetStatusByAppointmentId(appointmentId, newStatus)` — 약속 수정 시 SCHEDULED/READY/DEPARTING 참가자 상태 일괄 재조정 (MOVING 이상은 건드리지 않음)
+- `countNotArrivedByAppointmentId(appointmentId)` — ARRIVED 아닌 참가자 수 조회 (전원 도착 여부 확인, FINISHED 전환 판단용)
+- `findFcmTokensByAppointmentIdExcluding(appointmentId, excludeMemberId)` — 특정 회원 제외 나머지 참가자 FCM 토큰 조회 (null 토큰·`isActive=false` 제외)
+- `findAppointmentIdsWithOverdueParticipants(today, now)` — NEARDEST + targetTime 초과 참가자가 속한 약속 ID 조회 (즉시 ARRIVED 자동 전환 대상)
+- `bulkUpdateToArrivedByAppointmentIds(appIds)` — 약속 ID 목록 기준 NEARDEST → ARRIVED 벌크 전환
+- `findAppointmentIdsWithActiveOverdueParticipants(today, oneHourAgo)` — READY/DEPARTING/MOVING + targetTime+1시간 초과 참가자가 속한 약속 ID 조회 (지각 정리 대상)
+- `bulkUpdateActiveToArrivedByAppointmentIds(appIds)` — 약속 ID 목록 기준 READY/DEPARTING/MOVING → ARRIVED 벌크 전환 (지각 정리)
+- `findTokenToAppointmentIdsForReadyTransition(today)` — 스케줄러: 당일 READY 전환 대상 참가자를 FCM 토큰별로 그룹화해 (token → appointmentId 콤마 문자열) 맵 조회
 
 ### Enum 상수 목록
 
@@ -370,7 +397,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 알람 조회: 날짜별(`?date=`) 혼합 조회, 타입별(`?type=PERSONAL|HOME|GROUP`) 조회
 - 스케줄러: 새벽 4시 SCHEDULED/ARRIVED → READY 벌크 전환 + FCM Data 발송, 매분 정각 NEARDEST+targetTime 초과 → 자동 ARRIVED, READY/DEPARTING/MOVING 상태가 targetTime+1시간 초과해도 ARRIVED에 도달 못 하면 자동 ARRIVED(지각 정리, 여정·참가자 공통)
 - 여정/참가자 GPS 상태 전이 (`/location`, `/arrive`) — 상태 머신 전체 구현 완료
-- FCM: `FcmSender`(Data/Notification), `FirebaseConfig` — READY 트리거·그룹 도착 알림
+- FCM: `FcmSender`(Data/Notification), `FirebaseConfig` — READY 트리거·그룹 도착 알림·그룹 참가자/약속 실시간 동기화
 - 플라스크 연동: `FlaskJourneyRequest/Response`, `FlaskParticipantRequest/Response`, memberId 포함 — 실제 통신 테스트 완료 (2026-06-03, `docs/status/frontend-impl-status.md` 참고)
 - NEARDEST 상태 interval 서버 자체 계산 (시간 기반: 30분↑→120초, 10~30분→60초, 10분↓→30초)
 

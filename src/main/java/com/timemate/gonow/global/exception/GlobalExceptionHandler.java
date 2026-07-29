@@ -1,6 +1,7 @@
 package com.timemate.gonow.global.exception;
 
 import com.timemate.gonow.global.response.ApiResult;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -34,6 +35,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ApiResult<Void> handleValidation(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getAllErrors().getFirst().getDefaultMessage();
+        return ApiResult.fail(message);
+    }
+
+    // @RequestParam/@PathVariable에 직접 붙인 검증(@Email 등) 실패 시 발생 (@Valid + @RequestBody는 MethodArgumentNotValidException)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ApiResult<Void> handleConstraintViolation(ConstraintViolationException e) {
+        String message = e.getConstraintViolations().iterator().next().getMessage();
         return ApiResult.fail(message);
     }
 

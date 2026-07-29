@@ -1,6 +1,6 @@
 # GPS 폴링 버그 — 해결된 항목 아카이브
 
-마지막 업데이트: 2026-06-06
+마지막 업데이트: 2026-07-28
 
 미해결 버그는 루트 `BUGS.md` 참고.
 
@@ -122,6 +122,48 @@
 - `init()` 최초 호출은 `doStartReadyAlarms()` 직접 호출 → 쿨다운 카운터 소모 안 함
 
 **롤백 방법**: `doStartReadyAlarms` 내용을 다시 `startReadyAlarms` 안으로 합치고, `init()` 호출을 `startReadyAlarms()`로 되돌리면 됨.
+
+---
+
+## 수정 완료 목록 (2026-07-28)
+
+| 버그 | 파일 | 상태 |
+|------|------|------|
+| 초대코드로 그룹 참여 실패 시 항상 "네트워크 오류" 문구만 표시 (버그13) | `GroupAlarmSheet.tsx`, `GroupAllAlarmSheet.tsx` | ✅ 서버가 보낸 실제 실패 사유(message)를 파싱해서 표시, 파싱 실패(진짜 네트워크 단절) 시에만 기존 문구 유지 |
+| `repeatDays`(반복요일) 범위(0~127) 검증 누락 | `HomeJourneyCreateRequest.java`, `HomeJourneyUpdateRequest.java`, `PersonalJourneyCreateRequest.java`, `PersonalJourneyUpdateRequest.java` | ✅ `@Range(min=0, max=127)` 추가 |
+| `preparationTime`(여유시간) 음수 허용 | `SignupRequest.java`, `SettingUpdateRequest.java` | ✅ `@Min(value=0)` 추가 |
+| 다크모드 기기에서 오전/오후·시·분 Picker 글씨가 안 보임(배경은 라이트로 고정인데 텍스트만 시스템 다크 테마 기본값을 따라감) | 알람 Sheet 6개(`Group`/`Personal`/`Home` × 일반/전체) | ✅ 각 `Picker.Item`에 `color="#1A1A1A"` 직접 지정 + `app.json`의 `userInterfaceStyle`을 `automatic` → `light`로 고정 |
+| `GroupAlarmSheet`/`GroupAllAlarmSheet` 내부 목록이 `alarmVersion` 미구독 → 참가자 변경/삭제 후에도 목록에 카드가 그대로 남아있음 | 두 파일 | ✅ 목록 로딩 `useEffect`의 의존성 배열에 `alarmVersion` 추가 |
+| 비밀번호 최소 길이/복잡도 검증 없음 (버그20) | `SignupRequest.java`, `PasswordUpdateRequest.java`, `SignUpScreen.tsx`, `ChangePasswordScreen.tsx` | ✅ `@Pattern(regexp = "^[\\x21-\\x7E]{8,64}$")` — 공백 없는 아스키 출력 문자(영문/숫자/특수문자, 조합 강제 없음) 8~64자, 프론트에도 동일 정규식으로 실시간 검증 + 에러 문구 추가 |
+| `GET /api/members/check?email=`에 이메일 형식 검증 없음 → 형식이 틀린 값도 "사용 가능"으로 응답해 프론트에 초록 체크가 잘못 표시됨 | `MemberController.java`, `GlobalExceptionHandler.java`, `SignUpScreen.tsx` | ✅ 컨트롤러에 `@Validated` + 파라미터에 `@Email` 추가, `ConstraintViolationException` 핸들러 신규 추가(400 응답), 프론트도 API 호출 전 `EMAIL_REGEX`로 선검증(디바운스 타이머 클리어 순서 버그도 같이 수정) |
+
+### ✅ 신규 구현 — 그룹 알람 참가자/약속 정보 실시간 동기화 (FCM Data)
+
+**배경**: 그룹 알람 상세화면을 열어둔 상태에서 다른 참가자가 참여/탈퇴/추방되거나 이동수단·약속 정보가 바뀌어도, 화면을 벗어났다가 다시 들어와야만(재마운트) 반영됐음.
+
+**적용 범위**:
+- 스프링: `AppointmentService.joinAppointment()`, `AppointmentService.deleteAppointment()`, `ParticipantService.deleteParticipant()`, `ParticipantService.updateTransportType()`에서 관련 참가자들에게 FCM Data(`sync_event: participants_changed` / `appointment_deleted`) 발송. 추방인 경우 쫓겨난 당사자 본인에게만 별도로 `removed_from_appointment`를 단건 발송(`FcmSender.sendData`)
+- 프론트: `app/_layout.tsx`의 FCM 리스너에 3개 분기 추가, `appointmentStatusStore`에 `participantsVersion`/`deletedAppointmentId`/`removedAppointmentId` 추가, `GroupAlarmSheet`/`GroupAllAlarmSheet`가 이를 구독해 상세정보 재조회·강제 종료(Alert)·목록 새로고침(`bumpAlarmVersion`)을 수행
+
+**참고**: 약속 삭제/추방 시 OS에 등록된 로컬 단계별 알람 취소는 이번 범위에서 제외(버그14와 함께 별도 처리 예정)
+
+### ✅ 신규 구현 — 필수 권한(알림/위치/알람/배터리) 온보딩 화면 (gonow-app)
+
+**배경**: 위치 항상 허용/정확한 알람/배터리 최적화 제외/알림 권한을 켜지 않으면 GPS 폴링·출발 알람이 조용히 실패하는데, 기존엔 아무 안내 없이 앱 시작 시 알림 팝업만 툭 뜨고 끝이었음.
+
+**적용 범위**:
+- `src/utils/permissions.ts`(신규) — 위치 상태 확인/요청, 알람·배터리 설정화면 이동(순수 RN `Linking` 코어 API만 사용, 추가 네이티브 모듈 없이 재빌드 불필요)
+- `src/utils/notifications.ts` — `getNotificationPermissionGranted()`, `getExactAlarmGranted()` 추가(notifee 기존 API로 팝업 없이 상태만 확인)
+- `src/screens/auth/PermissionSetupScreen.tsx`(신규) — 4개 권한 카드 온보딩 화면, 회원가입 직후 자동 진입 + 설정 화면에서 재방문 가능
+- `app/_layout.tsx` — 앱 시작 시 자동으로 뜨던 알림 권한 팝업 제거(이 화면에서 맥락과 함께 요청하도록 이동)
+
+**개발 중 발견/해결한 버그**:
+- 위치 권한을 반복 거부하면 안드로이드가 이후 요청부터 팝업 자체를 안 띄우는데(`canAskAgain: false`), 이 상태를 대비 안 해서 "버튼을 눌러도 반응 없음"처럼 보이던 문제 → 알림 권한과 동일하게 Alert+"설정으로 이동" 안내 추가
+- `Linking.sendIntent()`가 `Promise`를 반환하는데 `await` 없이 동기 `try/catch`로만 감싸서 일부 기기에서 Unhandled Promise Rejection 위험이 있던 것 → `.catch()`로 수정
+- 회원가입 완료 후 "완료" 버튼이 `canGoBack()`으로 진입 경로(회원가입 중 vs 설정 화면)를 구분하려 했으나, 회원가입 스택에도 뒤로 갈 화면이 남아있어 실제로는 항상 `true`가 되어 **메인 화면 대신 회원가입 중간 화면(귀가지 설정)으로 되돌아가던 심각한 버그** → `goToPermissionSetup()`에 `fromOnboarding` 라우팅 파라미터를 명시적으로 붙여서 구분하도록 수정
+- 권한이 다 꺼져있어 카드 4개 + 버튼이 전부 보이는 최악의 경우, 화면 하단 "완료" 버튼이 화면 밖으로 밀려나 안 보이던 문제 → 카드 목록을 `ScrollView`로 감싸고 "완료" 버튼은 하단 고정
+
+**시도했다가 되돌린 것(참고용)**: 알람/배터리 설정화면으로 gonow 앱을 바로 찾아가게(`expo-intent-launcher` + `data` URI) 만들려 했으나, 실제 기기에서 이 네이티브 모듈이 재빌드 전 dev client에 없어 `Cannot find native module 'ExpoIntentLauncher'` 크래시 발생 → 전체 목록 화면으로 이동만 시키는 원래 방식(순수 `Linking.sendIntent`)으로 롤백. 배터리는 상태 확인 API 자체가 없어 완료 표시 불가(자동 확인 불가능한 채로 안내만 제공).
 
 ---
 

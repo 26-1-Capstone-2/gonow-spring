@@ -1,6 +1,6 @@
 # GPS 폴링 버그 목록
 
-마지막 업데이트: 2026-06-06
+마지막 업데이트: 2026-07-28
 
 해결된 버그는 `docs/history/resolved-bugs.md` 참고.
 
@@ -9,6 +9,12 @@
 ## 미수정 버그 목록
 
 > 중요도 높은 순으로 정렬
+
+---
+
+### 🔴 버그19 — 막차 모드, 자정~새벽4시 사이 첫 계산 시 날짜가 하루 밀림 [영향 높음, 원인 확정·수정 방향 미확정]
+
+→ 아래 버그19 상세 참고 (스프링+플라스크 양쪽 관련, 수정 방식 두 가지 검토 중)
 
 ---
 
@@ -32,12 +38,6 @@
 ### 🟡 버그14 — 추방/방 삭제 시 OS 등록 단계별 알람 미취소 [영향 낮음]
 
 → 아래 버그14 상세 참고
-
----
-
-### 🟡 버그13 — 잘못된 초대코드 "네트워크 오류" 문구 [영향 낮음, 쉬움]
-
-→ 아래 버그13 상세 참고
 
 ---
 
@@ -78,6 +78,39 @@
 ---
 
 ## 미수정 버그 상세
+
+---
+
+### 🔴 버그19 — 막차 모드, 자정~새벽4시 사이 첫 계산 시 날짜가 하루 밀림 [영향 높음]
+
+**관련 저장소**: `gonow`(스프링) + `gonow-flask`(플라스크) 둘 다 관련
+
+**파일**:
+- 스프링: `src/main/java/com/timemate/gonow/domain/journey/service/JourneyService.java`의 `callFlaskAndUpdate()`
+- 플라스크: `CounterClockEngine/gps_api/routes/alarm.py:230-231` (`_compute_alarm`의 `is_last_mode` 분기), `CounterClockEngine/gps_api/core/transit_route.py:285` (`find_last_train_departure`)
+
+**증상**: 막차 모드 귀가 여정이 READY 상태가 되고 나서 자정~새벽4시 사이에 첫 GPS 위치가 들어와 플라스크를 처음 호출하면, 추천 도착 시각이 실제보다 하루 밀려서 나옴. 예: 6/11 밤에 여정을 만들어 6/12 새벽 1시 도착을 기대했는데, 자정 넘겨서(예: 6/12 00:30) 첫 계산이 이뤄지면 6/13 새벽 1시로 계산됨.
+
+**원인**:
+- 막차 모드는 생성 시점에 목표 시각(`target_time`)을 모르기 때문에, 여정이 READY 상태가 되고 첫 GPS 위치가 들어와 `callFlaskAndUpdate()`가 처음 호출될 때 `journey.getTargetTime()`은 아직 `null`이고, 이 값이 그대로 플라스크 요청의 `target_time`으로 전달됨
+- 플라스크(`alarm.py:231`) `search_ref = target_time if target_time is not None else _now_kst()` — `target_time`이 null이면 **플라스크 자신의 서버 시계**(`_now_kst()`, 날짜+시각 전부 포함)로 대체
+- `find_last_train_departure()`(`transit_route.py:285`) `base_date = base_dt.date()` — `search_ref`의 **날짜 부분만** 뽑아서 그 날 23시~다음날 1시를 막차 탐색 범위로 고정
+- 이 전체 과정에 "자정~새벽4시는 전날 밤의 연장으로 친다"는 보정이 전혀 없어서, 자정 넘겨서 첫 계산이 이뤄지면 탐색 기준 날짜가 하루 밀려버림
+- 참고: 이 프로젝트에는 이미 같은 개념(서비스데이 보정, `scheduler.day-boundary-hour=4`)이 스프링의 `ArrivedTransitionService`에 구현돼 있음 — 거긴 정상 적용돼 있고, 이 경로(막차 첫 계산)에만 빠져 있던 것
+
+**검토했으나 이 버그와 무관한 것으로 확인됨** (같이 헷갈리기 쉬워서 기록):
+- 데드라인 모드 / 개인 여정 / 그룹 알람: `target_time`이 항상 명시적으로 주어지고, 플라스크의 "탐색" 로직(`is_last_mode` 분기) 자체를 안 타므로 이 버그와 무관. 목표 시각이 새벽 시간대(예: 새벽 2시)여도 문제없음.
+- `JourneyService.resolveInitialStatus()` / `AppointmentService.resolveInitialStatus()`(여정·약속 생성 시 SCHEDULED/READY 결정): 겉보기엔 비슷한 "자정 보정 누락"처럼 보이지만, `plan_date` 필드에 `@FutureOrPresent` 검증이 걸려 있어 이 비교 시점엔 항상 유효한 값만 들어옴 → 별도 수정 불필요 (한 차례 상세 검토 후 기각).
+
+**수정 방향 — 두 가지 검토, 아직 미결정**:
+
+1. **꼼수 (스프링만 수정)**: `callFlaskAndUpdate()`에서 `journey.getTargetTime()`이 `null`일 때, 그대로 보내지 말고 "새벽4시 이전이면 전날로 보정한 현재 시각"을 계산해서 그 자리에 채워 보낸다 (`ArrivedTransitionService`가 쓰는 `day-boundary-hour` 설정 재사용). 플라스크는 전혀 수정하지 않는다.
+   - 장점: 스프링 한 파일만 수정, 빠름
+   - 단점: `target_time` 필드가 "확정된 값"과 "검색 기준 힌트"라는 두 가지 뜻을 몰래 겸하게 됨. **현재 플라스크 코드 기준으로는 안전함을 확인**(이 필드는 `is_last_mode` 분기에서 `search_ref` 계산에만 쓰이고 이후 로직 어디에도 재사용되지 않음) — 다만 나중에 플라스크가 "target_time이 있으면 이미 확정된 값이니 재검색 생략" 식으로 최적화되면 조용히 깨질 수 있는 잠재 위험이 있음
+
+2. **정석 (스프링+플라스크 둘 다 수정)**: `FlaskJourneyRequest`(스프링)에 `search_anchor` 필드를 신설해 위와 동일한 보정값을 항상 채워 보낸다. 플라스크는 `alarm.py:231`을 `search_ref = target_time if target_time is not None else search_anchor`로 한 줄만 변경(`_now_kst()` 자기 시계 참조 제거). `target_time`은 원래 뜻("확정된 목표 도착 시각") 그대로 유지되어 미래 리스크가 없음.
+   - 장점: 필드 의미가 명확해지고 위 미래 리스크가 사라짐
+   - 단점: 플라스크도 같이 수정해야 함 (다만 두 저장소 합쳐 20줄 이내로 작업량 자체는 크지 않음)
 
 ---
 
@@ -175,16 +208,6 @@ if (now - lastForegroundAt < 3000) {    // 중복 판별
 
 ---
 
-### 🟡 버그13 — 잘못된 초대코드 입력 시 "네트워크 오류" 문구 표시 [영향 낮음]
-
-**파일**: `src/screens/alarmManage/GroupAlarmSheet.tsx:167`, `src/screens/allAlarmManage/GroupAllAlarmSheet.tsx:197`
-
-**원인**: `catch` 블록에서 모든 에러를 "네트워크 오류가 발생했습니다."로 표시. 잘못된 초대코드(400)도 동일 문구.
-
-**수정 방향**: `catch (e: any)`로 변경 후 서버 에러 메시지 파싱하거나 "초대코드를 확인해주세요." 등 적절한 문구로 교체.
-
----
-
 ### 🟡 버그17 — 자정~새벽 4시 날짜 경계 처리 [영향 미확인]
 
 **관련 레이어**: 프론트, 스프링 스케줄러
@@ -218,14 +241,16 @@ function getEffectiveDate(): string {
 ```
 현재 남은 실질적 문제:
 
+버그19 (막차 모드 자정~새벽4시 날짜 밀림) → 원인 확정, 수정 방식(꼼수 vs 정석) 결정 대기 중, 스프링+플라스크 둘 다 관련
 버그18 (DEPARTING 단계별 알람 중복)  → 임계 구간 두 세트 울림, 수정 필요
 
 버그1 (FCM 포그라운드 타이밍 gap)    → 간헐적 /location 1회 추가, 기능 영향 없음, 완전 방어 불가
 버그2 (앱 재실행 폴링 복구)           → 로그인 전까지 폴링 없음, 로그인 후 즉시 복구되므로 영향 낮음
 버그3 (백그라운드 30초 고정)          → 배터리 비효율, 기능 영향 없음, 후순위
 버그9 (3초 중복 active 상단바 깜빡임) → 기능 영향 없음, 후순위
-버그14 (추방/방 삭제 시 단계별 알람 미취소) → 낮음, FCM 연동 필요
+버그8 (포그라운드 GPS 중복 찌르기) → 배터리 낭비, 기능 영향 없음, 후순위
+버그14 (추방/방 삭제 시 단계별 알람 미취소) → 낮음, FCM 연동 필요(그룹 참가자 동기화 인프라는 구축됨, 로컬 알람 취소 연동만 남음)
 버그17 (자정~새벽 4시 날짜 경계)     → 정책 결정 후 수정, 현행 유지도 가능
 
-해결된 버그(버그4~7, 10-A, 10-B, 11, 12, 15, 16, 임시 interval 변경 등)는 docs/history/resolved-bugs.md 참고.
+해결된 버그(버그4~7, 10-A, 10-B, 11, 12, 13, 15, 16, 20, 임시 interval 변경 등)는 docs/history/resolved-bugs.md 참고.
 ```

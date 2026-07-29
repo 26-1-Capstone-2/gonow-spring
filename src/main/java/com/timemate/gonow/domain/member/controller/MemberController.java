@@ -4,13 +4,16 @@ import com.timemate.gonow.domain.member.dto.*;
 import com.timemate.gonow.domain.member.service.MemberService;
 import com.timemate.gonow.global.response.ApiResult;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.timemate.gonow.global.auth.MemberId;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 @Slf4j
 @RestController
+@Validated
 @RequiredArgsConstructor
 @RequestMapping("/api/members")
 public class MemberController {
@@ -27,7 +30,7 @@ public class MemberController {
 
     // 이메일 중복 확인
     @GetMapping(value = "/check", params = "email")
-    public ApiResult<Void> checkEmailAvailable(@RequestParam String email) {
+    public ApiResult<Void> checkEmailAvailable(@RequestParam @Email(message = "올바른 이메일 형식이 아닙니다.") String email) {
         memberService.checkEmailAvailable(email);
 
         return ApiResult.success("사용 가능한 이메일");
