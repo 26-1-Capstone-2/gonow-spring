@@ -71,6 +71,12 @@ Controller → Service → Repository → Entity → MySQL
 - **대중교통**: `target_time` 기준 시간표로 계산 → 생성 시점부터 비교적 정확
 - **자가용**: 요청 시점의 실시간 교통 기반 (미래 시점은 통계 기반 예측) → 당일 READY 전환 시 재계산이 실질적 의미
 
+#### 막차 모드 생성 시점 검증
+- 귀가 여정 생성/수정(`JourneyService.validateLastTrainNotAlreadyMissed`) 시, `is_last_mode=true` + `plan_date=오늘`(즉시 READY 전환)이면서 현재 시각이 새벽 01시~`scheduler.day-boundary-hour`(기본 4시) 사이면 400 에러("오늘 밤 막차는 이미 지났습니다.") 즉시 반환
+- 플라스크의 막차 탐색 창이 23시~다음날 01시로 고정이라, 위치 정보 없이도 이 시간대엔 무조건 막차가 지난 것으로 판단 가능(생성 시점엔 출발지 GPS가 없어 플라스크 호출 자체가 불가하지만, 이 판단은 GPS가 필요 없음)
+- `plan_date`가 미래인 경우는 검증 대상 아님 — 실제 계산은 그날 READY 전환 후 이뤄지므로 지금 시각과 무관
+- 이 검증은 "지금 당장 만드는" 케이스에 대한 즉시 피드백용 보조 장치이며, `/location` 첫 GPS 수신 시점의 동일 검증(플라스크 `alarm.py`)이 모든 경우(미래 생성, 반복 여정 등)를 커버하는 최종 안전망
+
 #### 스케줄러
 - **매일 새벽 4시** `@Scheduled` cron으로 실행
 - 당일(`plan_date = 오늘`) `SCHEDULED` 상태 여정/약속 → `READY` 일괄 전환 (출발지는 앱이 첫 GPS 보낼 때 확정)
@@ -88,6 +94,7 @@ Controller → Service → Repository → Entity → MySQL
 - 개인/귀가/그룹 알람 수정(PUT/PATCH) 시 `departureAlarmTime`과 현재 위치 앵커(`current_lat/lng`)를 `null`로 리셋 → 다음 GPS 수신 시 READY 단계부터 재계산 유도
 - 개인/귀가: `JourneyService`에서 `updateDepartureAlarmTime(null)` + `updateCurrentPoint(null)` 호출
 - 그룹: `AppointmentService`에서 `bulkResetAlarmInfoByAppointmentId` 호출로 전체 참가자 일괄 리셋
+- 그룹은 이와 별개로 `bulkResetStatusByAppointmentId`도 함께 호출 — SCHEDULED/READY/DEPARTING 참가자의 `participantStatus`까지 일괄 재조정(MOVING 이상 진행된 참가자는 건드리지 않음)
 
 ### 패키지 구조
 ```
@@ -191,6 +198,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `IllegalStateException` → 400 Bad Request (상태 전이 규칙 위반)
 - `DataIntegrityViolationException` → 400 Bad Request (DB 제약 조건 위반 — UNIQUE, NOT NULL, FK)
 - `ResourceAccessException` → 503 Service Unavailable (플라스크 서버 연결 실패)
+- `ConstraintViolationException` → 400 Bad Request (`@Validated` + `@RequestParam`/`@PathVariable`에 직접 붙인 검증 실패 — `@RequestBody`+`@Valid`의 `MethodArgumentNotValidException`과는 별개)
 - `Exception` → 500 Internal Server Error
 
 ### 알람 메커니즘 (Universal Journey State Machine)
@@ -340,7 +348,8 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - DDL: `create` (서버 기동 시 테이블 재생성됨 — 데이터 초기화 주의)
 
 ### 플라스크 연동 설정
-- `flask.url: http://localhost:5000` (로컬, WSL에서 플라스크 서버 기동 필요)
+- `flask.url`은 현재 프로필(local/prod) 분리 없이 `application.yml`에 단일 값으로 박혀 있음 — **운영(prod) 값(`http://172.31.34.244:5000`, 플라스크와 같은 EC2의 프라이빗 IP)이 기본값**이라, 로컬에서 WSL 플라스크(`localhost:5000`)로 테스트하려면 이 값을 직접 `http://localhost:5000`으로 바꿔서 실행해야 함(커밋 금지, 로컬 전용 임시 변경)
+- 같은 EC2 안에서도 스프링·플라스크가 서로 다른 Docker 컨테이너라 `localhost`로는 서로 못 찾음(컨테이너별 네트워크 네임스페이스 분리) — 그래서 운영 값이 `localhost`가 아니라 호스트의 프라이빗 IP로 되어 있음
 - `RestClientConfig`에서 `flask.url`을 `baseUrl`로 설정 → `FlaskClient` 빈 생성
 - 플라스크 엔드포인트:
   - `POST /internal/alarm/journey` — 개인/귀가용 (`FlaskJourneyRequest` → `FlaskJourneyResponse`)
@@ -350,8 +359,8 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
   - 개인/귀가 전용: `isLastMode` 포함
 - 폴백 정책: BUS/SUBWAY 검색 결과 없으면 ALL로 폴백 (플라스크 내부 처리)
 - 응답 필드:
-  - 개인/귀가(`FlaskJourneyResponse`): `targetTime`(막차 모드에서만, 데드라인 모드는 null), `departureAlarmTime`, `interval`
-  - 그룹(`FlaskParticipantResponse`): `departureAlarmTime`, `estimatedArrival`, `interval`
+  - 개인/귀가(`FlaskJourneyResponse`): `targetTime`(막차 모드에서만, 데드라인 모드는 null), `departureAlarmTime`, `interval`, `whichStation`, `boardingTime`
+  - 그룹(`FlaskParticipantResponse`): `departureAlarmTime`, `estimatedArrival`, `interval`, `whichStation`, `boardingTime`
 - `TransportMode` enum: `DRIVING`, `SUBWAY`, `BUS`, `ALL` — `TransportType` + `TransitType` 조합을 단일 값으로 변환해서 전달
 - 플라스크 미기동 시 `ResourceAccessException` → 503 반환
 - **ODsay `-98` 에러** (출발지↔목적지 700m 이내): 플라스크가 도보 기준 폴백으로 핸들링해야 함 — `departureAlarmTime` + 막차 모드 시 `targetTime` 계산해서 반환 필요
@@ -398,7 +407,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 스케줄러: 새벽 4시 SCHEDULED/ARRIVED → READY 벌크 전환 + FCM Data 발송, 매분 정각 NEARDEST+targetTime 초과 → 자동 ARRIVED, READY/DEPARTING/MOVING 상태가 targetTime+1시간 초과해도 ARRIVED에 도달 못 하면 자동 ARRIVED(지각 정리, 여정·참가자 공통)
 - 여정/참가자 GPS 상태 전이 (`/location`, `/arrive`) — 상태 머신 전체 구현 완료
 - FCM: `FcmSender`(Data/Notification), `FirebaseConfig` — READY 트리거·그룹 도착 알림·그룹 참가자/약속 실시간 동기화
-- 플라스크 연동: `FlaskJourneyRequest/Response`, `FlaskParticipantRequest/Response`, memberId 포함 — 실제 통신 테스트 완료 (2026-06-03, `docs/status/frontend-impl-status.md` 참고)
+- 플라스크 연동: `FlaskJourneyRequest/Response`, `FlaskParticipantRequest/Response`, memberId 포함 — 실제 통신 테스트 완료 (2026-06-03, `docs/status/frontend-impl-status.md` 참고). 이후 `flask.url`이 탈퇴한 팀원 개인 서버를 계속 가리키고 있어 한동안 연동이 조용히 실패했던 이력 있음 — 2026-07-31 프라이빗 IP로 재수정 후 재검증 완료 (`docs/history/resolved-bugs.md` 참고)
 - NEARDEST 상태 interval 서버 자체 계산 (시간 기반: 30분↑→120초, 10~30분→60초, 10분↓→30초)
 
 ### 미구현

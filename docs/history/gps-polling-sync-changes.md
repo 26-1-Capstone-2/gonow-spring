@@ -105,6 +105,8 @@
 
 - `journey_status` 가 `MOVING`, `NEARDEST`, `ARRIVED` 이면 `400` 에러 반환
 
+> ⚠️ **이후 변경됨**: 이 시점 이후 차단 범위가 `MOVING`만으로 완화됨(NEARDEST/ARRIVED는 수정 허용). 현재 규칙은 `docs/history/resolved-bugs.md`와 `docs/status/frontend-impl-status.md` 참고 — 이 문서는 당시 변경 이력 기록이라 최신 규칙을 반영하지 않음.
+
 ---
 
 ### 6. `FcmSender.sendAllData()` 추가

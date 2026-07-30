@@ -41,6 +41,8 @@
 | 주소 | address | VARCHAR(255) | NOT NULL | - |
 | 위도 | lat | DECIMAL(10, 8) | NOT NULL | - |
 | 경도 | lng | DECIMAL(11, 8) | NOT NULL | - |
+| 생성일시 | created_at | DATETIME | NOT NULL | `BaseTimeEntity` 상속 |
+| 수정일시 | updated_at | DATETIME | NOT NULL | `BaseTimeEntity` 상속, Upsert 시 `touch()`로 갱신 |
 
 ---
 
