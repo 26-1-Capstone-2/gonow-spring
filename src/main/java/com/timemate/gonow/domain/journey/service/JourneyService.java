@@ -30,6 +30,7 @@ import com.timemate.gonow.domain.member.repository.MemberRepository;
 import com.timemate.gonow.domain.member.repository.MemberSettingRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,6 +54,9 @@ public class JourneyService {
     private final MemberSettingRepository memberSettingRepository;
 
     private final FlaskClient flaskClient;
+
+    @Value("${scheduler.day-boundary-hour}")
+    private int dayBoundaryHour;
 
     // 개인 여정 생성
     @Transactional
@@ -113,6 +117,7 @@ public class JourneyService {
         if (!request.isLastMode() && request.targetTime() == null) {
             throw new IllegalArgumentException("데드라인 모드에서는 목표 시간 필수");
         }
+        validateLastTrainNotAlreadyMissed(request.isLastMode(), request.planDate());
 
         TransportType transportType = resolveTransportType(request.isLastMode(), request.transportType());
 
@@ -151,6 +156,7 @@ public class JourneyService {
         if (!request.isLastMode() && request.targetTime() == null) {
             throw new IllegalArgumentException("데드라인 모드에서는 목표 시간 필수");
         }
+        validateLastTrainNotAlreadyMissed(request.isLastMode(), request.planDate());
 
         TransportType transportType = resolveTransportType(request.isLastMode(), request.transportType());
 
@@ -164,6 +170,18 @@ public class JourneyService {
         journey.updateDepartureAlarmTime(null); // target_time 변경 시 재계산 유도
         journey.updateCurrentPoint(null); // 앵커 리셋 → 다음 /location 호출 시 플라스크 강제 재호출
         return JourneySaveResponse.from(journey);
+    }
+
+    // 막차 모드 + 당일 생성(=즉시 READY 전환)이 검색 창(23시~다음날 01시) 상한을 이미 넘긴
+    // 새벽 시간대(01시~day-boundary-hour)면, 오늘 밤 막차는 무조건 이미 지난 것으로 확정된다.
+    // 플라스크의 막차 탐색 창이 고정값이라 위치 정보 없이도 판단 가능
+    // plan_date가 미래인 경우는 지금 시각과 무관하므로 대상에서 제외.
+    private void validateLastTrainNotAlreadyMissed(boolean isLastMode, LocalDate planDate) {
+        if (!isLastMode || !planDate.isEqual(LocalDate.now())) return;
+        int hour = LocalDateTime.now().getHour();
+        if (hour >= 1 && hour < dayBoundaryHour) {
+            throw new IllegalArgumentException("오늘 밤 막차는 이미 지났습니다.");
+        }
     }
 
     // 막차 모드면 TRANSIT 강제, 데드라인 모드면 클라이언트 값 사용 (null이면 예외)
