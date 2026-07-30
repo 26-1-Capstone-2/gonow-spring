@@ -36,7 +36,7 @@ springdoc:
     path: /docs
 
 flask:
-  url: http://15.164.215.15:5000
+  url: http://172.31.34.244:5000 # EC2 private IP
 
 firebase:
   credential: classpath:firebase-service-account.json
