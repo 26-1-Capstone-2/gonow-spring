@@ -1,6 +1,6 @@
 # GPS 폴링 버그 — 해결된 항목 아카이브
 
-마지막 업데이트: 2026-07-31
+마지막 업데이트: 2026-08-03
 
 미해결 버그는 루트 `BUGS.md` 참고.
 
@@ -307,3 +307,81 @@ estimated_arrival = datetime.now() + timedelta(seconds=duration_sec)
 **배경**: 기존 플라스크 담당 팀원이 오픈소스 대회에서 이탈하면서, 팀원 개인 계정 기준으로 운영되던 플라스크 배포(Docker Hub 계정, EC2 서버)를 팀 소유로 이관하는 작업을 진행. 이관 자체는 플라스크 저장소(`CounterClockEngine2`) 쪽 작업이라 별도 기록하되, 그 결과로 스프링의 `flask.url` 설정값도 함께 갱신이 필요했음.
 
 실제 테스트에서 출발 알람 시각 정상 확인됨 — 레이어 간 시간대 불일치 없음.
+
+---
+
+## 수정 완료 목록 (2026-08-01)
+
+| 버그 | 파일 | 상태 |
+|------|------|------|
+| New Architecture(Fabric) 활성화 상태에서 데드라인 모드 시/분/오전오후 Picker 조작 후 완료(저장) 시 화면 언마운트 과정에서 간헐적으로 앱이 네이티브 크래시로 강제 종료(홈 화면으로 튕김) | `package.json`(`@react-native-picker/picker`) | ✅ `2.11.1` → `2.11.4`로 업데이트 |
+
+**증상**: 귀가 알람(데드라인 모드) 등 `Picker`가 있는 화면에서 시/분/오전오후를 조작한 뒤 완료 버튼을 눌러 화면이 닫힐 때, 간헐적으로 앱이 아무 에러 메시지 없이 홈 화면으로 튕겨나감.
+
+**원인 진단**: `adb logcat -b crash`(앱 프로세스 PID 필터가 아니라 시스템 크래시 버퍼 전체)로 네이티브 백트레이스를 확보해서 확인.
+- 크래시 시그니처: `Fatal signal 6 (SIGABRT)`, `Pointer tag for 0x... was truncated` — Android 네이티브 힙 포인터 태깅 검증 실패
+- 크래시 스레드: `hades` — Hermes JS 엔진의 백그라운드 동시 GC(HadesGC) 스레드
+- 백트레이스 최상단: `abort → free → facebook::react::RNCAndroidDialogPickerProps::~RNCAndroidDialogPickerProps()` — Picker 화면이 언마운트되면서 Fabric Shadow Node 트리 전체가 파괴되는 과정 중, `Picker`의 Props 객체를 해제(`free`)하는 순간 포인터가 이미 손상된 상태로 죽음
+- 이 트리 파괴가 Hermes GC 스레드에서 트리거됨(`libhermes.so` 프레임이 스택 최하단에 존재) — 즉 화면 unmount와 GC 타이밍이 겹치는 레이스 컨디션
+- `@react-native-picker/picker`(당시 버전 `2.11.1`) + React Native `0.81.5` + `newArchEnabled: true`(New Architecture/Fabric) 조합에서 발생하는 라이브러리 자체의 알려진 메모리 버그. `2.11.3` 릴리즈 노트에 "android crash on React Native 0.81 & new arch"로 명시적으로 기재되어 있어 정확히 일치.
+
+**수정**: `@react-native-picker/picker`를 최신 안정 버전(`2.11.4`, `2.11.3`의 수정사항 포함)으로 업데이트.
+
+**검증**: 새 dev-client APK(EAS Build)로 재빌드 후, `adb logcat -c` + `adb logcat -b crash`로 크래시 버퍼를 비워둔 상태에서 동일 재현 절차(Picker 조작 → 완료)를 수차례 반복 — 크래시 재현 안 됨 확인.
+
+**주의(팀 공유)**: 네이티브 모듈 버전 변경이라 `npx expo start`(JS 갱신)만으로는 반영되지 않음. 이 커밋을 받은 팀원은 각자 `npm install` 후 dev/preview 프로필로 **재빌드해서 새 APK를 재설치**해야 실제로 크래시가 사라진 걸 확인할 수 있음(기존에 설치된 APK에는 옛 버전의 네이티브 코드가 그대로 남아있음).
+
+### ✅ 버그19 — 막차 모드, 자정~새벽4시 사이 첫 계산 시 날짜가 하루 밀림
+
+**관련 저장소**: `gonow-flask`(`CounterClockEngine2`) 단독 수정
+
+**파일**: `CounterClockEngine/gps_api/routes/alarm.py`(`_compute_alarm`의 `is_last_mode` 분기), `CounterClockEngine/gps_api/core/timeutil.py`(신규 `now_kst_service_day()`)
+
+**증상**: 막차 모드 귀가 여정이 READY 상태가 되고 나서 자정~새벽4시 사이에 첫 GPS 위치가 들어와 플라스크를 처음 호출하면, 추천 막차가 실제보다 하루 밀려서 나옴. 예: 8/1 밤에 여정을 만들어 그날 밤(자정 넘긴 8/1 새벽)의 막차를 기대했는데, 8/1 00:30에 첫 계산이 이뤄지면 8/2 밤(8/2 23시~8/3 01시 창)의 막차로 계산됨.
+
+**원인**: 막차 모드는 생성 시점에 `target_time`을 모르기 때문에 첫 계산 시 플라스크가 자기 서버 시계(`_now_kst()`, 날짜 포함)로 탐색 기준 날짜를 대체하는데, 이 값에 "자정~새벽4시는 전날 밤의 연장으로 친다"는 서비스데이 보정이 빠져 있어서 자정을 넘긴 순간 탐색 기준 날짜가 하루 밀려버림 (BUGS.md에 있던 최초 원인 분석과 동일 — 상세 배경은 git 이력 참고).
+
+**수정**: `timeutil.py`에 `now_kst_service_day()` 신설 — 현재 KST 시각이 00:00~04:00이면 날짜를 하루 전으로 보정해서 반환. `alarm.py`의 막차 탐색 기준(`train_search_ref`)이 `target_time`이 아직 없을 때(`None`) 이 보정된 함수를 쓰도록 변경(`_now_kst()` 직접 참조 제거). 도보 폴백(700m 이내)에 쓰이는 `search_ref`는 실제 벽시계 시각이 필요해 보정하지 않고 그대로 둠.
+
+**적용 방식 참고**: 당초 BUGS.md에는 "꼼수(스프링만)" vs "정석(스프링+플라스크 `search_anchor` 필드 신설)" 두 방향이 검토 중이었으나, 실제로는 세 번째 방식(**플라스크 단독으로 자체 시계 참조 지점만 보정**)으로 적용됨 — 스프링의 `journey.getTargetTime()` 전달 방식은 그대로 두고, 플라스크가 `target_time` 부재 시 대체하는 자기 시계 값 자체를 서비스데이 기준으로 고쳐서 스프링 쪽 수정 없이 해결.
+
+**배포**: `main` 브랜치 push 시 GitHub Actions(`deploy.yml`)가 Docker 이미지 빌드 → Docker Hub push → EC2 SSH 접속 후 컨테이너 재기동까지 자동 수행. 커밋 `686740a`의 워크플로우 실행(2026-07-30 19:40 UTC ≈ KST 7/31 새벽 4:40)이 `success`로 완료되어 배포까지 반영 확인됨.
+
+**검증**: 실기기로 재현 테스트 완료(사용자 확인).
+
+---
+
+## 수정 완료 목록 (2026-08-03)
+
+| 항목 | 파일 | 상태 |
+|---|---|---|
+| 알림 채널이 첫 알람 전엔 시스템 설정에 안 보이던 문제 | `src/utils/notifications.ts`(`setupNotificationCategories`) | ✅ 앱 시작 시 채널 미리 생성하도록 수정 |
+| 1~4단계 알람이 시스템 기본음만 사용(단계별 커스텀 소리 없음) | `app.json`, `src/utils/notifications.ts` | ✅ 단계별 커스텀 사운드(mp3/wav) 적용 + 소리 설정 화면 신규 |
+| 배터리 최적화 제외 상태를 앱에서 확인할 방법 없음(완료 배지 표시 불가) | `modules/battery-optimization`(신규), `src/utils/permissions.ts` | ✅ 로컬 네이티브 모듈로 상태 확인 구현 |
+
+### ✅ 출발 알람 채널 사전 생성 안 됨 → 단계별 커스텀 소리/진동 설정 화면 신규 구축 (GoNow_Fronted)
+
+**배경**: 알림 채널을 미리 만들어두는 함수(`setupNotificationCategories`)가 실제로는 빈 껍데기(no-op)로 방치돼 있어서, 사용자가 실제 알람을 한 번도 받아보기 전까지는 시스템 설정의 "알림 카테고리" 화면 자체가 텅 비어 보였음 — 커스터마이징 진입점 자체가 없는 상태였고, 소리도 전부 시스템 기본음만 재생됨.
+
+**수정 및 신규 구현**:
+- `setupNotificationCategories()`가 실제로 `ensureChannels()`를 호출하도록 수정 — 앱 최초 실행 시 채널 6개(1~4단계 + 실행 중 알림 2개)가 즉시 생성됨.
+- 1~4단계 채널에 커스텀 사운드(무료 라이선스 mp3/wav, `assets/sounds/`) 적용 — `app.json`의 `expo-notifications` 플러그인 `sounds` 배열에 등록해 빌드 시 네이티브 리소스로 자동 번들링.
+- Android 8.0 미만(채널 개념 자체가 없는 기기) 대응: 채널 생성 시점뿐 아니라 알림 발송 시점의 `sound` 필드도 함께 지정해 두 경로 모두 커버(개발 중 한 차례 후자를 빠뜨려서 8.0 미만 기기에서 무음이 될 뻔했던 걸 발견해 수정).
+- "출발 알람 소리 설정" 화면 신규 추가(`AlarmSoundSettingsScreen.tsx`, 프로필 설정 화면에서 진입): 단계별 시스템 소리/진동 설정 화면 바로가기(`android.settings.CHANNEL_NOTIFICATION_SETTINGS` 딥링크), 기본값으로 초기화, 미리듣기 버튼.
+- **채널 초기화 구현 중 발견한 안드로이드 제약**: 채널을 삭제 후 같은 ID로 재생성해도 안드로이드가 이전 사용자 설정을 그대로 복원함(un-delete) — 처음 구현한 "삭제 후 재생성" 방식이 실제로는 전혀 작동하지 않았음. 채널ID를 버전 관리 방식(`gonow-alarm-1-r1`, `-r2`...)으로 전환해 매번 새 채널을 발급하는 방식으로 재구현, 예전 채널은 생성 직후 자동 정리.
+
+**검증**: 실기기 테스트 완료(사용자 확인) — 앱 설치 직후 채널 노출, 커스텀 소리 재생, 시스템 설정 바로가기, 초기화, 미리듣기 전부 정상 동작 확인.
+
+**커밋**: `aa85cb9`(fix 브랜치)
+
+### ✅ 배터리 최적화 제외 상태 확인 기능 신규 추가 (GoNow_Fronted, 이 프로젝트 최초의 커스텀 네이티브 모듈)
+
+**배경**: "필수 권한 설정" 화면에서 알림/위치/정확한 알람 3개 항목은 실시간으로 "✅ 완료" 배지가 뜨는데, 배터리 최적화 제외만 상태 확인 API가 없어 배지 없이 "설정으로 이동" 버튼만 있었음 — 사용자 입장에서 비직관적이라는 피드백으로 시작.
+
+**구현**: `modules/battery-optimization/`(로컬 Expo 모듈, 이 프로젝트에서 처음으로 직접 작성한 네이티브 코드) — `PowerManager.isIgnoringBatteryOptimizations()`를 코틀린으로 감싸서 JS에 노출. Android 6.0(API 23) 미만 기기 방어 코드 포함(그 이전엔 배터리 최적화 개념 자체가 없어 메서드가 존재하지 않음).
+
+**개발 중 잡은 버그**: `requireNativeModule()`을 파일 최상단에서 즉시 호출하도록 짜서, 네이티브 모듈 로드 실패 시(재빌드 전 등) **함수 호출 시점이 아니라 import 시점**에 에러가 터져 `permissions.ts`를 쓰는 화면 전체가 죽을 수 있는 위험이 있었음 — 모듈 로드 자체를 try/catch로 감싸 안전한 폴백(`true` 반환)을 제공하도록 커밋 전에 수정.
+
+**검증**: 재빌드 후 실기기 테스트 완료(사용자 확인) — 배터리 카드에 완료 배지 정상 표시.
+
+**커밋**: `1184cbf`(fix 브랜치)

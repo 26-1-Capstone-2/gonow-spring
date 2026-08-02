@@ -1,6 +1,6 @@
 # GPS 폴링 버그 목록
 
-마지막 업데이트: 2026-07-31
+마지막 업데이트: 2026-08-03
 
 해결된 버그는 `docs/history/resolved-bugs.md` 참고.
 
@@ -9,12 +9,6 @@
 ## 미수정 버그 목록
 
 > 중요도 높은 순으로 정렬
-
----
-
-### 🔴 버그19 — 막차 모드, 자정~새벽4시 사이 첫 계산 시 날짜가 하루 밀림 [영향 높음, 원인 확정·수정 방향 미확정]
-
-→ 아래 버그19 상세 참고 (스프링+플라스크 양쪽 관련, 수정 방식 두 가지 검토 중)
 
 ---
 
@@ -95,40 +89,13 @@
 
 ---
 
-## 미수정 버그 상세
+### 🟢 버그27 — "도착 예정 알림" 커스텀 사운드를 시스템 소리 목록에 등록하는 방식 [버그 아님, 검증 완료 후 보류]
+
+→ 아래 버그27 상세 참고
 
 ---
 
-### 🔴 버그19 — 막차 모드, 자정~새벽4시 사이 첫 계산 시 날짜가 하루 밀림 [영향 높음]
-
-**관련 저장소**: `gonow`(스프링) + `gonow-flask`(플라스크) 둘 다 관련
-
-**파일**:
-- 스프링: `src/main/java/com/timemate/gonow/domain/journey/service/JourneyService.java`의 `callFlaskAndUpdate()`
-- 플라스크: `CounterClockEngine/gps_api/routes/alarm.py:230-231` (`_compute_alarm`의 `is_last_mode` 분기), `CounterClockEngine/gps_api/core/transit_route.py:285` (`find_last_train_departure`)
-
-**증상**: 막차 모드 귀가 여정이 READY 상태가 되고 나서 자정~새벽4시 사이에 첫 GPS 위치가 들어와 플라스크를 처음 호출하면, 추천 도착 시각이 실제보다 하루 밀려서 나옴. 예: 6/11 밤에 여정을 만들어 6/12 새벽 1시 도착을 기대했는데, 자정 넘겨서(예: 6/12 00:30) 첫 계산이 이뤄지면 6/13 새벽 1시로 계산됨.
-
-**원인**:
-- 막차 모드는 생성 시점에 목표 시각(`target_time`)을 모르기 때문에, 여정이 READY 상태가 되고 첫 GPS 위치가 들어와 `callFlaskAndUpdate()`가 처음 호출될 때 `journey.getTargetTime()`은 아직 `null`이고, 이 값이 그대로 플라스크 요청의 `target_time`으로 전달됨
-- 플라스크(`alarm.py:231`) `search_ref = target_time if target_time is not None else _now_kst()` — `target_time`이 null이면 **플라스크 자신의 서버 시계**(`_now_kst()`, 날짜+시각 전부 포함)로 대체
-- `find_last_train_departure()`(`transit_route.py:285`) `base_date = base_dt.date()` — `search_ref`의 **날짜 부분만** 뽑아서 그 날 23시~다음날 1시를 막차 탐색 범위로 고정
-- 이 전체 과정에 "자정~새벽4시는 전날 밤의 연장으로 친다"는 보정이 전혀 없어서, 자정 넘겨서 첫 계산이 이뤄지면 탐색 기준 날짜가 하루 밀려버림
-- 참고: 이 프로젝트에는 이미 같은 개념(서비스데이 보정, `scheduler.day-boundary-hour=4`)이 스프링의 `ArrivedTransitionService`에 구현돼 있음 — 거긴 정상 적용돼 있고, 이 경로(막차 첫 계산)에만 빠져 있던 것
-
-**검토했으나 이 버그와 무관한 것으로 확인됨** (같이 헷갈리기 쉬워서 기록):
-- 데드라인 모드 / 개인 여정 / 그룹 알람: `target_time`이 항상 명시적으로 주어지고, 플라스크의 "탐색" 로직(`is_last_mode` 분기) 자체를 안 타므로 이 버그와 무관. 목표 시각이 새벽 시간대(예: 새벽 2시)여도 문제없음.
-- `JourneyService.resolveInitialStatus()` / `AppointmentService.resolveInitialStatus()`(여정·약속 생성 시 SCHEDULED/READY 결정): 겉보기엔 비슷한 "자정 보정 누락"처럼 보이지만, `plan_date` 필드에 `@FutureOrPresent` 검증이 걸려 있어 이 비교 시점엔 항상 유효한 값만 들어옴 → 별도 수정 불필요 (한 차례 상세 검토 후 기각).
-
-**수정 방향 — 두 가지 검토, 아직 미결정**:
-
-1. **꼼수 (스프링만 수정)**: `callFlaskAndUpdate()`에서 `journey.getTargetTime()`이 `null`일 때, 그대로 보내지 말고 "새벽4시 이전이면 전날로 보정한 현재 시각"을 계산해서 그 자리에 채워 보낸다 (`ArrivedTransitionService`가 쓰는 `day-boundary-hour` 설정 재사용). 플라스크는 전혀 수정하지 않는다.
-   - 장점: 스프링 한 파일만 수정, 빠름
-   - 단점: `target_time` 필드가 "확정된 값"과 "검색 기준 힌트"라는 두 가지 뜻을 몰래 겸하게 됨. **현재 플라스크 코드 기준으로는 안전함을 확인**(이 필드는 `is_last_mode` 분기에서 `search_ref` 계산에만 쓰이고 이후 로직 어디에도 재사용되지 않음) — 다만 나중에 플라스크가 "target_time이 있으면 이미 확정된 값이니 재검색 생략" 식으로 최적화되면 조용히 깨질 수 있는 잠재 위험이 있음
-
-2. **정석 (스프링+플라스크 둘 다 수정)**: `FlaskJourneyRequest`(스프링)에 `search_anchor` 필드를 신설해 위와 동일한 보정값을 항상 채워 보낸다. 플라스크는 `alarm.py:231`을 `search_ref = target_time if target_time is not None else search_anchor`로 한 줄만 변경(`_now_kst()` 자기 시계 참조 제거). `target_time`은 원래 뜻("확정된 목표 도착 시각") 그대로 유지되어 미래 리스크가 없음.
-   - 장점: 필드 의미가 명확해지고 위 미래 리스크가 사라짐
-   - 단점: 플라스크도 같이 수정해야 함 (다만 두 저장소 합쳐 20줄 이내로 작업량 자체는 크지 않음)
+## 미수정 버그 상세
 
 ---
 
@@ -330,12 +297,34 @@ function getEffectiveDate(): string {
 
 ---
 
+### 🟢 버그27 — "도착 예정 알림" 커스텀 사운드를 시스템 소리 목록에 등록하는 방식 [버그 아님, 검증 완료 후 보류]
+
+**현재 상태**: `gonow-arrival-expected` 채널은 다른 도착 채널(`arrival-check`, `arrival-complete`)과 동일하게 notifee `sound: 'default'`(시스템 기본음)로 되어 있음. 아래 방식은 실제로 프로토타입까지 만들어 실기기에서 성공 확인했으나, 지금 당장 커스텀 사운드 자체에 대한 우선순위가 낮아 코드는 전부 롤백함. 나중에 이 채널(또는 다른 채널)에 커스텀 사운드를 넣고 싶어지면 이 기록을 참고해서 다시 구현하면 됨 — 삽질했던 부분(특히 MIME 타입)은 이미 다 걸러졌음.
+
+**왜 이게 필요했는지**: notifee의 `sound` 필드는 `'default'`(시스템 기본음) 또는 앱에 번들된 raw 리소스 파일명(`app.json`의 `expo-notifications` 플러그인 `sounds` 배열에 등록) 둘 중 하나만 지정 가능함. 후자로 커스텀 사운드를 넣어도 그 소리는 앱 전용 raw 리소스(`android.resource://.../raw/...`)일 뿐이라, 안드로이드 시스템 설정(설정 앱에서 채널 소리를 직접 바꾸는 화면)의 "소리 선택" 목록에는 뜨지 않음 — 사용자가 나중에 다른 소리로 바꿨다가 다시 원래 커스텀 소리로 되돌리고 싶어도 목록에 없어서 못 고름.
+
+**검증된 해결 방법 (실기기 테스트 완료)**: Expo 로컬 네이티브 모듈(Kotlin)을 만들어서 notifee를 거치지 않고 안드로이드 API를 직접 호출:
+1. `MediaStore.Audio.Media.EXTERNAL_CONTENT_URI`에 사운드 파일을 정식으로 "등록"함 — `ContentValues`에 `DISPLAY_NAME`, `MIME_TYPE`, `IS_NOTIFICATION=1`, `RELATIVE_PATH=Environment.DIRECTORY_NOTIFICATIONS`, `IS_PENDING=1`을 채워서 `resolver.insert(...)` → 반환된 URI로 `resolver.openOutputStream(uri)`를 열어 앱 raw 리소스의 바이트를 그대로 복사 → `IS_PENDING=0`으로 마무리. (API 29/`Build.VERSION_CODES.Q` 이상에서만 동작, scoped storage 정책 때문에 필요한 절차)
+2. 이렇게 등록된 `content://` URI로 `NotificationChannel.setSound(uri, AudioAttributes...)`를 호출한 뒤 `NotificationManager.createNotificationChannel()`로 채널을 직접 생성(notifee를 거치지 않음 — notifee의 `sound` 타입은 `'default'`/raw 파일명만 받고 임의의 `content://` URI는 못 받음).
+3. 이렇게 만든 채널은 안드로이드 시스템 설정의 소리 선택 목록에도 정식으로 나타남(직접 확인함).
+
+**핵심 함정 — 반드시 기억할 것**: `MediaStore.Audio.Media.MIME_TYPE`을 `"audio/wav"`처럼 문자열로 하드코딩하면 실기기에서 `IllegalArgumentException: Unsupported MIME type audio/wav`로 즉시 실패함(`resolver.insert()` 단계). `android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension("wav")`로 동적으로 조회해서 써야 함(안 되면 `"audio/x-wav"`로 폴백). 이 문제를 `adb logcat` + 자체 추가한 `Log.e/w/i`(태그 `GoNowSoundRegistry`) 로그로 진단하는 데 한 라운드를 썼음 — 재구현 시 처음부터 동적 조회로 작성하면 이 삽질을 건너뛸 수 있음.
+
+**롤백된 코드 위치(재구현 시 참고, 프론트 저장소 `GoNow_Fronted` 기준, 전부 삭제됨)**:
+- `modules/notification-sound-registry/` — 로컬 Expo 네이티브 모듈 전체(`android/src/main/java/expo/modules/notificationsoundregistry/NotificationSoundRegistryModule.kt`에 위 로직 구현, `registerArrivalExpectedChannel()` / `registerSoundInMediaStore()` / `findExistingSound()` 3개 함수 — 채널ID `gonow-arrival-expected`, raw 리소스명 `arrived` 하드코딩)
+- `src/utils/notifications.ts`의 `ensureChannels()` — `arrival-expected` 채널 생성 직전에 네이티브 모듈 호출 후 실패 시 기존 notifee 방식으로 폴백하는 조건부 블록이 있었음(지금은 단순 notifee 호출로 되돌림)
+- `app.json`의 `expo-notifications` 플러그인 `sounds` 배열에 있던 `./assets/sounds/arrived.wav` 등록(지금은 제거됨, 실제 파일도 삭제)
+- 다른 두 도착 채널(`arrival-complete`, `arrival-check`)에도 필요하면 동일한 패턴을 그대로 확장 적용 가능 — 이번엔 `arrival-expected` 하나만 실험함
+
+**주의(재도입 시)**: `gonow-arrival-expected`/`gonow-arrival-complete`는 스프링 `ArrivalChannel` enum이 채널ID 문자열을 고정값으로 알고 있어서(FCM 발송용), 이 방식을 다시 넣어도 채널ID 자체(`gonow-arrival-expected`)는 절대 바꾸면 안 됨 — 소리만 새로 등록해서 같은 채널ID에 `setSound()`로 붙이는 것까지만 안전함.
+
+---
+
 ## 인과관계 요약
 
 ```
 현재 남은 실질적 문제:
 
-버그19 (막차 모드 자정~새벽4시 날짜 밀림) → 원인 확정, 수정 방식(꼼수 vs 정석) 결정 대기 중, 스프링+플라스크 둘 다 관련
 버그18 (DEPARTING 단계별 알람 중복)  → 임계 구간 두 세트 울림, 수정 필요
 
 버그1 (FCM 포그라운드 타이밍 gap)    → 간헐적 /location 1회 추가, 기능 영향 없음, 완전 방어 불가
@@ -351,6 +340,7 @@ function getEffectiveDate(): string {
 버그24 (플라스크 4xx/5xx가 500으로 뭉개짐) → 버그22 조사 중 발견, 수정했다가 원래 목적과 무관해 롤백
 버그25 (/location 폴링 4xx 시 무알림) → 버그22 조사 중 발견, 수정했다가 롤백(단 메시지 파싱 유틸은 시나리오 A용으로 유지)
 버그26 (backgroundLocationTask.ts 미정의 함수 호출 크래시) → 이번 조사와 무관한 기존 버그, 고쳤다가 다른 변경들과 함께 롤백
+버그27 (도착 예정 알림 커스텀 사운드 시스템 목록 등록) → 버그 아님. 프로토타입으로 검증까지 마쳤으나 우선순위 낮아 코드 롤백, 레시피만 기록해둠
 
-해결된 버그(버그4~7, 10-A, 10-B, 11, 12, 13, 15, 16, 20, 임시 interval 변경 등)는 docs/history/resolved-bugs.md 참고.
+해결된 버그(버그4~7, 10-A, 10-B, 11, 12, 13, 15, 16, 19, 20, 임시 interval 변경, Picker New Architecture 네이티브 크래시, 출발 알람 채널 사전 생성/단계별 커스텀 사운드, 배터리 최적화 상태 확인 네이티브 모듈 등)는 docs/history/resolved-bugs.md 참고.
 ```

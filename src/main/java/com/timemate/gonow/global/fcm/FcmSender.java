@@ -1,6 +1,7 @@
 package com.timemate.gonow.global.fcm;
 
 import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.BatchResponse;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
@@ -73,7 +74,10 @@ public class FcmSender {
     }
 
     // 다중 기기 Notification 메시지 발송 (상단바 알림 — 소리/진동 포함)
-    public void sendAllNotification(Collection<String> tokens, String title, String body) {
+    // channelId: 안드로이드 알림 채널 ID. 프론트(notifications.ts)에 미리 만들어져 있는 채널과
+    // 문자열이 반드시 일치해야 함 — 앱 배경/종료 상태에선 AndroidConfig의 channelId로 OS가 직접 사용하고,
+    // 포그라운드 상태에선 프론트가 data.channel_id를 읽어 notifee로 수동 재표시할 때 사용함(둘 다 필요).
+    public void sendAllNotification(Collection<String> tokens, String title, String body, String channelId) {
         List<String> validTokens = tokens.stream()
                 .filter(StringUtils::hasText)
                 .toList();
@@ -88,6 +92,13 @@ public class FcmSender {
                 .setNotification(Notification.builder()
                         .setTitle(title)
                         .setBody(body)
+                        .build())
+                .putData("channel_id", channelId)
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setNotification(AndroidNotification.builder()
+                                .setChannelId(channelId)
+                                .build())
+                        .setPriority(AndroidConfig.Priority.HIGH)
                         .build())
                 .build();
 

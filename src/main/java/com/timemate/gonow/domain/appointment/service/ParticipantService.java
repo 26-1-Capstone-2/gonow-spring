@@ -1,6 +1,7 @@
 package com.timemate.gonow.domain.appointment.service;
 
 import com.timemate.gonow.domain.appointment.constant.AppointmentStatus;
+import com.timemate.gonow.domain.appointment.constant.ArrivalChannel;
 import com.timemate.gonow.domain.appointment.constant.ParticipantStatus;
 import com.timemate.gonow.domain.appointment.dto.ParticipantActiveUpdateRequest;
 import com.timemate.gonow.domain.appointment.dto.ParticipantArriveResponse;
@@ -206,7 +207,8 @@ public class ParticipantService {
                     participant.updateStatus(ParticipantStatus.ARRIVED);
                     finishAppointment(appointment);
                     sendGroupNotification(memberId, appointmentId, "도착 완료 알림",
-                            participant.getMember().getNickname() + "님이 " + LocalDateTime.now().format(TIME_FORMATTER) + "에 도착했습니다.");
+                            participant.getMember().getNickname() + "님이 " + LocalDateTime.now().format(TIME_FORMATTER) + "에 도착했습니다.",
+                            ArrivalChannel.COMPLETE);
                 } else if (isDepartedFromAnchor) {
                     // 300m 이탈 → MOVING
                     participant.updateCurrentPos(newPoint);
@@ -217,7 +219,8 @@ public class ParticipantService {
 
                     String eta = participant.getEstimatedArrival().format(TIME_FORMATTER);
                     sendGroupNotification(memberId, appointmentId, "도착 예정 알림",
-                            participant.getMember().getNickname() + "님이 " + eta + "에 도착 예정입니다.");
+                            participant.getMember().getNickname() + "님이 " + eta + "에 도착 예정입니다.",
+                            ArrivalChannel.EXPECTED);
                 }
                 // 300m 미만이면 DEPARTING 유지, 앵커 보존
             }
@@ -231,7 +234,8 @@ public class ParticipantService {
                     participant.updateStatus(ParticipantStatus.ARRIVED);
                     finishAppointment(appointment);
                     sendGroupNotification(memberId, appointmentId, "도착 완료 알림",
-                            participant.getMember().getNickname() + "님이 " + LocalDateTime.now().format(TIME_FORMATTER) + "에 도착했습니다.");
+                            participant.getMember().getNickname() + "님이 " + LocalDateTime.now().format(TIME_FORMATTER) + "에 도착했습니다.",
+                            ArrivalChannel.COMPLETE);
                 }
             }
             default -> {
@@ -257,7 +261,8 @@ public class ParticipantService {
         participant.updateStatus(ParticipantStatus.ARRIVED);
         finishAppointment(appointment);
         sendGroupNotification(memberId, appointmentId, "도착 완료 알림",
-                participant.getMember().getNickname() + "님이 " + LocalDateTime.now().format(TIME_FORMATTER) + "에 도착했습니다.");
+                participant.getMember().getNickname() + "님이 " + LocalDateTime.now().format(TIME_FORMATTER) + "에 도착했습니다.",
+                ArrivalChannel.COMPLETE);
 
         return ParticipantArriveResponse.from(appointment);
     }
@@ -279,9 +284,9 @@ public class ParticipantService {
     }
 
     // 나를 제외한 다른 참가자들에게 FCM Notification 발송
-    private void sendGroupNotification(Long memberId, Long appointmentId, String title, String body) {
+    private void sendGroupNotification(Long memberId, Long appointmentId, String title, String body, ArrivalChannel channel) {
         List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);
-        fcmSender.sendAllNotification(tokens, title, body);
+        fcmSender.sendAllNotification(tokens, title, body, channel.getChannelId());
     }
 
     // 플라스크 호출 → FlaskParticipantResponse 반환, MOVING이 아닐 때만 departureAlarmTime 저장
