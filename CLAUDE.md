@@ -223,7 +223,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 |------|----------|------|
 | expo-notifications (로컬 알림) | 앱 꺼져 있어도 작동 (OS 등록) | `departure_alarm_time` + `preparationTime` 기반 단계별 알람 시퀀스 (1→4단계) |
 | FCM Data | 앱 포그라운드/백그라운드 | ① 새벽 4시 READY 전환 → GPS 가동 트리거 (`journey_ids`, `appointment_ids`) ② 그룹 참가자/약속 정보 변경 동기화 (`sync_event`, 아래 표 참고) |
-| FCM Notification | 앱 완전 종료 포함 | 그룹 알람 도착 예정/완료 알림 (MOVING 진입, ARRIVED 진입 시) |
+| FCM Notification | 앱 완전 종료 포함 | 그룹 알람 도착 예정/완료 알림 (MOVING 진입, ARRIVED 진입 시) — 안드로이드 알림 채널을 `ArrivalChannel` enum으로 분리해서 실어 보냄(아래 FCM 그룹 알람 메시지 절 참고) |
 
 #### 단계별 출발 알람 (프론트 처리)
 - 서버가 `/location` 응답으로 `departureAlarmTime` + `preparationTime` 전달
@@ -240,6 +240,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 | ARRIVED (MOVING→ARRIVED, 100m 자동) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
 
 - `isActive = false`인 참가자에게는 위 알림을 발송하지 않음 (`ParticipantRepository.findFcmTokensByAppointmentIdExcluding` 쿼리에 `isActive = true` 조건 포함)
+- 도착 예정/완료 알림은 `ArrivalChannel` enum(`EXPECTED`/`COMPLETE`)으로 안드로이드 알림 채널을 분리해서 `FcmSender.sendAllNotification(tokens, title, body, channelId)`에 실어 보냄 — `AndroidConfig`(백그라운드/종료 상태 OS 자동 표시용)와 `data.channel_id`(포그라운드 프론트 수동 재표시용) 양쪽에 실림. 채널ID 문자열은 프론트 `notifications.ts`의 `CHANNEL_BASE`와 반드시 일치해야 함(원래는 출발 단계별 채널을 그대로 재사용해서 소리가 섞이던 버그가 있었음 — 채널 분리로 해결).
 
 #### FCM Data 그룹 참가자/약속 동기화
 
@@ -331,6 +332,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `JourneyType`: HOME, PERSONAL
 - `PlaceType`: HOME, DEST
 - `AlarmType`: PERSONAL, HOME, GROUP (알람 조회용, domain/alarm/constant)
+- `ArrivalChannel`: EXPECTED("gonow-arrival-expected"), COMPLETE("gonow-arrival-complete") (그룹 도착 예정/완료 FCM 알림의 안드로이드 채널ID, domain/appointment/constant — 프론트 notifications.ts의 CHANNEL_BASE와 문자열이 반드시 일치해야 함)
 
 ### DTO 네이밍 규칙
 - `XxxSaveResponse`: 생성/수정 공통 최소 응답 (`JourneySaveResponse` — `journeyId` + `journeyStatus`)

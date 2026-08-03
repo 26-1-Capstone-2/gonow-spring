@@ -358,6 +358,8 @@ estimated_arrival = datetime.now() + timedelta(seconds=duration_sec)
 | 알림 채널이 첫 알람 전엔 시스템 설정에 안 보이던 문제 | `src/utils/notifications.ts`(`setupNotificationCategories`) | ✅ 앱 시작 시 채널 미리 생성하도록 수정 |
 | 1~4단계 알람이 시스템 기본음만 사용(단계별 커스텀 소리 없음) | `app.json`, `src/utils/notifications.ts` | ✅ 단계별 커스텀 사운드(mp3/wav) 적용 + 소리 설정 화면 신규 |
 | 배터리 최적화 제외 상태를 앱에서 확인할 방법 없음(완료 배지 표시 불가) | `modules/battery-optimization`(신규), `src/utils/permissions.ts` | ✅ 로컬 네이티브 모듈로 상태 확인 구현 |
+| 단계별 출발 알람(1~4단계) 중복 발송 / "즉시 출발" 알람 재발송(구 버그18) | `src/utils/notifications.ts`, `src/services/alarmService.ts`, `src/tasks/backgroundLocationTask.ts` | ✅ `syncStagedAlarms()` 공유 함수(지문 비교+직렬화 락) 도입, whichStation null 흔들림 폴백 처리 |
+| `backgroundLocationTask.ts` 미정의 함수(`removeStagingKey`) 호출로 그룹 약속 4xx 시 크래시(구 버그26) | `src/tasks/backgroundLocationTask.ts` | ✅ `cancelStagedAlarms(key)`로 교체 |
 
 ### ✅ 출발 알람 채널 사전 생성 안 됨 → 단계별 커스텀 소리/진동 설정 화면 신규 구축 (GoNow_Fronted)
 
@@ -385,3 +387,26 @@ estimated_arrival = datetime.now() + timedelta(seconds=duration_sec)
 **검증**: 재빌드 후 실기기 테스트 완료(사용자 확인) — 배터리 카드에 완료 배지 정상 표시.
 
 **커밋**: `1184cbf`(fix 브랜치)
+
+### ✅ 버그18 — 단계별 출발 알람(1~4단계) 중복 발송 / "즉시 출발" 알람 재발송 (GoNow_Fronted + 스프링 원인 1건 확인)
+
+**배경**: 실기기 테스트에서 4단계("즉시 출발") 알람이 중복으로 뜨거나, 이미 다 울린 지 한참 지난 후 뜬금없이 재발하는 문제가 포그라운드/백그라운드 조합에 따라 불안정하게 재현됨. 조사 결과 4가지 원인이 얽혀 있었음.
+
+**원인 1 — 포그라운드/백그라운드가 독립적으로 취소·재등록 반복**: `alarmService.ts`(포그라운드)와 `backgroundLocationTask.ts`(백그라운드)가 단계별 알람 스케줄링 로직을 완전히 별도로 구현하고 있었고, "이미 등록했는지" 판단용 영속 상태가 전혀 없었음(`stagingStarted`는 인스턴스 메모리 플래그라 백그라운드 전환 시 얼어붙었고, `alarmSentThisRun`은 태스크 호출마다 새로 만들어지는 지역 변수였음).
+
+**원인 2 — 경합 조건**: `alarmService.ts`의 `poll()`이 `AppState`를 전혀 확인하지 않아 백그라운드에서도 안 죽고 있다가 포그라운드 복귀 순간 밀린 타이머가 한꺼번에 발화, `backgroundLocationTask.ts`와 거의 동시에 `/location`을 호출해 지문 비교-재등록 로직이 원자적이지 않아 둘 다 재등록을 진행하는 경우가 있었음.
+
+**원인 3 — whichStation의 null 흔들림 (진짜 근본 원인, 스프링 코드로 직접 검증)**: `LocationUpdateResponse.java`/`ParticipantLocationUpdateResponse.java`의 `from()`이 `departureAlarmTime`은 엔티티 영속값을 항상 반환하지만, `whichStation`/`boardingTime`은 그 요청에서 플라스크를 실제로 재호출했을 때만 채우고 아니면 null을 반환함. `JourneyService.updateLocation()`의 DEPARTING "유지" 분기(300m 이내 대기 중)는 플라스크를 호출하지 않으므로, 이 상태가 지속되는 내내 `which_station: null`이 반복적으로 내려옴 — 프론트가 이 흔들림을 "진짜 변경"으로 오판해 매번 재등록, 이미 지난 4단계가 계속 재발송됨.
+
+**수정**:
+- `src/utils/notifications.ts`에 `syncStagedAlarms()` 공유 함수 신규 — AsyncStorage 기반 "스테이징 지문"(departureAlarmTime + whichStation)으로 이미 등록된 데이터인지 판단, 다르면 취소 후 재등록. `alarmService.ts`/`backgroundLocationTask.ts`의 중복 구현을 이 함수로 통합.
+- `withStagingLock()`(key별 Promise 체이닝 직렬화 락)으로 원자성 보장(원인 2 보완).
+- `whichStation`이 이번 폴링에 안 내려오면(null) 이전에 알던 값을 그대로 유지하도록 폴백(`whichStation ?? prev?.whichStation ?? null`) — 원인 3의 직접적인 수정.
+- `alarmService.ts`의 `poll()`에 `backgroundLocationTask.ts`와 대칭되는 `AppState.currentState !== 'active'` 스킵 체크 추가(원인 2 보완).
+- 스프링은 건드리지 않고 프론트에서만 해결. 다만 `whichStation`/`boardingTime`을 엔티티에 영속화하지 않는 비대칭 설계 자체는 근본적으로 스프링 쪽 개선 여지로 남아있음(다른 클라이언트가 이 API를 쓰게 되면 같은 혼란을 다시 겪을 수 있음).
+
+**검증**: 실기기 반복 테스트(포그라운드/백그라운드 여러 조합, 장시간 백그라운드 방치 포함) 완료(사용자 확인).
+
+### ✅ 버그26 — `backgroundLocationTask.ts`의 미정의 함수(`removeStagingKey`) 호출로 그룹 약속 4xx 시 크래시
+
+버그18 수정 작업 중 같은 파일을 손보면서 함께 수정. `await removeStagingKey(key);`(정의되지 않은 함수, 그룹 약속 `/location` 4xx 처리 분기)를 `await cancelStagedAlarms(key);`로 교체.

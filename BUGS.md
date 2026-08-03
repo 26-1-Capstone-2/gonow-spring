@@ -12,23 +12,6 @@
 
 ---
 
-### 🔴 버그18 — DEPARTING 진입 시 단계별 알람 중복 발송 [영향 높음]
-
-**파일**: `src/services/alarmService.ts`
-
-**증상**: 임계 구간(4단계) 알람이 두 세트((1/3)(2/3)(3/3) × 2) 울림
-
-**원인**:
-- READY에서 `interval !== null` 조건으로 1~4단계 OS 등록 (방금 수정)
-- DEPARTING 진입 시 `cancelRemainingStages()` + 재등록 → 4단계만 남으면 또 3번짜리로 재등록
-- 결과: READY 등록분 + DEPARTING 재등록분 중복
-
-**수정 방향**: DEPARTING 진입 시 `cancelRemainingStages()` + `scheduleAlarmStages()` 호출 제거. READY에서 이미 정확한 시각으로 등록해놨으므로 DEPARTING에서 건드릴 필요 없음.
-
-**주의**: `handlePersonalStatus`(223번 줄), `handleGroupStatus` 두 곳 모두 수정 필요.
-
----
-
 ### 🟡 버그14 — 추방/방 삭제 시 OS 등록 단계별 알람 미취소 [영향 낮음]
 
 → 아래 버그14 상세 참고
@@ -86,6 +69,18 @@
 ### 🟡 버그23 — GPS 획득/권한 실패 시 사용자에게 아무 알림 없이 조용히 실패 [영향 중간]
 
 → 아래 버그23 상세 참고
+
+---
+
+### 🟡 버그24 — 플라스크 4xx/5xx 응답이 구분 없이 500으로 처리됨 [영향 낮음]
+
+→ 아래 버그24 상세 참고
+
+---
+
+### 🟡 버그25 — `/location` 폴링 4xx 시 프론트에서 조용히 폴링만 중단, 사용자 알림 없음 [영향 낮음]
+
+→ 아래 버그25 상세 참고
 
 ---
 
@@ -259,6 +254,15 @@ function getEffectiveDate(): string {
 
 **수정 방향**: `notifications.ts`의 `requestNotificationPermission()`이 이미 쓰는 패턴 재사용 — `Alert.alert('위치 권한 필요', '...', [{text:'취소'}, {text:'설정으로 이동', onPress: () => Linking.openSettings()}])`을 GPS 권한 미허용 시에도 동일하게 적용.
 
+**진행 상황 (생성 시점 체크 — 구현·테스트 완료)**: 알람 생성/수정/참여(초대코드) 시점의 사전 체크(`src/utils/permissions.ts`의 `checkCoreAlarmPermissions()`)를 개인/귀가/그룹 알람의 생성·수정·초대코드 참여(`handleJoin()`) 전부(6개 알람 화면 + `GroupAlarmSheet.tsx`/`GroupAllAlarmSheet.tsx`의 `handleJoin()` 2곳 포함, 총 10개 지점)에 적용했다. 위치·알림 권한을 팝업 없이 조회만 하고(팝업 요청은 뜬금없다는 문제가 있어 제외), 하나라도 꺼져있으면 Alert로 "필수 권한 설정" 화면(`PermissionSetupScreen.tsx`)으로 안내한다. 단 이건 "생성 시점" 스냅샷 체크일 뿐, **생성 후 권한이 다시 꺼지는 경우는 여전히 못 막는다** — 아래 런타임 체크가 이 케이스를 위한 것.
+
+**런타임(실행 시점) 체크는 미구현 — 조사해보니 예상보다 범위가 큼**:
+- `AlarmRunner.start()`/`poll()`(`src/services/alarmService.ts`)은 앱이 포그라운드이거나 "백그라운드지만 프로세스가 살아있는" 상태에서만 실행된다.
+- 앱이 **완전히 종료된 상태**에서의 새벽 4시 GPS 폴링은 별도의 헤드리스 TaskManager 경로(`src/tasks/backgroundLocationTask.ts` + `backgroundAlarmTask.ts`)가 전담하며, 이 경로는 `AlarmRunner`/`alarmService.start()`를 아예 거치지 않는다(자체 `fetch` 기반 `patchLocation()` 로직을 따로 가짐).
+- 즉 `alarmService.ts`만 고치는 건 "앱을 켜둔 채 권한이 꺼지는" 경우만 잡고, "생성 후 권한을 끄고 앱도 완전히 꺼둔 채 자는" 경우는 여전히 무알림으로 남는다 — 제대로 고치려면 `backgroundLocationTask.ts`의 에러/위치없음 분기까지 같이 손봐야 한다.
+- 이 알림을 사용자에게 보여주려면 `Alert.alert()`가 아니라 notifee 로컬 알림이 필요(백그라운드/헤드리스에서도 떠야 하므로), 새 알림 채널과 스팸 방지용 쿨다운 저장소도 새로 필요하다. 알림 탭 시 특정 화면으로 이동시키는 인프라(`EventType.PRESS` 처리)는 현재 프로젝트에 전혀 없어서 이것도 신규 구현이 필요하다.
+- **보류 사유**: 실제 발생하려면 "권한을 한 번 허용 → 알람 생성 → 이후 수동으로 끄거나 몇 달간 미사용으로 안드로이드가 자동 회수"라는 조건이 겹쳐야 하는 엣지케이스라, 파일 3개를 건드리고 새 알림 채널/쿨다운/탭-네비게이션 인프라까지 새로 만들 만큼 우선순위가 높지 않다고 판단해 보류. 다음에 여유 있을 때 위 아키텍처 사실을 참고해서 이어서 작업.
+
 ---
 
 ### 🟡 버그24 — 플라스크 4xx/5xx 응답이 구분 없이 500으로 처리됨 [영향 낮음]
@@ -282,18 +286,6 @@ function getEffectiveDate(): string {
 **경위**: 버그22 조사 중 발견해서 한 차례 고쳤다가(`notifications.ts`에 `sendErrorAlarm`/`extractApiErrorMessage` 추가 후 로컬 알림 발송), 버그24와 마찬가지로 원래 목적과 무관한 범위라 되돌림. 단, `extractApiErrorMessage`는 시나리오 A(생성 시점 차단) 메시지 표시에 필요해서 남겨둠 — `HomeAlarmSheet.tsx`/`HomeAllAlarmSheet.tsx`에서 사용 중.
 
 **수정 방향**: `sendErrorAlarm(title, message)`를 `notifications.ts`에 재도입(`ensureChannels()` → `notifee.displayNotification()`, `sendArrivalAlarm` 등과 동일 패턴)하고, 두 파일의 4xx 분기에서 `extractApiErrorMessage`로 뽑은 메시지를 알림으로 발송 후 정리 로직 실행.
-
----
-
-### 🟡 버그26 — `backgroundLocationTask.ts`의 미정의 함수(`removeStagingKey`) 호출로 그룹 약속 4xx 시 크래시 [영향 낮음]
-
-**파일**: `src/tasks/backgroundLocationTask.ts` (그룹 약속 `/location` 4xx 처리 분기)
-
-**증상**: `await removeStagingKey(key);`를 호출하는데 이 함수가 프로젝트 어디에도 정의/임포트되어 있지 않음. 이 분기가 실행되면(그룹 약속이 4xx를 받으면) `ReferenceError`가 발생해 이후 정리 로직(`delete lastCallTimes[key]` 등)이 실행되지 않음.
-
-**원인 추정**: 같은 파일에 이미 임포트되어 있는 `cancelStagedAlarms(key)`(예약된 단계별 로컬 알림 취소, `alarmService.ts`의 `cancelRemainingStages()`에서도 동일 목적으로 사용)를 호출하려던 자리가 오타/리팩토링 과정에서 존재하지 않는 이름으로 남은 것으로 보임. 버그22 조사 중 발견해서 `cancelStagedAlarms(key)`로 고쳤다가, 원래 목적과 무관한 범위라 다른 변경들과 함께 되돌림(이 문제 자체는 이번 조사와 완전히 무관한, 그 전부터 있던 버그).
-
-**수정 방향**: `await removeStagingKey(key);` → `await cancelStagedAlarms(key);` 한 줄 교체.
 
 ---
 
@@ -325,8 +317,6 @@ function getEffectiveDate(): string {
 ```
 현재 남은 실질적 문제:
 
-버그18 (DEPARTING 단계별 알람 중복)  → 임계 구간 두 세트 울림, 수정 필요
-
 버그1 (FCM 포그라운드 타이밍 gap)    → 간헐적 /location 1회 추가, 기능 영향 없음, 완전 방어 불가
 버그2 (앱 재실행 폴링 복구)           → 로그인 전까지 폴링 없음, 로그인 후 즉시 복구되므로 영향 낮음
 버그3 (백그라운드 30초 고정)          → 배터리 비효율, 기능 영향 없음, 후순위
@@ -339,8 +329,7 @@ function getEffectiveDate(): string {
 버그23 (GPS 획득/권한 실패 시 무알림) → 영향 중간, 미사용 앱 권한 자동 해제로 실제 발생 가능성 있음
 버그24 (플라스크 4xx/5xx가 500으로 뭉개짐) → 버그22 조사 중 발견, 수정했다가 원래 목적과 무관해 롤백
 버그25 (/location 폴링 4xx 시 무알림) → 버그22 조사 중 발견, 수정했다가 롤백(단 메시지 파싱 유틸은 시나리오 A용으로 유지)
-버그26 (backgroundLocationTask.ts 미정의 함수 호출 크래시) → 이번 조사와 무관한 기존 버그, 고쳤다가 다른 변경들과 함께 롤백
 버그27 (도착 예정 알림 커스텀 사운드 시스템 목록 등록) → 버그 아님. 프로토타입으로 검증까지 마쳤으나 우선순위 낮아 코드 롤백, 레시피만 기록해둠
 
-해결된 버그(버그4~7, 10-A, 10-B, 11, 12, 13, 15, 16, 19, 20, 임시 interval 변경, Picker New Architecture 네이티브 크래시, 출발 알람 채널 사전 생성/단계별 커스텀 사운드, 배터리 최적화 상태 확인 네이티브 모듈 등)는 docs/history/resolved-bugs.md 참고.
+해결된 버그(버그4~7, 10-A, 10-B, 11, 12, 13, 15, 16, 18, 19, 20, 26, 임시 interval 변경, Picker New Architecture 네이티브 크래시, 출발 알람 채널 사전 생성/단계별 커스텀 사운드, 배터리 최적화 상태 확인 네이티브 모듈, 단계별 알람 중복 발송/재발송 등)는 docs/history/resolved-bugs.md 참고.
 ```
