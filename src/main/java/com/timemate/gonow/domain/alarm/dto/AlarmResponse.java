@@ -4,6 +4,7 @@ import com.timemate.gonow.domain.alarm.constant.AlarmType;
 import com.timemate.gonow.domain.appointment.constant.AppointmentStatus;
 import com.timemate.gonow.domain.common.constant.TransportType;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -12,6 +13,8 @@ public record AlarmResponse(
         Long journeyId,                      // PERSONAL/HOME이면 값, GROUP이면 null
         Long appointmentId,                  // GROUP이면 값, 나머지 null
         String destName,                     // 목적지 이름
+        BigDecimal destLat,                  // 목적지 위도
+        BigDecimal destLng,                  // 목적지 경도
         LocalDate planDate,                  // 계획한 날짜
         LocalDateTime targetTime,            // 목표 시각 -> 막차 모드이면 null
         LocalDateTime departureAlarmTime,    // 출발 알람 시각
