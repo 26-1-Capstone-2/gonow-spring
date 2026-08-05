@@ -90,6 +90,18 @@
 
 ---
 
+### 🟡 버그28 — 백그라운드 위치 추적 알림에 존재하지 않는 `notificationChannelId` 옵션 사용 [영향 미확인, 실기기 검증 필요]
+
+→ 아래 버그28 상세 참고
+
+---
+
+### 🟡 버그29 — READY 상태 GPS interval 계산이 `departureAlarmTime` 임박을 반영 못 해 DEPARTING 전환이 로컬 1단계 알람보다 늦어짐 [영향 중간]
+
+→ 아래 버그29 상세 참고
+
+---
+
 ## 미수정 버그 상세
 
 ---
@@ -312,6 +324,53 @@ function getEffectiveDate(): string {
 
 ---
 
+### 🟡 버그28 — 백그라운드 위치 추적 알림에 존재하지 않는 `notificationChannelId` 옵션 사용 [영향 미확인, 실기기 검증 필요]
+
+**관련 저장소**: `GoNow_Fronted`(프론트)
+
+**파일**: `src/tasks/backgroundLocationTask.ts:61` (`startBackgroundLocationUpdates()`)
+
+**증상**:
+```ts
+await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+  accuracy: Location.Accuracy.High,
+  timeInterval: 30000,
+  distanceInterval: 0,
+  foregroundService: {
+    notificationTitle: 'GoNow 알람 실행 중',
+    notificationBody: '출발 시간을 모니터링하고 있어요.',
+    notificationColor: '#4CAF50',
+    notificationChannelId: CHANNEL_SILENT,   // ← 무음 채널로 보내려는 의도
+  },
+});
+```
+설치된 `expo-location`(`~19.0.8`) 타입 정의(`node_modules/expo-location/build/Location.types.d.ts:180-197`)를 직접 확인한 결과, `LocationTaskServiceOptions`가 실제로 지원하는 필드는 `notificationTitle`/`notificationBody`/`notificationColor`/`killServiceOnDestroy` 4개뿐이고 `notificationChannelId`는 이 버전 API에 존재하지 않는다(타입 정의가 오래돼서가 아니라 애초에 없는 옵션).
+
+**원인 추정**: 백그라운드 GPS 추적 중 상단바에 상시로 뜨는 "GoNow 알람 실행 중" 알림을 `CHANNEL_SILENT`(무음 채널)로 보내려는 의도였을 것으로 보이나, 이 프로퍼티가 네이티브 모듈에 전달될 때 조용히 무시될 가능성이 높음 — 즉 해당 알림이 무음 채널이 아니라 안드로이드 기본 채널(소리/진동 있을 수 있음)로 뜨고 있을 가능성이 있음.
+
+**미확인 사항 (실기기 검증 필요)**: 타입 정의상 없는 필드라는 것만 코드로 확인했고, 실제 런타임에서 이 알림이 소리/진동을 내는지는 아직 실기기로 검증하지 않음.
+
+**수정 방향**: (1) 실기기에서 백그라운드 추적 시작 시 상단바 알림이 무음인지 직접 확인. (2) 무음이 아니라면, `expo-location`이 공식 지원하는 방식으로 채널을 지정하거나(문서 확인 필요), 애초에 이 옵션 없이도 무음으로 뜨게 만드는 다른 방법(예: 안드로이드 알림 채널을 앱 시작 시 미리 무음으로 생성해두고 OS가 그 채널을 재사용하게 하는 방식)을 검토.
+
+---
+
+### 🟡 버그29 — READY 상태 GPS interval 계산이 `departureAlarmTime` 임박을 반영 못 해 DEPARTING 전환이 로컬 1단계 알람보다 늦어짐 [영향 중간]
+
+**관련 저장소**: `gonow-flask`(플라스크), 연관 로직: 스프링 `JourneyService.updateLocation()`(READY 분기), 프론트 로컬 알림(`notifications.ts`)
+
+**파일**: `CounterClockEngine/gps_api/core/optimizer.py`(`calculate_next_interval`, `_cosine_blend_interval`), `CounterClockEngine/gps_api/routes/alarm.py`(`_adaptive_gps_interval`)
+
+**증상**: 실기기 테스트 중 발견 — `departureAlarmTime`(예: 02:34:25)이 되어 프론트의 로컬 1단계 알람("지금 나가야 함")은 정확한 시각에 울렸는데, 서버 DB의 `journey.status`는 한참 지나서도(02:29 시점 기준 이전 폴링에서 이미 `READY`) 계속 `READY`로 남아있어 `DEPARTING`으로 전환되지 않음.
+
+**원인**:
+1. `READY → DEPARTING` 전환은 `JourneyService.updateLocation()`이 **`/location` 호출을 받을 때만** `P >= Q`를 체크한다(시간 기반 스케줄러 없음, GPS 폴링 도착에 완전히 반응형). 즉 다음 GPS가 언제 오느냐가 전환 시점을 좌우함.
+2. 그런데 폴링 주기(`interval`)를 정하는 `_adaptive_gps_interval`/`calculate_next_interval`은 **목적지까지의 거리·시간(`target_time` 기준)만 반영**하고, `departure_alarm_time`까지 얼마나 남았는지는 계산에 전혀 넣지 않는다.
+3. 게다가 출발 전이라 사용자가 정지 상태(`stationary`)면 활동 배율이 `×3.0`(`_ACT_ANCHORS`)까지 걸려서, 다른 요소가 중간 수준이어도 최종 interval이 최대 상한(`INTERVAL_MAX_S=300`)으로 쉽게 클램프됨 — 실측 사례에서 `departureAlarmTime` 불과 5분 전 폴링 응답이 `interval:300`(5분)을 반환해서, 다음 폴링이 도착할 때까지 `DEPARTING` 전환 자체가 최대 5분까지 늦어질 수 있었음.
+
+**수정 방향(논의만 하고 보류, 아직 미착수)**: `departure_alarm_time`까지 남은 시간을 urgency 계산에 새 신호로 추가하거나, `READY` 상태에서 알람 시각이 임박(예: 남은 시간 < 일정 임계값)하면 정지 활동 배율과 무관하게 interval을 짧게(예: 10~30초) 강제하는 로직을 별도로 추가. 플라스크(`gonow-flask`) 리포 수정 필요.
+
+---
+
 ## 인과관계 요약
 
 ```
@@ -330,6 +389,8 @@ function getEffectiveDate(): string {
 버그24 (플라스크 4xx/5xx가 500으로 뭉개짐) → 버그22 조사 중 발견, 수정했다가 원래 목적과 무관해 롤백
 버그25 (/location 폴링 4xx 시 무알림) → 버그22 조사 중 발견, 수정했다가 롤백(단 메시지 파싱 유틸은 시나리오 A용으로 유지)
 버그27 (도착 예정 알림 커스텀 사운드 시스템 목록 등록) → 버그 아님. 프로토타입으로 검증까지 마쳤으나 우선순위 낮아 코드 롤백, 레시피만 기록해둠
+버그28 (백그라운드 위치 추적 알림에 존재하지 않는 notificationChannelId 옵션) → 타입 정의상 없는 옵션 확인됨, 실제 무음 여부는 실기기 검증 필요
+버그29 (READY interval 계산이 departureAlarmTime 임박 미반영) → 실기기 테스트로 발견, 최대 5분까지 DEPARTING 전환 지연 가능. 플라스크 수정 필요, 착수 전
 
 해결된 버그(버그4~7, 10-A, 10-B, 11, 12, 13, 15, 16, 18, 19, 20, 26, 임시 interval 변경, Picker New Architecture 네이티브 크래시, 출발 알람 채널 사전 생성/단계별 커스텀 사운드, 배터리 최적화 상태 확인 네이티브 모듈, 단계별 알람 중복 발송/재발송 등)는 docs/history/resolved-bugs.md 참고.
 ```
