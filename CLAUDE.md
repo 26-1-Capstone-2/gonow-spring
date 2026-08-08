@@ -91,10 +91,10 @@ Controller → Service → Repository → Entity → MySQL
 - 사용자가 나중에 `isActive = true`로 켜면 → 이미 READY 상태이므로 앱이 즉시 GPS 가동 가능
 
 #### 알람 수정 시 재계산 정책
-- 개인/귀가/그룹 알람 수정(PUT/PATCH) 시 `departureAlarmTime`과 현재 위치 앵커(`current_lat/lng`)를 `null`로 리셋 → 다음 GPS 수신 시 READY 단계부터 재계산 유도
-- 개인/귀가: `JourneyService`에서 `updateDepartureAlarmTime(null)` + `updateCurrentPoint(null)` 호출
-- 그룹: `AppointmentService`에서 `bulkResetAlarmInfoByAppointmentId` 호출로 전체 참가자 일괄 리셋
-- 그룹은 이와 별개로 `bulkResetStatusByAppointmentId`도 함께 호출 — SCHEDULED/READY/DEPARTING 참가자의 `participantStatus`까지 일괄 재조정(MOVING 이상 진행된 참가자는 건드리지 않음)
+- 개인/귀가: 알람 수정(PUT/PATCH) 시 `departureAlarmTime`과 현재 위치 앵커(`current_lat/lng`)를 `null`로 리셋 → 다음 GPS 수신 시 READY 단계부터 재계산 유도(`JourneyService`에서 `updateDepartureAlarmTime(null)` + `updateCurrentPoint(null)` 호출)
+- 그룹(방장의 약속 정보 수정, `AppointmentService.updateAppointment()`): 날짜/시간/목적지가 실제로 바뀐 경우에만 참가자 전원을 리셋한다 — `bulkResetAlarmInfoByAppointmentId`(앵커) + `bulkResetStatusByAppointmentId`(SCHEDULED/READY/DEPARTING 상태 재조정, MOVING 이상 제외) + 방장 제외 전원에게 `participant_status` FCM 발송. 참가자별 이동수단은 서로 독립적으로 계산되므로(다른 참가자 경로에 영향 없음), 방장이 자기 이동수단만 바꾼 경우엔 참가자 전원을 건드리지 않고 방장 본인 앵커만 리셋한다(변경 여부는 `isScheduleChanged()`로 비교 — 위도/경도는 `BigDecimal` scale 문제 때문에 `equals()` 대신 `compareTo()`로 비교)
+- 그룹(참가자 본인 이동수단 변경, `ParticipantService.updateTransportType()`): 실제로 값이 바뀐 경우에만 본인 앵커를 리셋
+- 프론트는 방장 수정 FCM(`participant_status: READY`) 수신 시 알람이 이미 실행 중이어도 무조건 `alarmService.start()`로 재시작한다(`app/_layout.tsx`) — 방장은 저장 즉시 로컬에서 강제 재시작되는데 참가자는 다음 자연 폴링(최대 인터벌만큼 지연)까지 갱신이 안 되던 비대칭을 해소한 것. 참가자 본인 이동수단 변경 시에도 저장 즉시 동일하게 `alarmService.start()`로 재시작한다. 이미 실행 중이던 알람을 재시작할 때 `AlarmManager.start()`는 호출부가 `isActive`를 명시하지 않으면 기존 runner의 `isActive`(참가자 개인 알람 스위치)를 그대로 이어받아, 꺼둔 알람이 재시작 때마다 강제로 켜지는 걸 방지한다.
 
 ### 패키지 구조
 ```

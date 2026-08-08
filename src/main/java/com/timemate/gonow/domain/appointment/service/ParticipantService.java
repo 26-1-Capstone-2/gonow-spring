@@ -66,7 +66,15 @@ public class ParticipantService {
             throw new IllegalArgumentException("방장은 그룹 알람 수정 API를 이용해주세요.");
         }
 
+        boolean transportChanged = participant.getTransportType() != request.transportType();
         participant.updateTransportType(request.transportType());
+
+        if (transportChanged) {
+            // 이동수단이 바뀌면 이전 departureAlarmTime은 옛 이동수단 기준 값이라 더 이상 유효하지
+            // 않음 — 앵커 초기화로 다음 GPS 수신 시 새 이동수단 기준으로 플라스크 강제 재호출
+            participant.updateCurrentPos(null);
+            participant.updateAlarmInfo(null, null);
+        }
 
         // 본인 제외 나머지 참가자들에게 참가자 정보 변경 FCM Data 발송
         List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);

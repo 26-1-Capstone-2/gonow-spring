@@ -122,9 +122,15 @@ public class AppointmentService {
         Participant host = participantRepository.findHostWithAppointment(appointmentId, memberId)
                 .orElseThrow(() -> new IllegalArgumentException("약속을 찾을 수 없거나 방장 권한이 없습니다."));
 
-        if (host.getAppointment().getAppointmentStatus() == AppointmentStatus.ACTIVE) {
+        Appointment appointment = host.getAppointment();
+        if (appointment.getAppointmentStatus() == AppointmentStatus.ACTIVE) {
             throw new IllegalStateException("이미 이동 중인 참가자가 있는 약속은 수정할 수 없습니다.");
         }
+
+        // 참가자별 이동수단은 목적지/날짜/시간과 달리 각자 독립적으로 계산되므로(다른 참가자
+        // 경로에 영향 없음), 방장이 자기 이동수단만 바꾼 경우까지 참가자 전원을 리셋할 필요는 없음
+        boolean scheduleChanged = isScheduleChanged(appointment, request);
+        ParticipantStatus newStatus = resolveInitialStatus(request.planDate());
 
         Location destination = new Location(
                 request.destName(),
@@ -132,25 +138,43 @@ public class AppointmentService {
                 new Point(request.destLat(), request.destLng())
         );
 
-        host.getAppointment().update(request.planDate(), request.targetTime(), destination);
+        appointment.update(request.planDate(), request.targetTime(), destination);
         host.updateTransportType(request.transportType());
 
-        // 날짜 변경 시 참가자 상태 일괄 재조정 (SCHEDULED/READY/DEPARTING 대상)
-        ParticipantStatus newStatus = resolveInitialStatus(request.planDate());
-        participantRepository.bulkResetStatusByAppointmentId(appointmentId, newStatus);
-        // target_time 변경 시 departureAlarmTime + currentPos 리셋 → 앵커 초기화로 플라스크 강제 재호출
-        participantRepository.bulkResetAlarmInfoByAppointmentId(appointmentId);
+        if (scheduleChanged) {
+            // 날짜/시간/목적지 변경 시에만 참가자 전원 상태·알람 정보 일괄 재조정 (SCHEDULED/READY/DEPARTING 대상)
+            participantRepository.bulkResetStatusByAppointmentId(appointmentId, newStatus);
+            // departureAlarmTime + currentPos 리셋 → 앵커 초기화로 플라스크 강제 재호출
+            participantRepository.bulkResetAlarmInfoByAppointmentId(appointmentId);
 
-        // 방장 제외 나머지 참가자들에게 FCM Data 발송 (날짜/상태 변경 알림)
-        List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);
-        if (!tokens.isEmpty()) {
-            fcmSender.sendAllData(tokens, Map.of(
-                    "appointment_id", String.valueOf(appointmentId),
-                    "participant_status", newStatus.name()
-            ));
+            // 방장 제외 나머지 참가자들에게 FCM Data 발송 (날짜/상태 변경 알림)
+            List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);
+            if (!tokens.isEmpty()) {
+                fcmSender.sendAllData(tokens, Map.of(
+                        "appointment_id", String.valueOf(appointmentId),
+                        "participant_status", newStatus.name()
+                ));
+            }
+        } else {
+            // 방장 자신의 이동수단만 바뀐 경우 — 방장 본인 앵커만 초기화, 나머지 참가자는 건드리지 않음
+            host.updateStatus(newStatus);
+            host.updateCurrentPos(null);
+            host.updateAlarmInfo(null, null);
         }
 
         return AppointmentUpdateResponse.from(newStatus);
+    }
+
+    // 목적지/날짜/시간이 실제로 바뀌었는지 비교 — 위도/경도는 BigDecimal이라 DB에서 다시 읽은 값과
+    // scale이 달라질 수 있어 equals() 대신 compareTo()로 수치만 비교
+    private boolean isScheduleChanged(Appointment appointment, AppointmentUpdateRequest request) {
+        Location dest = appointment.getDestination();
+        return !appointment.getPlanDate().isEqual(request.planDate())
+                || !appointment.getTargetTime().isEqual(request.targetTime())
+                || !dest.name().equals(request.destName())
+                || !dest.address().equals(request.destAddress())
+                || dest.point().lat().compareTo(request.destLat()) != 0
+                || dest.point().lng().compareTo(request.destLng()) != 0;
     }
 
     // 도착 예정 대시보드 조회

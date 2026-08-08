@@ -1,6 +1,6 @@
 # GPS 폴링 버그 목록
 
-마지막 업데이트: 2026-08-03
+마지막 업데이트: 2026-08-08
 
 해결된 버그는 `docs/history/resolved-bugs.md` 참고.
 
@@ -12,39 +12,15 @@
 
 ---
 
-### 🟡 버그14 — 추방/방 삭제 시 OS 등록 단계별 알람 미취소 [영향 낮음]
-
-→ 아래 버그14 상세 참고
-
----
-
 ### 🟡 버그3 — 백그라운드 폴링 interval 30초 고정 [영향 낮음]
 
 → 아래 버그3 상세 참고
 
 ---
 
-### 🟡 버그9 — 상단바 알림 깜빡임 [영향 매우 낮음]
-
-→ 아래 버그9 상세 참고
-
----
-
 ### 🟡 버그8 — 포그라운드 GPS 중복 찌르기 [영향 매우 낮음]
 
 → 아래 버그8 상세 참고
-
----
-
-### 🟡 버그1 — FCM Data 포그라운드 수신 시 backgroundAlarmTask와 타이밍 gap [간헐적, 영향 미미]
-
-→ 아래 버그1 상세 참고
-
----
-
-### 🟡 버그2 — 앱 재실행 시 로그인 전 공백 [영향 매우 낮음]
-
-→ 아래 버그2 상세 참고
 
 ---
 
@@ -90,42 +66,19 @@
 
 ---
 
-### 🟡 버그28 — 백그라운드 위치 추적 알림에 존재하지 않는 `notificationChannelId` 옵션 사용 [영향 미확인, 실기기 검증 필요]
-
-→ 아래 버그28 상세 참고
-
----
-
 ### 🟡 버그29 — READY 상태 GPS interval 계산이 `departureAlarmTime` 임박을 반영 못 해 DEPARTING 전환이 로컬 1단계 알람보다 늦어짐 [영향 중간]
 
 → 아래 버그29 상세 참고
 
 ---
 
+### 🟡 버그34 — 자가용(DRIVING) 정지 상태에서 `departureAlarmTime`이 새벽 4시 최초 계산값에 고정, 시간 경과에 따른 교통상황 변화 미반영 [영향 중간]
+
+→ 아래 버그34 상세 참고
+
+---
+
 ## 미수정 버그 상세
-
----
-
-### 🟡 버그1 — FCM Data 포그라운드 수신 시 backgroundAlarmTask와 타이밍 gap [간헐적, 영향 미미]
-
-**파일**: `src/tasks/backgroundAlarmTask.ts`
-
-**원인**:
-- `backgroundAlarmTask`에 `AppState.currentState === 'active'` skip 가드가 있으나, AppState가 아직 `active`로 갱신되기 전 짧은 틈에 태스크가 실행될 수 있음
-- 이 경우 `backgroundAlarmTask`가 AsyncStorage에 ID를 쓰고 `startBackgroundLocationUpdates()` 호출
-- 직후 `fcmSub`의 `alarmService.start()` → `handOffFromBackground()`가 AsyncStorage ID를 지워서 충돌 없이 정리됨
-
-**현재 증상**: 포그라운드 FCM 수신 직후 `/location`이 간헐적 1회 추가 발생 가능
-**영향**: 서버는 동일 상태 반환하므로 기능적 문제 없음. 완전 방어는 AppState 타이밍 특성상 불가.
-
----
-
-### 🟡 버그2 — 앱 완전 종료 후 재실행 시 GPS 폴링 복구 (로그인 전 공백)
-
-**파일**: `src/screens/auth/LoginScreen.tsx`
-
-**현황**: 로그인 성공 직후 `getAlarms` 호출 + `alarmService.start()` 코드 구현 완료. `isRunning()` 중복 가드도 추가 완료.
-**남은 문제**: 앱 완전 종료 → 재실행 → **로그인 화면 진입 ~ 로그인 버튼 누르기 전** 구간에서는 JWT 없어서 폴링 없음. 로그인 후 즉시 복구되므로 실용적 영향 낮음.
 
 ---
 
@@ -146,32 +99,6 @@
 
 ---
 
-### 🟡 버그9 — 3초 중복 active 시 상단바 알림 깜빡임 [영향 낮음]
-
-**파일**: `app/_layout.tsx` 98~106번 줄
-
-**원인**:
-- Android에서 AppState `active`가 짧은 간격으로 연속 발화하는 경우가 있음 (알림 탭, GPS 권한 다이얼로그 닫힘 등)
-- 이때 3초 중복 가드가 작동하지만, `stopBackgroundLocationUpdates()`를 **가드 체크 전에 무조건 실행**함
-- 중복 active 케이스에서도 stop → start 왕복이 발생 → 상단바 "GoNow 알람 실행 중" 알림 순간 깜빡임
-
-**현재 코드 흐름**:
-```ts
-await stopBackgroundLocationUpdates();  // 무조건 stop
-if (now - lastForegroundAt < 3000) {    // 중복 판별
-  if (alarmService.hasRunning()) {
-    await startBackgroundLocationUpdates(); // 바로 재start → 불필요한 왕복
-  }
-  return;
-}
-```
-
-**수정 방향**: `stopBackgroundLocationUpdates()` 호출을 3초 가드 통과 후로 이동. 단, `backgroundAlarmTask` 경로(foregroundService 없음)를 foregroundService 포함 버전으로 교체하려면 stop이 필요한 구조적 이유도 있어 신중히 수정.
-
-**현재 영향**: 기능 문제 없음. 상단바 알림 깜빡임 UX만 저하. **후순위**.
-
----
-
 ### 🟡 버그8 — 포그라운드에서 GPS 하드웨어 중복 찌르기 (배터리 낭비)
 
 **현상**: 포그라운드일 때 GPS 하드웨어가 두 번 찍힘
@@ -187,16 +114,6 @@ if (now - lastForegroundAt < 3000) {    // 중복 판별
 - `app/_layout.tsx` — AppState active/background 핸들러에서 각각 다른 옵션으로 호출
 
 **롤백 방법**: `startBackgroundLocationUpdates()` 호출부에서 파라미터 제거하면 원래 상태로 돌아감
-
----
-
-### 🟡 버그14 — 추방/방 삭제 시 OS 등록 단계별 알람 미취소 [영향 낮음]
-
-**원인**:
-- 방장이 참가자 추방 또는 방 삭제 시 피해 참가자는 서버 404로 폴링만 중단됨
-- OS에 이미 등록된 2~4단계 단계별 알람은 취소되지 않고 예정 시각에 계속 울림
-
-**수정 방향**: FCM으로 추방/삭제 사실을 피해 참가자에게 알리고, 프론트에서 `cancelRemainingStages()` 호출. 또는 `notifee.cancelAllTriggerNotifications()`로 전체 취소.
 
 ---
 
@@ -324,36 +241,6 @@ function getEffectiveDate(): string {
 
 ---
 
-### 🟡 버그28 — 백그라운드 위치 추적 알림에 존재하지 않는 `notificationChannelId` 옵션 사용 [영향 미확인, 실기기 검증 필요]
-
-**관련 저장소**: `GoNow_Fronted`(프론트)
-
-**파일**: `src/tasks/backgroundLocationTask.ts:61` (`startBackgroundLocationUpdates()`)
-
-**증상**:
-```ts
-await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-  accuracy: Location.Accuracy.High,
-  timeInterval: 30000,
-  distanceInterval: 0,
-  foregroundService: {
-    notificationTitle: 'GoNow 알람 실행 중',
-    notificationBody: '출발 시간을 모니터링하고 있어요.',
-    notificationColor: '#4CAF50',
-    notificationChannelId: CHANNEL_SILENT,   // ← 무음 채널로 보내려는 의도
-  },
-});
-```
-설치된 `expo-location`(`~19.0.8`) 타입 정의(`node_modules/expo-location/build/Location.types.d.ts:180-197`)를 직접 확인한 결과, `LocationTaskServiceOptions`가 실제로 지원하는 필드는 `notificationTitle`/`notificationBody`/`notificationColor`/`killServiceOnDestroy` 4개뿐이고 `notificationChannelId`는 이 버전 API에 존재하지 않는다(타입 정의가 오래돼서가 아니라 애초에 없는 옵션).
-
-**원인 추정**: 백그라운드 GPS 추적 중 상단바에 상시로 뜨는 "GoNow 알람 실행 중" 알림을 `CHANNEL_SILENT`(무음 채널)로 보내려는 의도였을 것으로 보이나, 이 프로퍼티가 네이티브 모듈에 전달될 때 조용히 무시될 가능성이 높음 — 즉 해당 알림이 무음 채널이 아니라 안드로이드 기본 채널(소리/진동 있을 수 있음)로 뜨고 있을 가능성이 있음.
-
-**미확인 사항 (실기기 검증 필요)**: 타입 정의상 없는 필드라는 것만 코드로 확인했고, 실제 런타임에서 이 알림이 소리/진동을 내는지는 아직 실기기로 검증하지 않음.
-
-**수정 방향**: (1) 실기기에서 백그라운드 추적 시작 시 상단바 알림이 무음인지 직접 확인. (2) 무음이 아니라면, `expo-location`이 공식 지원하는 방식으로 채널을 지정하거나(문서 확인 필요), 애초에 이 옵션 없이도 무음으로 뜨게 만드는 다른 방법(예: 안드로이드 알림 채널을 앱 시작 시 미리 무음으로 생성해두고 OS가 그 채널을 재사용하게 하는 방식)을 검토.
-
----
-
 ### 🟡 버그29 — READY 상태 GPS interval 계산이 `departureAlarmTime` 임박을 반영 못 해 DEPARTING 전환이 로컬 1단계 알람보다 늦어짐 [영향 중간]
 
 **관련 저장소**: `gonow-flask`(플라스크), 연관 로직: 스프링 `JourneyService.updateLocation()`(READY 분기), 프론트 로컬 알림(`notifications.ts`)
@@ -371,17 +258,31 @@ await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
 
 ---
 
+### 🟡 버그34 — 자가용(DRIVING) 정지 상태에서 `departureAlarmTime`이 새벽 4시 최초 계산값에 고정, 시간 경과에 따른 교통상황 변화 미반영 [영향 중간]
+
+**관련 저장소**: 스프링(연관: 플라스크 `kakao_route.py` — 카카오모빌리티 실시간 소요시간 조회)
+
+**파일**: `JourneyService.java`(`updateLocation()`, READY 상태 분기)
+
+**증상**: 자가용 여정에서 사용자가 새벽 4시 READY 전환 이후 실제 출발 시각까지 anchor 지점에서 500m 이상 이동하지 않으면(예: 목표 시각이 오후인데 그때까지 집에서 대기), `departureAlarmTime`이 재계산되지 않고 그대로 유지된다. 이 값은 새벽 4시(도로가 한산한 시간대)의 실시간 카카오모빌리티 소요시간을 기준으로 계산된 값이라, 실제 출발 시각(예: 오후 퇴근시간대)의 실제 교통 상황과 크게 어긋날 수 있다.
+
+**원인**: `updateLocation()`의 재계산 트리거는 `isFirstReceive`(최초 1회)·`isOutOfAnchor`(anchor로부터 500m 이상 이동)·`isNearDest`(목적지 근접) 세 조건의 OR로만 작동하며, 순수 시간 경과만으로 재계산을 유도하는 트리거가 없다(`ReadyTransitionScheduler`는 매일 새벽 4시 SCHEDULED→READY 전환만, `ArrivedTransitionScheduler`는 매분 targetTime 초과 확인만 수행 — 둘 다 `departureAlarmTime` 재계산은 하지 않음). 지하철(TRANSIT)은 시간표 기반이라 계산 시점과 무관하게 값이 동일해서 이 트리거 설계로 충분하지만, 자가용은 계산 시점의 실시간 교통 상황에 따라 값 자체가 달라지므로 같은 트리거로는 부족하다. 대화 중 사용자 질문("새벽 4시 1회 + 500m마다 재계산이면 충분히 안전한가")을 계기로 코드 조사해서 발견함.
+
+**수정 방향(미착수)**: READY 상태에서 500m 미이동이어도, `departureAlarmTime`까지 남은 시간이 일정 임계값(예: 1~2시간) 이내로 좁혀지면 시간 기반으로 최소 1회 이상 재계산을 강제하는 로직 추가 검토. 버그29(interval이 `departureAlarmTime` 임박을 반영 못 함)와 연관 있어 보이나 별개 문제로 구분 — 버그29는 "이미 확정된 `departureAlarmTime`에 도달하는 시점"의 폴링 주기 문제고, 이번 건은 "`departureAlarmTime` 값 자체의 정확도"가 시간 경과로 열화되는 문제.
+
+**추가 수정 후보 — 카카오모빌리티 `/v1/future/directions`(미래 운행 정보 길찾기) 활용**: 카카오모빌리티가 미래 시각(`departure_time`, 현재 이후 필수) 기준 소요시간 예측을 제공하는 별도 API를 갖고 있음(현재 `kakao_route.py`가 쓰는 실시간 `/v1/directions`와는 다른 엔드포인트). 2-pass로 적용 가능: 1차로 실시간 `/v1/directions`를 호출해 대략적인 소요시간을 구하고, 그 값으로 추정한 출발시각을 `departure_time`으로 삼아 2차로 `/v1/future/directions`를 호출해 그 미래 시각 기준 예측치로 보정. 새벽 4시 최초 계산 시점에 이미 실제 출발 예정 시각대의 예측 교통상황을 반영할 수 있어, 계산 시점과 실제 출발 시점의 교통상황이 어긋나는 버그34의 근본 원인을 직접 완화하는 방향.
+
+**주의(실측 검증 필요, 미검증 상태로 도입 금지)**: 2-pass만으로 오차가 항상 충분히 작아진다는 보장은 없음 — 1차 추정이 크게 벗어날수록(예: 장거리 구간) 수렴이 느릴 수 있고, 정체 시작 경계 부근처럼 소요시간이 급격히 변하는 구간에서는 오차가 더 클 수 있음. 카카오모빌리티 API의 실제 응답 지연시간·쿼터 정책도 이번 세션에서 실측한 바 없음. 도입 시 다양한 거리·시간대 조합으로 실제 API를 여러 번 호출해 수렴 여부와 오차 범위를 실측 검증한 뒤 pass 횟수/임계값을 확정할 것 — "2-pass면 충분하다"를 검증 없이 전제하지 말 것.
+
+---
+
 ## 인과관계 요약
 
 ```
 현재 남은 실질적 문제:
 
-버그1 (FCM 포그라운드 타이밍 gap)    → 간헐적 /location 1회 추가, 기능 영향 없음, 완전 방어 불가
-버그2 (앱 재실행 폴링 복구)           → 로그인 전까지 폴링 없음, 로그인 후 즉시 복구되므로 영향 낮음
 버그3 (백그라운드 30초 고정)          → 배터리 비효율, 기능 영향 없음, 후순위
-버그9 (3초 중복 active 상단바 깜빡임) → 기능 영향 없음, 후순위
 버그8 (포그라운드 GPS 중복 찌르기) → 배터리 낭비, 기능 영향 없음, 후순위
-버그14 (추방/방 삭제 시 단계별 알람 미취소) → 낮음, FCM 연동 필요(그룹 참가자 동기화 인프라는 구축됨, 로컬 알람 취소 연동만 남음)
 버그17 (자정~새벽 4시 날짜 경계)     → 정책 결정 후 수정, 현행 유지도 가능
 버그21 (인증 없는 테스트 스케줄러 엔드포인트) → 의도적으로 남겨둠, 테스트 필요 없어지면 파일 삭제
 버그22 (막차 첫 계산이 새벽 1~4시대에 걸리면 이미 지난 시각 그대로 응답) → 재현 조건 희귀해서 수정 시도했다가 롤백, 버그23과 맞물림
@@ -389,8 +290,8 @@ await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
 버그24 (플라스크 4xx/5xx가 500으로 뭉개짐) → 버그22 조사 중 발견, 수정했다가 원래 목적과 무관해 롤백
 버그25 (/location 폴링 4xx 시 무알림) → 버그22 조사 중 발견, 수정했다가 롤백(단 메시지 파싱 유틸은 시나리오 A용으로 유지)
 버그27 (도착 예정 알림 커스텀 사운드 시스템 목록 등록) → 버그 아님. 프로토타입으로 검증까지 마쳤으나 우선순위 낮아 코드 롤백, 레시피만 기록해둠
-버그28 (백그라운드 위치 추적 알림에 존재하지 않는 notificationChannelId 옵션) → 타입 정의상 없는 옵션 확인됨, 실제 무음 여부는 실기기 검증 필요
 버그29 (READY interval 계산이 departureAlarmTime 임박 미반영) → 실기기 테스트로 발견, 최대 5분까지 DEPARTING 전환 지연 가능. 플라스크 수정 필요, 착수 전
+버그34 (자가용 정지 시 departureAlarmTime이 새벽 4시 값에 고정) → 대화 중 질문 계기로 코드 조사해서 발견, 시간 기반 재계산 트리거 부재. 스프링 수정 필요, 착수 전
 
-해결된 버그(버그4~7, 10-A, 10-B, 11, 12, 13, 15, 16, 18, 19, 20, 26, 임시 interval 변경, Picker New Architecture 네이티브 크래시, 출발 알람 채널 사전 생성/단계별 커스텀 사운드, 배터리 최적화 상태 확인 네이티브 모듈, 단계별 알람 중복 발송/재발송 등)는 docs/history/resolved-bugs.md 참고.
+해결된 버그(버그1, 2, 4~7, 9, 10-A, 10-B, 11, 12, 13, 14, 15, 16, 18, 19, 20, 26, 28, 30, 35, 36, 37, 38, 39, 임시 interval 변경, Picker New Architecture 네이티브 크래시, 출발 알람 채널 사전 생성/단계별 커스텀 사운드, 배터리 최적화 상태 확인 네이티브 모듈, 단계별 알람 중복 발송/재발송 등)는 docs/history/resolved-bugs.md 참고.
 ```

@@ -1,6 +1,6 @@
 # GPS 폴링 버그 — 해결된 항목 아카이브
 
-마지막 업데이트: 2026-08-03
+마지막 업데이트: 2026-08-08
 
 미해결 버그는 루트 `BUGS.md` 참고.
 
@@ -88,6 +88,7 @@
 | 수정 화면 진입 시 `editAlarm` 초기값이 DEFAULT_ALARM → 데이터 파박 교체 | `PersonalAlarmSheet.tsx`, `HomeAlarmSheet.tsx`, `GroupAlarmSheet.tsx` | ✅ `useState` 초기값에 `initialAlarm` 데이터 반영 |
 | `HomeAlarmSheet` 수정 진입 시 막차/데드라인 모드 파박 전환 | `HomeAlarmSheet.tsx` | ✅ `editAlarm` 초기값에 `mode` 포함 |
 | 날짜별 리스트 Sheet `animateOnMount` 미설정으로 끝에서 튀는 현상 | `PersonalAlarmSheet.tsx`, `HomeAlarmSheet.tsx`, `GroupAlarmSheet.tsx` | ✅ `animateOnMount={false}` 추가 |
+| 버그30: 귀가(home) 3·4단계 알람 문구가 `isLastMode` 무관하게 "막차"로 고정 | `notifications.ts`(`buildAlarmBody`) | ✅ `HOME_LAST_TRAIN_MESSAGES`로 `isLastMode`일 때만 막차 문구 사용하도록 분기. 겸사겸사 1~3단계를 건너뛰고 4단계가 바로 발송되는("이미 늦음") 케이스 전용 문구(`LATE_STAGE4_MESSAGES`)도 신설 |
 
 ### ✅ 수정 완료 — 스와이프 킬 후 재실행 시 로그인 전 `/location` 호출
 
@@ -145,7 +146,7 @@
 - 스프링: `AppointmentService.joinAppointment()`, `AppointmentService.deleteAppointment()`, `ParticipantService.deleteParticipant()`, `ParticipantService.updateTransportType()`에서 관련 참가자들에게 FCM Data(`sync_event: participants_changed` / `appointment_deleted`) 발송. 추방인 경우 쫓겨난 당사자 본인에게만 별도로 `removed_from_appointment`를 단건 발송(`FcmSender.sendData`)
 - 프론트: `app/_layout.tsx`의 FCM 리스너에 3개 분기 추가, `appointmentStatusStore`에 `participantsVersion`/`deletedAppointmentId`/`removedAppointmentId` 추가, `GroupAlarmSheet`/`GroupAllAlarmSheet`가 이를 구독해 상세정보 재조회·강제 종료(Alert)·목록 새로고침(`bumpAlarmVersion`)을 수행
 
-**참고**: 약속 삭제/추방 시 OS에 등록된 로컬 단계별 알람 취소는 이번 범위에서 제외(버그14와 함께 별도 처리 예정)
+**참고**: 약속 삭제/추방 시 OS에 등록된 로컬 단계별 알람 취소는 이번 범위에서 제외됐다가, 이후 버그14로 별도 처리됨(아래 참고).
 
 ### ✅ 신규 구현 — 필수 권한(알림/위치/알람/배터리) 온보딩 화면 (gonow-app)
 
@@ -410,3 +411,194 @@ estimated_arrival = datetime.now() + timedelta(seconds=duration_sec)
 ### ✅ 버그26 — `backgroundLocationTask.ts`의 미정의 함수(`removeStagingKey`) 호출로 그룹 약속 4xx 시 크래시
 
 버그18 수정 작업 중 같은 파일을 손보면서 함께 수정. `await removeStagingKey(key);`(정의되지 않은 함수, 그룹 약속 `/location` 4xx 처리 분기)를 `await cancelStagedAlarms(key);`로 교체.
+
+---
+
+## 수정 완료 목록 (2026-08-07~08) — 코드 수정 완료, 서버 재기동 실측 검증 필요
+
+> 카카오맵 TRANSIT 딥링크 기능(`docs/reference/kakao-map-deeplink-spec.md` §2.3/2.4) 설계 중, ODsay 파라미터 실측 검증 과정에서 부수적으로 발견된 기존 버그 3건. 전부 `gonow-flask`(`CounterClockEngine2`) 단독 수정. 상세 실측 근거는 `kakao-map-deeplink-spec.md` §4.4~4.6, ODsay/TMAP/카카오 3사 비교 조사는 `docs/reference/transit-provider-research.md` 참고 — 여기서는 요약만 기록.
+
+### ✅ 버그31 — `TransportMode`(`SUBWAY`/`BUS`) 선호가 잘못된 ODsay 파라미터(`SearchType`)로 전송되어 사실상 한 번도 반영 안 됐을 가능성
+
+**파일**: `gonow-flask/CounterClockEngine2/CounterClockEngine/gps_api/core/transit_route.py`
+
+**원인**: 지하철/버스 선택값을 `SearchPathType`이 아니라 `SearchType`(ODsay의 "도시내/도시간" 구분 파라미터)에 넣고 있었음. 실측 결과 `SearchType=1`/`2`는 ODsay가 `error -99`(검색결과 없음)로 응답 → 기존 폴백 로직(그 모드로 결과 없으면 ALL 재시도)이 매번 조용히 발동해 `SUBWAY`/`BUS` 선호가 무시된 채 항상 `ALL`처럼 동작했을 것으로 추정.
+
+**수정**: `SearchType`은 `0` 고정, `SearchPathType`에 이동수단 값(`SEARCH_TYPE_MAP` → `SEARCH_PATH_TYPE_MAP`로 개명) 전달.
+
+**검증**: 서버 재기동 후 실측 대기(코드 수정만 완료).
+
+### ✅ 버그32 — 도시간(시외) 장거리 여정이 `SearchType=0` 고정으로 인해 비정상 경로(4시간+ 우회) 응답
+
+**파일**: 동일 파일, 버그31과 함께 발견됨(버그31을 고치며 `SearchType`을 `0` 고정하면 새로 발생하는 문제)
+
+**증상**: 서울↔대전(약 143km) 검색 시 에러 없이 "성공"으로 응답하지만, 시내버스망만으로 우회 경로를 억지로 짜맞춰 250분(4시간 15분)짜리 비정상 경로를 반환. KTX/고속버스는 검색 대상에서 아예 빠짐.
+
+**수정**: 두 지점 간 직선거리가 70km(수도권 광역 통근권 기준)를 넘으면 `SearchType=1`(도시간)로 자동 전환 — `optimizer.py`의 `haversine` 재사용, `INTERCITY_DISTANCE_THRESHOLD_M` 상수 신설.
+
+**검증**: 서버 재기동 후 실측 대기.
+
+### ✅ 버그33 — `PriorityType`(`MIN_TRANSFER`/`MIN_WALK`)가 애초에 존재하지 않는 ODsay `OPT` 정렬 개념에 매핑되어 있었음
+
+**파일**: 동일 파일 + `gps_api/routes/alarm.py`
+
+**원인**: ODsay `OPT`은 `0`(추천경로)/`1`(타입별정렬) 두 값뿐이고 "최소환승"/"최소도보" 같은 정렬 기준 자체가 없음. 기존 코드는 `MIN_TRANSFER`→`OPT=1`, `MIN_WALK`→`OPT=2`로 보내고 있었는데, `OPT=2`는 문서에도 없는 값이라 실측상 `OPT=1`과 동일하게 동작했음(정의된 기본값 `0`으로 처리될 거라는 예상과 다름). 또한 `path = paths[0]`(ODsay "추천" 1위)을 무조건 신뢰하고 있었는데, 실측 결과 이게 진짜 최단시간조차 보장하지 않는 것으로 확인됨(동률 시 배차간격 기준으로 갈리는 것으로 추정).
+
+**수정**: `OPT`은 `0`(추천경로) 고정으로 보내고, Flask가 ODsay 응답 후보 리스트를 직접 재정렬하도록 변경: `MIN_TIME`→`info.totalTime`, `MIN_TRANSFER`→`busTransitCount+subwayTransitCount`, `MIN_WALK`→`info.totalWalk` 각각 최솟값 선택(`PRIORITY_OPT_MAP` → `PRIORITY_RANK_MAP`로 개명, 값 자체는 원래도 정확해서 그대로 유지).
+
+**2026-08-08 추가 — `MIN_WAIT` 신설 + 동점 시 계단식 정렬**: `PriorityType`에 `MIN_WAIT`(최소대기, `info.totalIntervalTime` 기준) 추가해 카카오맵 자체 정렬 옵션 4종과 완전히 1:1 매칭(`kakao-map-deeplink-spec.md` §2.4 표 참고). 또한 1순위 기준이 동점인 후보가 여러 개 나올 수 있다는 게 확인돼(예: 최소환승으로 설정했는데 환승 횟수가 같은 경로가 2개 이상), `rank_key`가 단일 값이 아니라 `(1순위, 2순위, 3순위, 4순위)` 튜플을 반환하도록 변경 — 유저가 고른 기준을 1순위로 두고, 2순위는 항상 `totalTime`, 나머지는 환승→도보→대기 순으로 채우는 계단식 정렬로 동점을 해소.
+
+**검증**: 서버 재기동 후 실측 대기.
+
+---
+
+### ✅ 버그36 — 운영 DB `priority_type` 컬럼이 네이티브 MySQL ENUM이라 `MIN_WAIT` 추가 후 저장 시도 시 500 에러
+
+**파일**: `src/main/java/com/timemate/gonow/domain/member/entity/MemberSetting.java`(`priorityType` 필드), 운영 MySQL `member_setting` 테이블
+
+**증상**: `PriorityType`에 `MIN_WAIT`를 추가하고 배포까지 완료했는데(GitHub Actions 배포 성공 확인됨), 프론트에서 "최소 대기"로 설정 저장 시 "저장 실패, 다시 시도해주세요" 에러. 다른 값(`MIN_TIME` 등)은 정상 저장됨.
+
+**원인**: 운영 DB 스키마를 직접 확인한 결과, `priority_type` 컬럼이 Hibernate에 의해 MySQL 네이티브 `ENUM('MIN_TIME', 'MIN_TRANSFER', 'MIN_WALK')` 타입으로 생성돼 있었음(VARCHAR가 아님). 운영은 `ddl-auto: update`(로컬은 `create`)라 자바 enum에 `MIN_WAIT`를 추가해도 기존 컬럼의 허용값 목록을 자동으로 안 넓혀줌 — JSON 역직렬화(자바 enum 파싱)는 성공하므로 400이 아니라 500이 뜨고, MySQL이 INSERT/UPDATE 시점에 허용 목록에 없는 값이라고 거부해서 `GlobalExceptionHandler`의 catch-all(500)로 떨어짐. 프론트는 모든 에러를 "저장 실패"로 뭉뚱그려서 원인 파악이 어려웠음.
+
+**진단 방법**: `curl`로 운영 서버에 직접 회원가입 → 로그인 → `PATCH /api/members/me/setting`(`priority_type: MIN_WAIT`) 요청을 보내 400이 아니라 500이 뜨는 걸 확인 → JSON 파싱은 성공, DB 저장 단계 실패로 원인을 좁힘. 이후 실제 테이블 스키마를 직접 확인해 네이티브 ENUM 컬럼임을 확정.
+
+**수정**: 운영 MySQL에 직접 SQL 실행:
+```sql
+ALTER TABLE member_setting
+MODIFY COLUMN priority_type ENUM('MIN_TIME', 'MIN_TRANSFER', 'MIN_WALK', 'MIN_WAIT') NOT NULL DEFAULT 'MIN_TIME';
+```
+기존 값을 그대로 포함시켜서 기존 데이터 유실 없이 안전하게 확장.
+
+**향후 재발 방지**: `@Enumerated(STRING)`으로 매핑된 필드에 새 enum 상수를 추가할 때마다(`PriorityType` 외에도 `TransitType`/`AppointmentStatus`/`JourneyStatus`/`ParticipantStatus` 등), 코드 배포와 별개로 운영 DB에 위와 같은 수동 `ALTER TABLE MODIFY COLUMN`이 항상 필요함 — 배포 체크리스트에 추가 검토 필요.
+
+---
+
+### ✅ 버그35 — 프론트 `npx tsc --noEmit` 타입 에러 7건 (`myStatus`/목적지 좌표 옵셔널 필드 미가드)
+
+**파일(프론트, `GoNow_Fronted`)**: `HomeAlarmSheet.tsx`, `PersonalAlarmSheet.tsx`, `HomeAllAlarmSheet.tsx`, `PersonalAllAlarmSheet.tsx`, `DailyAlarmScreen.tsx`
+
+**증상**: `npx tsc --noEmit` 실행 시 7건의 타입 에러 발생. TRANSIT 딥링크 작업(`isDriving`→`transportMode` 리팩터링) 검증 중 발견됐으나, `git diff` 대조 결과 그 리팩터링과는 무관한 기존 이슈로 확인됨.
+
+**원인 및 수정**:
+- **패턴 A (5건)**: `alarm.myStatus`가 옵셔널(`string | undefined`)인데 존재 체크 없이 `['READY', 'DEPARTING', 'MOVING', 'NEARDEST'].includes(alarm.myStatus)`에 그대로 넘겨서 발생. 5개 파일 모두 동일하게 `!!alarm.myStatus && [...].includes(alarm.myStatus)`로 존재 체크를 추가.
+- **패턴 B (2건, `PersonalAlarmSheet.tsx`)**: `handleSave()`의 목적지 좌표 검증이 `if (!isEditMode && (!editAlarm.dest_lat || !editAlarm.dest_lng))`로, **수정 모드일 때만 검증을 건너뛰도록** 돼 있었음. 목적지 좌표가 필수라는 규칙은 생성/수정과 무관하게 항상 성립해야 하므로, 타입 우회가 아니라 `!isEditMode &&` 조건 자체를 제거해 항상 검증하도록 수정 — 실제로 놓치고 있던 검증 공백이었음.
+
+**검증**: `npx tsc --noEmit` 재실행으로 7건 전부 해소 확인(무관한 기존 이슈인 버그28만 남음).
+
+---
+
+### ✅ 버그9 — 3초 내 중복 `active` 이벤트 시 상단바 알림(GPS 추적 중) 순간 깜빡임
+
+**파일**: `app/_layout.tsx`(AppState `change` 리스너)
+
+**증상**: Android에서 알림 탭·GPS 권한 다이얼로그 닫힘 등으로 `AppState`의 `active`가 짧은 간격(3초 이내)으로 연속 발화하는 경우, 상단바의 "GoNow 알람 실행 중" 알림이 순간적으로 꺼졌다 켜짐.
+
+**원인**: `active` 핸들러가 3초 중복 판별 가드보다 **먼저** `stopBackgroundLocationUpdates()`를 무조건 호출하고 있었음. 원래 이 무조건 stop은 헤드리스(앱 완전 종료 후 FCM으로 깨어난) 상태에서 `foregroundService` 없이 시작된 위치 추적을(`backgroundAlarmTask.ts` 참고 — Android 정책상 백그라운드에서는 foregroundService 없이만 시작 가능) 포그라운드 진입 시 `foregroundService` 포함 버전으로 승격시키기 위한 목적으로 필요했음. 하지만 이 승격은 매 resume 사이클의 **최초 1회**만 의미가 있는데도, 그 직후 3초 내 중복 `active`가 오면 이미 정상 승격된 추적을 또 stop→(중복 분기에서) start로 헛돌리면서 알림이 깜빡였음.
+
+**수정**: `lastForegroundAt` 갱신과 중복 판별을 `stopBackgroundLocationUpdates()` 호출보다 앞으로 이동. 최초(비중복) `active`에서는 기존과 동일하게 stop→`startReadyAlarms()`→(실행 중이면) start가 그대로 실행되어 헤드리스→포그라운드 승격 로직은 그대로 보존되고, 중복으로 판별된 이후 이벤트는 아무 것도 하지 않고 즉시 반환하도록 변경. 부수 효과로, `lastForegroundAt`을 첫 `await` 이전(동기 구간)에 세팅하게 되어 두 `active` 이벤트가 겹칠 때 두 번째 이벤트가 갱신 전 값을 보고 "중복 아님"으로 오판하던 레이스도 함께 제거됨.
+
+**검증**: `npx tsc --noEmit`으로 회귀 없음 확인(무관한 기존 이슈인 버그28만 남음). 재현 조건이 까다로워(우연한 이벤트 겹침 필요) 실기기 재현 테스트 대신 코드 검토로 안전성 확인 후 반영.
+
+---
+
+### ✅ 버그28 — 백그라운드 위치 추적 알림에 존재하지 않는 `notificationChannelId` 옵션 사용
+
+**파일**: `src/tasks/backgroundLocationTask.ts`(`startBackgroundLocationUpdates()`)
+
+**증상**: `foregroundService` 옵션에 `notificationChannelId: CHANNEL_SILENT`를 지정해서 상단바 "GoNow 알람 실행 중" 알림을 무음 채널로 보내려 했으나, 설치된 `expo-location` 타입 정의(`LocationTaskServiceOptions`)엔 이 필드 자체가 없어 `npx tsc --noEmit`에서 컴파일 에러(`TS2353`)로 잡히던 상태였음.
+
+**조사**: `node_modules`에 포함된 안드로이드 네이티브 구현(`expo-location/android/.../LocationTaskService.kt`)을 직접 확인. `startForeground()`가 읽는 옵션은 `notificationTitle`/`notificationBody`/`notificationColor` 3개뿐이고, 채널ID는 `appId + ":" + taskName`으로 **네이티브 내부에서 고정**되어 앱이 지정할 방법 자체가 없음(즉 `notificationChannelId`는 애초에 전달될 경로가 없는 죽은 옵션). 그리고 이 고정 채널을 생성하는 `prepareChannel()`이 `NotificationManager.IMPORTANCE_LOW`로 만들고 있어서, 소리·진동 없이 알림창에만 조용히 뜨는 것이 이미 보장돼 있었음 — 원래 의도(무음 상단바 알림)는 이 옵션과 무관하게 이미 100% 달성된 상태였음.
+
+**수정**: `notificationChannelId: CHANNEL_SILENT` 줄과 더 이상 쓰이지 않는 `CHANNEL_SILENT` import 제거. 실제 동작(무음 여부)에는 아무 변화 없음 — 죽은 코드와 타입 에러만 제거.
+
+**검증**: 네이티브 소스로 무음 여부를 확정할 수 있어 실기기 테스트 없이 반영. `npx tsc --noEmit` 재실행으로 에러 0건 확인(버그9/버그35 수정 이후 마지막으로 남아있던 이 에러까지 전부 해소).
+
+---
+
+### ✅ 버그1 — FCM Data 포그라운드 수신 시 `backgroundAlarmTask`와 타이밍 gap [코드 변경 없음, 문서만 정정]
+
+**결론**: 코드 수정 없음. 기존 BUGS.md 서술을 코드로 재검증하다가 **문서 자체가 낡아 있음**을 발견해서 바로잡음.
+
+**원래 서술의 문제**: "`fcmSub`의 `alarmService.start()` → `handOffFromBackground()`가 AsyncStorage ID를 지워서 정리된다"고 적혀 있었는데, `handOffFromBackground()`라는 함수는 현재 코드 전체(`GoNow_Fronted`)에 존재하지 않음(전체 검색 0건). 과거 리팩터링 어느 시점에 이름이 바뀌었거나 구조가 달라졌는데 문서만 안 따라간 것으로 보임.
+
+**실제 코드로 재확인한 현재 동작**: `backgroundAlarmTask.ts`(`BACKGROUND_ALARM_TASK`)와 `_layout.tsx`의 `fcmSub` 둘 다 각자 `AppState.currentState === 'active'`를 체크해서 서로 겹치지 않게 분업한다. `AppState`가 실제로 `active`로 갱신되는 시점엔 OS 스케줄링 특성상 미세한 지연이 있어, 아주 드물게 두 경로가 동시에 같은 FCM Data를 처리할 여지가 있음 — 다만 이 경우도 `_layout.tsx`의 `active` 핸들러가 진입 시 무조건 호출하는 `stopBackgroundLocationUpdates()`([[버그9]] 수정 대상이기도 했던 바로 그 호출)가 헤드리스 쪽에서 시작됐을 수 있는 위치 추적을 곧바로 정지시켜서 정리된다. 즉 정리 메커니즘 자체는 실재하되, 이름과 위치가 문서와 다를 뿐.
+
+**남은 특성(고칠 수 없음)**: `AppState` 갱신 타이밍은 OS 내부 스케줄링이라 앱 코드로 100% 결정론적으로 통제할 수 없음 — 짧은 틈 자체를 원천 차단할 방법은 없고, 발생해도 위 정리 로직으로 무해하게 수습됨.
+
+**수정**: BUGS.md에서 낡은 서술과 함께 항목 제거(더 이상 추적할 미해결 항목이 아님).
+
+---
+
+### ✅ 버그2 — 앱 완전 종료 후 재실행 시 GPS 폴링 복구(로그인 전 공백) [코드 변경 없음, 이미 해결된 상태였음을 재확인]
+
+**결론**: 코드 수정 없음. 원래 우려했던 문제는 이전 세션에서 이미 해결돼 있었고, 이번엔 그 사실과 "남아있는 항목이 왜 더 이상 손댈 게 없는지"를 재확인만 함.
+
+**원래 우려했던 문제**: 앱을 완전히 종료했다가 재실행하면, 로그인해도 GPS 폴링(알람의 핵심 동작)이 다시 시작되지 않는 게 아닌가 하는 우려.
+
+**이미 적용된 해결책**: `LoginScreen.tsx`의 `handleLogin()`이 로그인 성공 직후(토큰 저장 다음) `getAlarms()`로 오늘 알람을 조회해서, `READY`/`DEPARTING`/`MOVING`/`NEARDEST` 상태이고 `isActive`인 알람을 전부 `alarmService.start()`로 즉시 재시작한다(각 알람마다 `isRunning()` 중복 방지 체크 포함). 코드로 직접 재확인 완료.
+
+**더 이상 손댈 게 없는 이유**: 남아있던 "로그인 화면 진입 ~ 로그인 버튼 누르기 전" 구간의 폴링 공백은, 인증 토큰이 없으면 인증이 필요한 API를 애초에 호출할 수 없다는 로그인 시스템의 근본 전제 때문이라 코드로 없앨 방법이 없음 — 버그가 아니라 로그인 구조 자체의 당연한 특성.
+
+**수정**: BUGS.md에서 항목 제거(더 이상 추적할 미해결 항목이 아님).
+
+---
+
+### ✅ 버그14 — 추방/방 삭제 시 OS 등록 단계별 알람 미취소
+
+**파일**: `app/_layout.tsx`(fcmSub `appointment_deleted`/`removed_from_appointment` 분기), `src/tasks/backgroundAlarmTask.ts`
+
+**증상**: 방장이 참가자를 추방하거나 약속 자체를 삭제하면 피해 참가자에게 FCM Data(`sync_event: appointment_deleted` 또는 `removed_from_appointment`)가 이미 전송되고 있었지만, 프론트가 이 이벤트를 받아도 열려있는 상세화면을 닫아주기만 할 뿐, 그 전에 OS(notifee)에 미리 예약해둔 2~4단계 출발 알람은 취소하지 않았음 — 이미 추방/삭제된 약속인데도 예정 시각이 되면 단계별 알람이 그대로 울림.
+
+**원인 분석 중 발견한 사실**: 이 FCM Data는 앱이 포그라운드일 땐 `_layout.tsx`의 `fcmSub`(`Notifications.addNotificationReceivedListener`)가 받고, 포그라운드가 아니면(백그라운드로 전환만 됐어도, 완전 종료여도 상관없이) `backgroundAlarmTask.ts`의 헤드리스 태스크가 대신 받는 구조다. 그런데 `backgroundAlarmTask.ts`는 애초에 `sync_event` 필드 자체를 전혀 들여다보지 않고 있어서, 이 경로로 온 삭제/추방 이벤트는 완전히 무시되고 있었다 — "앱을 완전히 꺼놨을 때"뿐 아니라 "그냥 백그라운드에 둔 채(강제 종료 아님)"에도 해당되는, 원래 BUGS.md의 "영향 낮음" 표기보다 실제로는 더 자주 걸릴 수 있는 경로였음.
+
+**수정**:
+- `_layout.tsx`의 두 FCM 핸들러에 `alarmService.stop(undefined, appointmentId)` 추가. `AlarmManager.stop()`이 내부적으로 `runner.stop() → cancelRemainingStages() → cancelStagedAlarms(key)`를 이미 연쇄 호출하는 구조를 그대로 활용(별도 취소 로직 신규 작성 불필요).
+- `backgroundAlarmTask.ts`에 `sync_event === 'appointment_deleted' | 'removed_from_appointment'` 분기를 새로 추가. 헤드리스 환경이라 `alarmService`의 in-memory runner가 없으므로, `cancelStagedAlarms(`a_${appointmentId}`)`를 직접 호출하고 `ACTIVE_APPOINTMENTS_KEY`에서도 해당 ID를 즉시 제거(제거 안 해도 다음 `/location` 폴링이 서버 404를 받으면 `backgroundLocationTask.ts`의 기존 4xx 처리 로직이 결국 같은 정리를 하긴 하지만, 그 사이 폴링 간격(최대 5분)만큼 예약 알람이 늦게 취소될 수 있어 즉시 처리로 그 지연을 없앰).
+
+**검증**: `npx tsc --noEmit` 통과. 재현하려면 실제로 그룹 약속을 만들고 추방/삭제 후 예약된 단계별 알람이 안 울리는지 실기기 확인이 필요하나, 기존에 검증된 `cancelStagedAlarms`/`AlarmManager.stop()` 경로를 그대로 재사용하는 구조라 코드 검토로 안전성 확인 후 반영.
+
+---
+
+### ✅ 버그37 — 방장이 그룹 약속을 수정해도 참가자 기기의 알람이 즉시 갱신되지 않고 다음 폴링까지 지연됨
+
+**파일**: `app/_layout.tsx`(fcmSub `participant_status` 분기), `src/services/alarmService.ts`(`AlarmManager.start()`)
+
+**증상**: 방장이 그룹 약속의 목표 시각(또는 목적지/날짜)을 수정하면, 방장 본인 기기는 OS에 예약된 단계별 알람이 즉시 새 시각으로 재등록되는데, 참가자 기기는 즉시 반영되지 않고 실기기 로그상 최대 인터벌(관찰된 값: 300초)만큼 지연된 뒤에야 재등록됨.
+
+**원인**: 방장은 `GroupAlarmSheet.tsx`의 `handleSave()`가 수정 저장 직후 조건 없이 `alarmService.start(...)`를 호출해 즉시 강제 재시작되는 반면, 참가자는 `app/_layout.tsx`의 "방장 알람 수정 시 참가자 상태 동기화 FCM" 핸들러가 `participant_status === 'READY'`일 때 `if (alarmService.isRunning(undefined, appointmentId)) return;`으로 **이미 폴링 중이면 무조건 스킵**하고 있었음. 참가자는 참여 이후 알람이 항상 이미 실행 중이라 이 스킵 분기에 거의 매번 걸려, FCM으로는 아무 것도 갱신되지 않고 자기 자신의 다음 정기 폴링(서버가 마지막으로 내려준 `interval`만큼) 때가 되어서야 뒤늦게 새 `departureAlarmTime`을 받아 재등록됐음.
+
+**수정**:
+- `_layout.tsx`의 `isRunning()` 스킵 가드 제거 — 방장과 동일하게 참가자도 FCM 수신 즉시 `alarmService.start(...)`로 강제 재시작.
+- 이 과정에서 새로 발견한 부수 버그도 함께 수정: `AlarmManager.start()`가 이미 실행 중인 runner를 새 runner로 교체할 때 `isActive`(참가자 개인 알람 스위치)를 항상 `true`로 기본 초기화하고 있어서, 알람 스위치를 꺼둔 참가자가 방장 수정 FCM을 받을 때마다 스위치가 도로 켜지는 회귀가 생길 뻔했음(`getAppointment()` 응답에 참가자별 `is_active`가 아예 없어 값을 넘겨받을 방법도 없었음). `AlarmManager.start()`에서 기존 runner가 있고 호출부가 `isActive`를 명시하지 않았으면 기존 runner의 `isActive`를 그대로 이어받도록 수정 — 이 보호는 `start()`를 호출하는 모든 곳(참가자 이동수단 변경 등)에 공통 적용됨.
+
+**검증**: `npx tsc --noEmit` 통과. 실기기로 방장이 시각 수정 → 참가자 기기 로그에서 다음 폴링을 기다리지 않고 즉시 `[trigger] 취소 시도` → 새 시각 재등록 로그가 뜨는지 확인 필요.
+
+---
+
+### ✅ 버그38 — 방장이 자기 이동수단만 바꿔도 참가자 전원의 알람 정보가 불필요하게 리셋됨
+
+**파일**: `AppointmentService.java`(`updateAppointment()`)
+
+**증상**: 그룹 약속 수정 API(`PATCH /api/appointments/{id}`)는 목적지/날짜/시간/방장 이동수단을 필드 구분 없이 항상 하나의 요청으로 받는데(프론트가 매번 6개 필드를 전부 담아 보냄), 서버가 이 중 **무엇이 바뀌었는지 구분하지 않고 항상** 참가자 전원의 상태·`departureAlarmTime`·`currentPos`를 리셋하고 FCM을 발송했음. 참가자별 이동수단은 목적지/날짜/시간과 달리 각자 독립적으로 계산되어 다른 참가자 경로에 영향이 없으므로, 방장이 자기 이동수단만 바꿨을 때도 참가자 전원이 리셋당하는 건 불필요한 낭비였음(참가자 전원 대상 FCM 발송, 서버의 플라스크 재계산 유발, [[버그37]] 수정 이후엔 참가자 기기의 불필요한 강제 재시작까지 연쇄됨).
+
+**원인**: 요청으로 들어온 값과 기존 저장값이 실제로 다른지 비교하는 로직 자체가 없었음 — 요청이 오면 무조건 `bulkResetStatusByAppointmentId` + `bulkResetAlarmInfoByAppointmentId` + FCM 발송을 실행.
+
+**수정**: `isScheduleChanged()` 헬퍼를 추가해 날짜/시간/목적지(이름·주소·위도·경도)가 실제로 바뀌었는지 먼저 비교. 위도/경도는 `BigDecimal`이라 DB에서 다시 읽은 값과 scale이 달라질 수 있어(예: 저장 시 scale 8, 요청 파싱 시 다른 scale) `.equals()` 대신 `.compareTo() == 0`으로 수치만 비교. 하나라도 바뀌었으면 기존과 동일하게 참가자 전원 리셋 + FCM 발송, 방장 이동수단만 바뀐 경우엔 방장 본인 참가자 레코드만 `updateStatus`/`updateCurrentPos(null)`/`updateAlarmInfo(null, null)`로 리셋.
+
+**검증**: `./gradlew compileJava` 통과.
+
+---
+
+### ✅ 버그39 — 참가자가 자기 이동수단을 바꿔도 본인 알람이 재계산되지 않음
+
+**파일**: `ParticipantService.java`(`updateTransportType()`), `GroupAlarmSheet.tsx`/`GroupAllAlarmSheet.tsx`(`handleSave()` 참가자 분기)
+
+**증상**: 일반 참가자가 자기 이동수단을 바꾸는 API(`PATCH /api/appointments/{id}/participants/transport`)는 `participant.transportType`만 갱신하고 본인 제외 나머지 참가자에게 UI 새로고침용 FCM(`participants_changed`)을 보낼 뿐, **본인의 `departureAlarmTime`/`currentPos`는 전혀 건드리지 않았음** — 다음 GPS 폴링에서도 "앵커 있음(최근 계산됨)"으로 판단돼 재계산 자체가 안 일어나, 이동수단을 바꿔도 예전 이동수단 기준 알람이 그대로 유지됐음.
+
+**원인**: [[버그38]]과 같은 계열의 근본 원인(앵커 리셋 누락)이 다른 메서드에 별도로 존재했던 것 — `AppointmentService.updateAppointment()`(방장 전용)는 앵커 리셋 로직이 있었지만, `ParticipantService.updateTransportType()`(참가자 전용)에는 애초에 없었음.
+
+**수정**:
+- 스프링: 이동수단이 실제로 바뀐 경우에만(`participant.getTransportType() != request.transportType()`) `updateCurrentPos(null)` + `updateAlarmInfo(null, null)`로 본인 앵커 리셋.
+- 프론트: `GroupAlarmSheet.tsx`/`GroupAllAlarmSheet.tsx`의 참가자 이동수단 변경 저장 성공 시, 방장의 `handleSave()`와 동일하게 `alarmService.start(...)`를 호출해 저장 즉시 로컬에서 강제 재폴링·재등록되도록 함(이 호출도 [[버그37]]에서 고친 `isActive` 보존 로직의 보호를 자동으로 받음).
+
+**검증**: `./gradlew compileJava` + `npx tsc --noEmit` 둘 다 통과.
