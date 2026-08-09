@@ -1,6 +1,6 @@
 # GPS 폴링 버그 — 해결된 항목 아카이브
 
-마지막 업데이트: 2026-08-08
+마지막 업데이트: 2026-08-09
 
 미해결 버그는 루트 `BUGS.md` 참고.
 
@@ -602,3 +602,28 @@ MODIFY COLUMN priority_type ENUM('MIN_TIME', 'MIN_TRANSFER', 'MIN_WALK', 'MIN_WA
 - 프론트: `GroupAlarmSheet.tsx`/`GroupAllAlarmSheet.tsx`의 참가자 이동수단 변경 저장 성공 시, 방장의 `handleSave()`와 동일하게 `alarmService.start(...)`를 호출해 저장 즉시 로컬에서 강제 재폴링·재등록되도록 함(이 호출도 [[버그37]]에서 고친 `isActive` 보존 로직의 보호를 자동으로 받음).
 
 **검증**: `./gradlew compileJava` + `npx tsc --noEmit` 둘 다 통과.
+
+---
+
+### ✅ 버그24 — 플라스크 4xx/5xx 응답이 구분 없이 500으로 처리됨
+
+**파일**: `GlobalExceptionHandler.java` (스프링), `app.py` (플라스크, `gonow-flask`)
+
+**증상**: 플라스크가 정상적으로 응답했지만 계산을 거부하는 경우(막차 없는 지역 404, 라우팅 API 실패 502
+등), 스프링에 `RestClientResponseException`(`HttpClientErrorException`/`HttpServerErrorException`)을
+잡는 핸들러가 없어 catch-all `Exception → 500`으로 처리됨. 프론트 입장에서 "계산 불가"와 "서버 진짜
+고장" 둘 다 구분 안 되는 500으로 보였음.
+
+**원인**: `RestClientConfig`가 만드는 기본 `RestClient`는 4xx/5xx 응답을 예외로 던지는데,
+`GlobalExceptionHandler`가 연결 실패(`ResourceAccessException`)만 503으로 별도 처리하고 "연결은 됐지만
+플라스크가 에러 상태코드로 응답한 경우"는 전혀 구분하지 않았음. 조사 중 플라스크 쪽도 한 가지 더 확인됨 —
+`app.py`가 400/404/500에만 `@app.errorhandler`(JSON 응답)를 등록해뒀는데, `alarm.py`/`personal.py`가
+실제로 쓰는 `abort(502, ...)`(라우팅 API 실패)에는 매칭되는 핸들러가 없어서 502는 HTML 에러 페이지로
+나가고 있었음 — 의도적 설계가 아니라 400/404/500만 처리하다가 나중에 502 사용처가 추가될 때 핸들러
+등록을 빠뜨린 것으로 보임(주석도 없고, 다른 코드가 이 HTML 응답에 의존하는 곳도 없어서 안전하게 보강).
+
+**수정**:
+- 스프링: `RestClientResponseException` 핸들러 추가 → 400 + `ApiResult.fail("경로를 계산할 수 없습니다. 잠시 후 다시 시도해주세요.")`. 플라스크 응답 본문은 상태코드마다 형식이 달라(JSON/HTML 혼재) 파싱하지 않고 고정 문구만 반환, 실제 상태코드/본문은 `log.warn`으로 서버 로그에만 기록.
+- 플라스크: `app.py`에 `@app.errorhandler(502)` 추가 → 기존 400/404 핸들러와 동일한 패턴(`jsonify({"error": str(e)}), 502`)으로 통일. 스프링 쪽 수정이 응답 본문을 안 읽기로 했기 때문에 이 자체는 이번 수정의 필수 전제조건은 아니었지만, 발견한 김에 함께 정리함.
+
+**검증**: `./gradlew compileJava` 통과.

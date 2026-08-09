@@ -198,6 +198,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `IllegalStateException` → 400 Bad Request (상태 전이 규칙 위반)
 - `DataIntegrityViolationException` → 400 Bad Request (DB 제약 조건 위반 — UNIQUE, NOT NULL, FK)
 - `ResourceAccessException` → 503 Service Unavailable (플라스크 서버 연결 실패)
+- `RestClientResponseException` → 400 Bad Request (플라스크가 정상 응답했지만 계산을 거부 — 막차 없음 404, 라우팅 API 실패 502 등. 플라스크 응답 본문은 상태코드마다 형식이 달라 파싱하지 않고 고정 문구만 반환, 실제 상태코드/본문은 서버 로그에만 기록)
 - `ConstraintViolationException` → 400 Bad Request (`@Validated` + `@RequestParam`/`@PathVariable`에 직접 붙인 검증 실패 — `@RequestBody`+`@Valid`의 `MethodArgumentNotValidException`과는 별개)
 - `Exception` → 500 Internal Server Error
 

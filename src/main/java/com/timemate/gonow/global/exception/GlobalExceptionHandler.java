@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @Slf4j
@@ -76,6 +77,14 @@ public class GlobalExceptionHandler {
     public ApiResult<Void> handleResourceAccess(ResourceAccessException e) {
         log.error("경로 계산 서버 연결 실패: {}", e.getMessage());
         return ApiResult.fail("경로 계산 서버에 일시적 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+    }
+
+    // 플라스크가 정상 응답했지만 계산을 거부한 경우 (막차 없음 404, 라우팅 API 실패 502 등)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(RestClientResponseException.class)
+    public ApiResult<Void> handleRestClientResponse(RestClientResponseException e) {
+        log.warn("플라스크 응답 오류 (status={}): {}", e.getStatusCode(), e.getResponseBodyAsString());
+        return ApiResult.fail("경로를 계산할 수 없습니다. 잠시 후 다시 시도해주세요.");
     }
 
     // 그 외 예상치 못한 서버 에러
