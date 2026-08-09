@@ -19,13 +19,13 @@
 
 ## 2. member_setting (사용자 설정) 테이블
 
-| 컬럼 한글명 | 컬럼 영문명 | 데이터 타입 | 제약 조건 | 설명 |
-|---|---|---|---|---|
-| 설정 ID | setting_id | BIGINT | PK, AUTO_INCREMENT | 고유 식별자 |
-| 멤버 ID | member_id | BIGINT | FK(member), UNIQUE, NOT NULL | member와 1:1 관계 |
-| 선호 교통수단 | preferred_transit | ENUM | DEFAULT 'ALL', NOT NULL | 필터 1: ALL(상관없음), SUBWAY(지하철), BUS(버스) |
-| 경로 우선순위 | priority_type | ENUM | DEFAULT 'MIN_TIME', NOT NULL | 필터 2: MIN_TIME(최단 시간), MIN_TRANSFER(최소 환승), MIN_WALK(최소 도보) |
-| 여유시간 | preparation_time | INT | NOT NULL | 사용자가 실제로 나갈 준비를 하는 준비시간 및 여유시간 (단위: 분) |
+| 컬럼 한글명 | 컬럼 영문명 | 데이터 타입 | 제약 조건 | 설명                                                                        |
+|---|---|---|---|-----------------------------------------------------------------------------|
+| 설정 ID | setting_id | BIGINT | PK, AUTO_INCREMENT | 고유 식별자                                                                 |
+| 멤버 ID | member_id | BIGINT | FK(member), UNIQUE, NOT NULL | member와 1:1 관계                                                           |
+| 선호 교통수단 | transit_type | ENUM | DEFAULT 'ALL', NOT NULL | 필터 1: ALL(상관없음), SUBWAY(지하철), BUS(버스)                            |
+| 경로 우선순위 | priority_type | ENUM | DEFAULT 'MIN_TIME', NOT NULL | 필터 2: MIN_TIME(최단 시간), MIN_TRANSFER(최소 환승), MIN_WALK(최소 도보), MIN_WAIT(최소 대기) |
+| 여유시간 | preparation_time | INT | NOT NULL | 사용자가 실제로 나갈 준비를 하는 준비시간 및 여유시간 (단위: 분)            |
 
 ---
 

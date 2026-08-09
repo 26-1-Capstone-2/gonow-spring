@@ -59,7 +59,7 @@ NEARDEST: P >= Q → 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방
 
 ### ② DEPARTING (출발 준비 상태)
 - **정의:** 출발 알람(`departureAlarmTime`)이 도달하여 사용자 외출을 유도하는 단계
-- **앵커 확정:** `DEPARTING` 진입 시점의 `current_lat/lng`가 출발지 앵커로 확정됨
+- **앵커:** `DEPARTING` 진입 시점에 별도로 갱신되지 않음 — READY 때 마지막으로 저장된 앵커(최대 500m 전 좌표일 수 있음)를 그대로 이어받아 300m 이탈 판정 기준점으로 사용(`JourneyService.updateLocation()`의 READY→DEPARTING 분기는 `updateCurrentPoint()`를 호출하지 않음)
 - **알람:** 앱이 `P >= Q AND status == DEPARTING` 조건으로 단계별 알람 처리 (1→4단계)
 - **전환 조건:**
   - `distToDest < 100m` → `ARRIVED` (이동 중 도착, 확인 불필요)
@@ -119,7 +119,7 @@ NEARDEST: P >= Q → 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방
 
 ### 앵커 (Anchor) 개념
 - **READY 앵커:** 최초 좌표 또는 500m 이탈 시 갱신. 플라스크 호출 기준점.
-- **DEPARTING 앵커:** `DEPARTING` 진입 시점의 좌표로 확정. 300m 이탈 감지 기준점.
+- **DEPARTING 앵커:** 진입 시점에 새로 확정되지 않음 — READY 앵커를 그대로 재사용해 300m 이탈 감지 기준점으로 씀(즉 DEPARTING 진입 직후 이미 앵커로부터 최대 500m 가까이 떨어져 있을 수 있어, 300m 이탈 판정이 예상보다 빨리 걸릴 수 있음)
 - 두 상태 모두 앵커 보존을 위해 조건 미충족 시 `updateCurrentPoint()` 호출 안 함
 
 ### 거리 기준 상수 (`GeoConstants`)

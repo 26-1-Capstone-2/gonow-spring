@@ -120,6 +120,8 @@
 
 **목적:** DEPARTING 진입 시 프론트가 단계별 로컬 알람 텍스트 구성에 사용
 
+> ⚠️ **이후 변경됨**: `boarding_time`은 타입 정의에는 남아있지만 실제로는 프론트 어디서도 파싱/사용되지 않는 것으로 확인됨(`alarmService.ts`의 `pollPersonal`/`pollGroup`, `backgroundLocationTask.ts` 코드 직접 확인). 아래 "프론트 로컬 알람 텍스트 예시"는 당시 의도한 설계일 뿐 실제 구현과 다름 — 현재 상태는 `docs/status/frontend-impl-status.md` 참고. 이 문서는 당시 변경 이력 기록이라 최신 상태를 반영하지 않음.
+
 **개인/귀가 (`PATCH /api/journeys/{journeyId}/location`):**
 ```json
 {

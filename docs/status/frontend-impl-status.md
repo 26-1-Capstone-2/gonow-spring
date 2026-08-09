@@ -2,7 +2,7 @@
 
 프론트 경로: `D:\gonow-app\GoNow_Fronted`
 플라스크 경로: `D:\gonow-flask\CounterClockEngine`
-마지막 확인일: 2026-06-03
+마지막 확인일: 2026-08-08(TRANSIT 모드 카카오맵 딥링크 확장 + `PriorityType.MIN_WAIT` 추가 반영)
 
 ---
 
@@ -73,7 +73,9 @@
 #### 알람 텍스트
 - `which_station` 있으면: `[목적지] {역명} 탑승까지 N분 남았어요`
 - `which_station` 없으면: 기본 메시지 (`귀가 준비를 시작하세요` 등)
-- 4단계(이미 지난 경우): `즉시 출발하세요!`
+- 귀가(home) 알람은 `isLastMode`(막차 모드) 여부로 3·4단계 문구가 갈림 — 막차 모드만 "막차를 놓칠 수 있어요" 류 문구, 데드라인 모드(자가용 포함)는 중립 문구(`HOME_LAST_TRAIN_MESSAGES` 분기, 버그30 수정)
+- 1~3단계를 건너뛰고 4단계가 바로 발송되는("이미 늦음") 경우: 제목 `🔴 지각 구간` + 문구 `이미 출발 시각이 지났어요! 지금 바로 출발하세요.`(`LATE_STAGE4_MESSAGES`) — 정상적으로 4단계까지 도달한 경우(`🔴 임계 구간`, `즉시 출발!...`)와 구분됨
+- 1~3단계의 "닫기" 액션 버튼 라벨은 `✕ 이후 알림 끄기`(실제 동작이 "남은 단계 전체 취소"라는 걸 명확히 전달하도록 개선)
 
 #### NEARDEST 상태
 - NEARDEST 진입 시 단계별 알람 **미발송** (도착 확인 알람만 표시)
@@ -81,9 +83,17 @@
 
 ### `which_station`, `boarding_time` 응답 처리
 
-- `/location` 응답에서 수신
-- `which_station` 있을 때 알람 텍스트: `[목적지] {역명} 탑승까지 N분 남았어요`
-- DRIVING(자가용)이거나 플라스크 미호출 시 null → 기본 메시지 사용
+- `/location` 응답에서 `which_station`은 실제로 수신·파싱해서 알람 텍스트에 반영됨(`[목적지] {역명} 탑승까지 N분 남았어요`).
+- **`boarding_time`은 타입 정의(`LocationResponse`/`ParticipantLocationResponse`)에는 있지만 실제로는 어디서도 구조분해되지 않고 버려짐** — `alarmService.ts`의 `pollPersonal`/`pollGroup`, `backgroundLocationTask.ts` 전부 미파싱 확인됨(코드 직접 확인, 이전 버전 문서의 "응답에서 수신" 서술은 부정확했음).
+- DRIVING(자가용)이거나 플라스크 미호출 시 `which_station`은 null → 기본 메시지 사용
+
+### 카카오맵 딥링크 "길찾기" 버튼 (자가용 전용, 신규)
+
+- 인앱 알람 카드(개인/귀가/그룹 리스트 4곳) + 출발 단계별(1~4단계) 푸시 알림 액션 버튼 양쪽에 제공. `DailyAlarmScreen.tsx`/`PersonalAllAlarmSheet.tsx`/`HomeAllAlarmSheet.tsx`/`GroupAllAlarmSheet.tsx`, `notifications.ts`(`scheduleFutureAlarm`), `app/_layout.tsx`/`notifications.ts`의 액션 핸들러, `src/utils/kakaoMapDeeplink.ts`(신규)
+- 이동수단이 DRIVING(자가용)이고 `myStatus`가 `DEPARTING`/`MOVING`일 때만 노출(`NEARDEST` 제외)
+- 앱이 백그라운드로 전환돼 헤드리스 GPS 추적 경로(`backgroundLocationTask.ts`)를 타도 버튼이 유지되도록, 목적지 좌표를 `alarmService.ts`의 `AlarmRunner.start()`가 AsyncStorage(`ALARM_NAV_INFO_KEY`)에 캐싱해서 헤드리스 경로가 읽어감
+- 상세 설계/실기기 검증 기록은 `docs/reference/kakao-map-deeplink-spec.md` 참고. DRIVING 버전은 `GoNow_Fronted`의 `fix` 브랜치에 커밋 완료(`7ffedcb`, `61a9872`)
+- **TRANSIT(대중교통) 모드 확장 완료** — DRIVING과 동일한 단일 딥링크(`by='publictransit'`)로 `isDriving: boolean` → `transportMode: 'car' | 'publictransit'` 배선 전체 교체(`alarmService.ts`/`backgroundLocationTask.ts`/`notifications.ts`/`app/_layout.tsx`/카드 6종 전부). 인앱 카드 버튼(날짜별 + 전체보기 화면) + 푸시 알림 액션 버튼(상단바 알림) 전부 실기기 검증 완료 — 전체보기 화면 3곳(`PersonalAllAlarmSheet.tsx`/`HomeAllAlarmSheet.tsx`/`GroupAllAlarmSheet.tsx`)이 자체 `canNavigate`를 갖고 있어 배선 교체에서 누락됐던 버그를 실기기 테스트로 발견·수정함(`docs/reference/kakao-map-deeplink-spec.md` 3부 10번 참고)
 
 ---
 
@@ -173,4 +183,5 @@
 - `appointments.ts`: `CreateAppointmentResponse`에 `participant_status` 포함 ✅
 - `appointments.ts`: `UpdateAppointmentResponse`에 `participant_status` 포함 ✅
 - `alarms.ts`: `AlarmItem`에 `my_status` 포함 ✅
+- `alarms.ts`: `AlarmItem`에 `dest_lat`/`dest_lng` 포함(카카오맵 딥링크 목적지 좌표용, 스프링 `AlarmResponse`와 동기화) ✅
 - `alarms.ts`: 날짜별 조회 파라미터 `date` (오타 아님, 문서상 `data=`는 오타) ✅

@@ -11,6 +11,7 @@
 | DB 스키마 | [spec/db-schema.md](spec/db-schema.md) | 엔티티/테이블 관련 작업 시 |
 | 여정 상태머신 스펙 | [spec/journey-state-machine.md](spec/journey-state-machine.md) | 상태 전이/알람 로직 작업 시 |
 | 프론트엔드 구현 현황 | [status/frontend-impl-status.md](status/frontend-impl-status.md) | 프론트-백엔드 연동 작업 시 |
+| 버그40 실측 검증 진행 현황 | [status/future-api-validation-status.md](status/future-api-validation-status.md) | 카카오모빌리티 미래 API 2-pass 도입 검토, 버그34/40 진행 상황 확인 시 |
 | 백그라운드/FCM 테스트 가이드 | [testing/TEST_GUIDE.md](testing/TEST_GUIDE.md) | GPS 폴링/FCM 테스트 시 |
 | 해결된 버그 아카이브 | [history/resolved-bugs.md](history/resolved-bugs.md) | 과거 수정 이력 확인 시 |
 | GPS 폴링 동기화 변경 이력 | [history/gps-polling-sync-changes.md](history/gps-polling-sync-changes.md) | API 응답 필드 변경 이력 확인 시 |
@@ -27,5 +28,6 @@
 | GoNow 기능 확장 아이디어 (지도/캘린더/지오펜싱/UX) | [planning/feature-ideas.md](planning/feature-ideas.md) | 대회 출품용 신규 기능 검토, 서비스 확장 방향 논의 시 |
 | 카카오맵 딥링크 공식 스펙 + GoNow 구현 가이드 | [reference/kakao-map-deeplink-spec.md](reference/kakao-map-deeplink-spec.md) | 지도 딥링크(아이디어 A) 구현/디버깅 시 |
 | ODsay MCP 서버 활용 가이드 | [reference/odsay-mcp-guide.md](reference/odsay-mcp-guide.md) | 개발 중 Claude로 ODsay 경로/역 정보를 직접 조회하고 싶을 때 |
+| 대중교통 계산엔진 조사 (ODsay vs TMAP vs 카카오) | [reference/transit-provider-research.md](reference/transit-provider-research.md) | 계산 엔진 교체/병행 검토, `target_time` 지원 여부, ODsay SearchType 커버리지 확인 시 |
 
 미해결 버그 목록은 루트 `BUGS.md` 참고.

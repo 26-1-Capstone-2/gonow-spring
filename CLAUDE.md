@@ -324,7 +324,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 ### Enum 상수 목록
 
 - `TransitType`: ALL, SUBWAY, BUS (회원 선호 교통수단, domain/member/constant)
-- `PriorityType`: MIN_TIME, MIN_TRANSFER, MIN_WALK (경로 우선순위, domain/member/constant)
+- `PriorityType`: MIN_TIME, MIN_TRANSFER, MIN_WALK, MIN_WAIT (경로 우선순위, domain/member/constant — 카카오맵 자체 정렬 옵션과 1:1 매칭, 상세 근거는 docs/reference/kakao-map-deeplink-spec.md §2.4 참고)
 - `TransportType`: DRIVING, TRANSIT (여정/참여자 이동 수단, domain/common/constant)
 - `TransportMode`: DRIVING, SUBWAY, BUS, ALL (플라스크 요청 전용 — TransportType+TransitType 조합, global/client/dto)
 - `AppointmentStatus`: WAITING, ACTIVE, FINISHED
