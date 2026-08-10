@@ -1,6 +1,6 @@
 # GPS 폴링 버그 — 해결된 항목 아카이브
 
-마지막 업데이트: 2026-08-09
+마지막 업데이트: 2026-08-11
 
 미해결 버그는 루트 `BUGS.md` 참고.
 
@@ -626,4 +626,88 @@ MODIFY COLUMN priority_type ENUM('MIN_TIME', 'MIN_TRANSFER', 'MIN_WALK', 'MIN_WA
 - 스프링: `RestClientResponseException` 핸들러 추가 → 400 + `ApiResult.fail("경로를 계산할 수 없습니다. 잠시 후 다시 시도해주세요.")`. 플라스크 응답 본문은 상태코드마다 형식이 달라(JSON/HTML 혼재) 파싱하지 않고 고정 문구만 반환, 실제 상태코드/본문은 `log.warn`으로 서버 로그에만 기록.
 - 플라스크: `app.py`에 `@app.errorhandler(502)` 추가 → 기존 400/404 핸들러와 동일한 패턴(`jsonify({"error": str(e)}), 502`)으로 통일. 스프링 쪽 수정이 응답 본문을 안 읽기로 했기 때문에 이 자체는 이번 수정의 필수 전제조건은 아니었지만, 발견한 김에 함께 정리함.
 
-**검증**: `./gradlew compileJava` 통과.
+---
+
+## 수정 완료 목록 (2026-08-10)
+
+### ⏪ 버그3/버그8 — 백그라운드 GPS polling interval 30초 고정 + 포그라운드 중복 호출 (GoNow_Fronted, 검증 완료 후 전면 롤백됨 — 아래 마지막 문단 참고)
+
+**배경**: 지오펜싱 도입을 검토하던 중, "OS 레벨 GPS 구독의 `timeInterval`이 30초로 하드코딩돼 있어 서버가 알려준 실제 필요 주기(최대 300초)를 무시하고 항상 30초마다 GPS 하드웨어를 깨운다"(버그3)와 "포그라운드에서도 이 구독이 그대로 살아있어 `alarmService`의 정밀 폴링과 중복 발화한다"(버그8)는 두 문제를 라이브러리 교체 없이 기존 `expo-location` 안에서 해결하기로 결정. `react-native-background-geolocation` 등 대체 라이브러리는 유료 라이선스 + New Architecture 호환성 미검증 + 지오펜싱 자체는 `expo-location`에 이미 무료 내장(`startGeofencingAsync`)돼 있어 불필요하다고 판단해 채택하지 않음.
+
+**수정 범위**: 서버가 마지막으로 알려준 interval(활성 journey/appointment 중 최솟값)을 OS 레벨 구독 등록 시 사용하도록 변경. "포그라운드 진입 시 Low accuracy로 낮추고 백그라운드 전환 시 재등록"하는 더 적극적인 버전(중복 호출 완전 제거)은, 그 재등록이 안드로이드의 "백그라운드에서 포그라운드서비스 시작 금지" 정책과 충돌할 위험이 있어 실기기 검증 없이는 위험하다고 판단해 이번 범위에서 제외.
+
+**구현**:
+1. `src/tasks/backgroundLocationTask.ts`에 `getMinDesiredIntervalMs()` 헬퍼 추가 — `ACTIVE_JOURNEYS_KEY`/`ACTIVE_APPOINTMENTS_KEY`(활성 목록)로 조회 범위를 제한해 `DESIRED_INTERVALS_KEY`에서 최솟값을 계산(값이 없으면 기존과 동일하게 30초 폴백). `startBackgroundLocationUpdates()`의 하드코딩된 `timeInterval: 30000`을 이 함수 호출로 교체, 로그에도 실제 등록값을 찍도록 보강.
+2. `src/tasks/backgroundAlarmTask.ts`(새벽 4시 FCM 헤드리스 경로)의 `Location.startLocationUpdatesAsync()` 직접 호출부도 동일한 헬퍼로 교체.
+3. **추가 발견한 갭**: 위 등록은 "포그라운드 진입 시점"에만 일어나는데, 그 등록 이후 서버로부터 새 interval을 받아도 다음 포그라운드 재진입 전까지는 반영이 안 되는 문제가 실기기 테스트로 드러남(앱을 한 번 열고 바로 백그라운드로 보내는 흔한 패턴에서 크게 작용). `src/services/alarmService.ts`에 `applyNewInterval()`을 추가해, `pollPersonal`/`pollGroup`이 새 interval을 받을 때(이전 값과 실제로 다를 때만) 저장소 반영과 동시에 `stopBackgroundLocationUpdates()` → `startBackgroundLocationUpdates()`를 즉시 재호출하도록 함 — 이 시점은 `poll()`이 이미 포그라운드임을 확인한 뒤라 안드로이드 정책과 무관하게 안전.
+
+**검증**: 실기기(adb logcat)로 반복 테스트.
+- 포그라운드→백그라운드 전환 시 등록 interval이 서버값(예: 300초)과 일치 확인(5분 1초 간격으로 태스크 발화 — 오차 1초 이내).
+- interval 변경 즉시(백그라운드 진입 전) 재등록되어, 최초 등록 지연 없이 바로 새 값으로 도는 것 확인.
+- `npx tsc --noEmit` 클린 통과.
+
+**1차 롤백(같은 날, 버그42로 기록)**: `backgroundAlarmTask.ts`(완전 종료 상태 + 새벽 4시 FCM 헤드리스 웨이크업) 경로에서 새 코드(`getMinDesiredIntervalMs()`)가 실제로 도는 것 자체를 실기기로 재현하지 못함 — 원인 조사 결과 코드 문제가 아니라 테스트 환경(`adb shell am force-stop`이 FCM 리시버를 비활성화시킴, dev client의 Metro 재연결 지연 가능성, 기기 배터리 최적화 가능성) 쪽으로 추정됨. 이후 지오펜싱 도입(`docs/planning/geofencing-migration-plan.md`)을 결정하면서 이 파일이 새벽 4시에 하는 일 자체가 "GPS 폴링 시작"에서 "위치 1회 확인 + 지오펜스 등록"으로 바뀔 예정이라 이 수정이 무의미해질 것으로 판단, `backgroundAlarmTask.ts`의 해당 변경만 먼저 롤백함(이 시점엔 `backgroundLocationTask.ts`/`alarmService.ts`는 아직 유지).
+
+**2차 롤백(2026-08-11, 전면 롤백)**: 위 1차 롤백 논의 중 재검토하다가, 남겨뒀던 `backgroundLocationTask.ts`/`alarmService.ts` 쪽도 문제가 있다는 걸 추가로 발견함 — 기존 30초 고정 덕분에 백그라운드에서도 항상 자주(30초) 확인되던 것이, 버그29(`departureAlarmTime` 임박 반영 못 함) 증상을 의도치 않게 완화해주고 있었음. 이걸 "서버가 알려준 실제 값(최대 300초)"으로 바꾸면 배터리는 아끼지만 백그라운드에서 상태 전환 감지가 최대 300초까지 늦어질 수 있어 버그29의 영향 범위가 오히려 넓어짐 — 배터리 효율보다 반응 정확도를 우선하기로 하고, `backgroundLocationTask.ts`/`alarmService.ts`의 나머지 수정도 전부 롤백(`git restore`, 두 파일 모두 원래 상태로 완전 복원). 버그3/버그8은 다시 `BUGS.md`의 미해결 목록으로 복귀 — 지오펜싱 도입 시 "MOVING 상태 전용"으로 범위를 좁혀서 재구현할 예정(MOVING은 interval이 원래 짧아 위 트레이드오프의 심각도가 낮음). 검증까지 마쳤던 코드(`getMinDesiredIntervalMs()`/`applyNewInterval()` 설계)는 재구현 시 그대로 재사용 가능하므로 이 문서에 남겨둔 구현 내용은 유효한 참고 자료로 유지.
+
+---
+
+## 수정 완료 목록 (2026-08-11)
+
+### ✅ 버그40 — 자가용(DRIVING) `departureAlarmTime` 계산이 계산 시점 실시간 정보만 반영하던 문제 → 카카오모빌리티 future API 2-pass 도입
+
+**관련 저장소**: `gonow-flask`(`CounterClockEngine2`)
+
+**파일**: `gps_api/core/kakao_route.py`(`fetch_route_future()` 신규 + `_call_directions_api()` 공통 헬퍼로 realtime/future 파싱 로직 통합), `gps_api/routes/personal.py`(`_get_driving_duration()` 신규), `gps_api/routes/alarm.py`(개인/그룹 두 DRIVING 분기 모두 `_get_duration()` 대신 `_get_driving_duration()` 사용하도록 교체), `gps_api/app.py`(부수적으로 발견한 로깅 설정 누락 별도 수정)
+
+**배경**: 실측 검증(아래 "도입 전 사전 실측 검증" 참고, 6개 시나리오, 리드타임 0.3h~44.5h) 결과 절대 오차 평균 ~6.6%, 최악 -13.8%, 리드타임과 오차 크기 사이 뚜렷한 상관관계 없음, 6개 중 5개가 과소평가 방향으로 확인됨 → 2-pass + 안전마진 도입 결정.
+
+**구현**:
+- 1차로 realtime API(`/v1/directions`)를 호출해 대략적인 출발 시각(`target_time - 소요시간`)을 추정.
+- 그 시각까지 남은 시간(리드타임)이 1시간 이상(`_FUTURE_API_MIN_LEAD_SEC`)이면 2차로 future API(`/v1/future/directions`)를 그 시각 기준으로 재호출해 정확도를 높임. 1시간 미만이면 realtime이 이미 충분히 정확하므로(실측 STEP0/1, 오차 +1.5~2.5%) 1차 결과를 조용히 그대로 사용(로그도 안 남김 — 근접 리드타임마다 매번 로그를 남길 필요가 없다고 판단).
+- future API 예측이 과소평가되는 경향(실측 6개 중 5개)을 보정하기 위해 안전마진 10%(`_DRIVING_FUTURE_SAFETY_MARGIN`)를 소요시간에 곱해서 적용. future API 호출이 실패하면 realtime 값에 동일 마진을 적용해 폴백.
+
+**구현 중 발견해서 고친 설계 실수**: 최초 구현에서 future API에 넘길 "출발 예정 시각"을 계산할 때 준비시간+지각버퍼(`total_buffer_min`)까지 함께 빼서, 실제로는 "알람이 울리는 시각"을 넘기고 있었음. future API가 알아야 하는 건 실제로 운전이 시작되는 순간의 교통상황이므로, 그보다 먼저 울리는 알람 시각을 기준으로 물어보면 준비시간만큼 이른 교통상황을 잘못 조회하게 됨(러시아워 경계에 걸리면 오차가 커질 수 있는 지점). 코드 셀프 리뷰 단계에서 발견해 `rough_departure = target_time - duration_sec_1`(버퍼 미포함)로 수정, 더 이상 쓰이지 않게 된 `total_buffer_min` 파라미터도 함수 시그니처에서 제거.
+
+**부수 발견 — 프로덕션 로깅 설정 누락**: gunicorn으로 기동하는 프로덕션 환경(디버그 모드 아님)에서는 Flask `app.logger`의 유효 레벨이 기본 WARNING이라, `.info()` 로그가 핸들러 유무와 무관하게 조용히 버려짐 — 첫 배포 후 EC2에서 `docker logs`로 확인했을 때 2-pass 로그가 전혀 안 찍혀서 발견함. `create_app()`에 `logging.basicConfig(level=logging.INFO, ...)` + `app.logger.setLevel(logging.INFO)`를 추가해 별도 커밋으로 수정.
+
+**검증**: EC2 실제 배포 후 `docker logs -f myapp`로 확인. 리드타임 5.5h/3.5h/2.4h 세 케이스 모두 1차(realtime)≠2차(future) 값이 실제로 다르게 나오는 것과, 최종값이 2차값의 정확히 1.10배(마진 적용)인 것을 확인:
+```
+[DRIVING 2-pass] lead=5.5h 1차(realtime)=623s 2차(future)=801s 최종(마진 10%)=881s
+[DRIVING 2-pass] lead=3.5h 1차(realtime)=625s 2차(future)=970s 최종(마진 10%)=1067s
+[DRIVING 2-pass] lead=2.4h 1차(realtime)=625s 2차(future)=734s 최종(마진 10%)=807s
+```
+근접 리드타임(1시간 미만) 케이스에서 로그가 안 찍히는 것도 설계대로임을 확인(1-pass 조용히 처리).
+
+**커밋**: `653628e`(2-pass 로직), `cd82fa4`(로깅 설정 수정) — `gonow-flask` `main`
+
+**도입 전 사전 실측 검증 (2026-08-08~11, 원래 `docs/status/future-api-validation-status.md`에 기록했다가 이 항목으로 통합 후 그 파일은 삭제됨)**: 2-pass 도입 여부를 결정하기 위해, 코드 작성 전에 카카오모빌리티 API를 직접 호출해 future API의 예측 정확도부터 검증했다. 지원 스크립트(`record.sh`/`verify.sh`/`future_api_validation.py`)는 자동 체크 체인이 끊겨 무효 재현이 반복되면서 폐기하고, `future_api.http`(IntelliJ HTTP Client, 검증 완료 후 API 키 노출 우려로 삭제됨)로 수동 검증 전환.
+
+STEP0 사전 점검(근접 리드타임 3분 후): 예측 1313초 vs 실제 1281초, 오차 +2.5% — future API 자체의 기본 신뢰성 확인.
+
+판교↔강남(중거리)/신논현↔강남(초단거리)/수원↔강남(장거리)/삼성↔강남(단거리) 조합으로 리드타임 0.3h~44.5h 6개 시나리오:
+
+| # | 시나리오 | 경로 | 리드타임 | 예측(초) | 실제(초) | 오차 |
+|---|---|---|---|---|---|---|
+| 1 | 대조군(근접) | 판교↔강남 | 0.3h | 1284 | 1265 | +1.5% |
+| 2 | 퇴근러시 | 판교↔강남 | 20.5h | 1210 | 1325 | -8.7% |
+| 3 | 출근러시+초단거리 | 신논현↔강남 | 22.6h | 265 | 265 | 0% |
+| 4 | 한산한낮+장거리 | 수원↔강남 | 21.8h | 2465 | 2723 | -9.5% |
+| 5 | 심야+단거리 | 삼성↔강남 | 18.3h | 568 | 659 | -13.8%(최악) |
+| 6 | 극단(최대 리드타임) | 수원↔강남 | 44.5h | 2463 | 2629 | -6.3% |
+
+**검증 중 겪은 시행착오(참고용)**: STEP3/4/5는 1차 시도에서 자동 체크 체인이 끊겨 대조(realtime) 호출이 목표 시각보다 1.5~8시간 늦게 실행되는 바람에 무효 처리되어 재측정함. STEP5는 2차 시도마저 대조 호출(realtime) 자체를 깜빡해서 05:44분 뒤에야 인지 — 그 시점엔 재실행해도 의미가 없다고 판단해 다음 도래 시각으로 목표를 다시 잡고 재측정.
+
+**결론**: 절대 오차 평균 ~6.6%, 최악 -13.8%. 리드타임과 오차 크기는 뚜렷한 상관관계 없음(리드타임이 가장 긴 STEP6이 오히려 20시간대 시나리오들보다 오차가 작았음) — 오차는 리드타임보다 개별 경로/시간대 특성에 더 좌우되는 것으로 보임. 6개 중 5개가 과소평가(예측 < 실제) 방향이라 GoNow 용도(출발 알람)에서는 "알람이 너무 늦게 울리는" 방향으로 치우침 — 원시 예측값을 그대로 쓰지 않고 안전마진(+10%)을 얹기로 한 근거가 바로 이 방향성 편향.
+
+---
+
+### ✅ 버그34 — 자가용(DRIVING) 정지 상태에서 재계산 트리거 부재 → 별도 수정 없이 버그40(2-pass)으로 실질적으로 해소, 착수하지 않기로 최종 확정
+
+**결론**: 코드 수정 없음(착수하지 않기로 결정).
+
+**원래 문제**: READY 상태에서 anchor로부터 500m 이상 이동하지 않으면 `departureAlarmTime`이 새벽 4시 값에 고정되는 문제 — 재계산 트리거가 `isFirstReceive`/`isOutOfAnchor`(500m 이동)/`isNearDest` 세 조건의 OR뿐이라 순수 시간 경과로는 재계산이 안 됨.
+
+**착수하지 않기로 한 이유**: 버그40 실측 결과 2-pass가 리드타임과 무관하게 안정적인 정확도를 보여서(리드타임이 가장 긴 44.5h 시나리오도 오차가 더 커지지 않음), 새벽 4시에 2-pass로 한 번만 계산해도 이미 "실제 출발 예정 시각의 예측 교통상황"이 반영된 값이 나옴 — 재계산 트리거를 별도로 추가할 필요성이 크게 줄어듦. 게다가 재검토 결과, 이 버그의 재계산 트리거(`isOutOfAnchor`, 500m 이동)는 애초에 "가만히 있는 사용자"에게는 폴링 방식에서도 원래부터 작동하지 않았음(이동 기반이지 시간 기반이 아니므로) — 즉 이 오차가 실제로 영향을 주는 상황(정지 상태)에서는 이 트리거를 고쳐도 도움이 안 됨. 지오펜싱 도입 계획(`docs/planning/geofencing-migration-plan.md`)에서도 이 결론을 전제로 별도 안전망을 추가하지 않기로 함.
+
+**설계 자체는 끝나있었음(참고용, 필요해지면 재검토)**: `JourneyService.updateLocation()` READY 분기에 `isAlarmImminent` 조건 추가, `GeoConstants.ALARM_IMMINENT_THRESHOLD_MINUTES` 상수 신설 — 위 결론에 따라 실제 구현은 하지 않음.
