@@ -3,6 +3,7 @@ package com.timemate.gonow.global.scheduler;
 import com.timemate.gonow.domain.appointment.repository.AppointmentRepository;
 import com.timemate.gonow.domain.appointment.repository.ParticipantRepository;
 import com.timemate.gonow.domain.journey.repository.JourneyRepository;
+import com.timemate.gonow.global.fcm.FcmSender;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,7 +12,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -21,6 +26,7 @@ public class ArrivedTransitionService {
     private final JourneyRepository journeyRepository;
     private final ParticipantRepository participantRepository;
     private final AppointmentRepository appointmentRepository;
+    private final FcmSender fcmSender;
 
     @Value("${scheduler.day-boundary-hour}")
     private int dayBoundaryHour;
@@ -32,6 +38,12 @@ public class ArrivedTransitionService {
         LocalDate planDate = now.getHour() < dayBoundaryHour ? now.toLocalDate().minusDays(1) : now.toLocalDate();
         LocalDate today = now.toLocalDate();
         int planDateBit = 1 << (planDate.getDayOfWeek().getValue() - 1);
+
+        // FCM 토큰별 ID 목록 수집 (벌크 업데이트 전에 조회해야 NEARDEST 상태 기준으로 잡힘)
+        // NEARDEST가 지오펜싱 기반이 된 뒤로는 클라이언트가 이 자동 전환을 스스로 알 방법이 없음
+        // -> FCM으로 알려줘서 트리거한다.
+        Map<String, String> tokenToJourneyIds = journeyRepository.findTokenToJourneyIdsForNeardestOverdue(planDate, now, planDateBit);
+        Map<String, String> tokenToAppointmentIds = participantRepository.findTokenToAppointmentIdsForNeardestOverdue(today, now);
 
         // [Journey] NEARDEST + targetTime 초과 → ARRIVED
         List<Long> journeyIds = journeyRepository.findIdsNeardestOverdue(planDate, now, planDateBit);
@@ -49,6 +61,29 @@ public class ArrivedTransitionService {
             appointmentRepository.bulkUpdateToFinished(appointmentIds);
             log.info("[스케줄러] 약속 상태 동기화 완료 - {}건", appointmentIds.size());
         }
+
+        // 전체 토큰 합집합 수집 후 토큰별 개별 FCM Data 발송
+        Set<String> allTokens = new HashSet<>(tokenToJourneyIds.keySet());
+        allTokens.addAll(tokenToAppointmentIds.keySet());
+        if (!allTokens.isEmpty()) {
+            allTokens.forEach(token ->
+                    fcmSender.sendData(token, createAutoArrivedData(token, tokenToJourneyIds, tokenToAppointmentIds))
+            );
+            log.info("[스케줄러] NEARDEST 자동 ARRIVED FCM Data 발송 완료 - {}건", allTokens.size());
+        }
+    }
+
+    private Map<String, String> createAutoArrivedData(String token, Map<String, String> tokenToJourneyIds, Map<String, String> tokenToAppointmentIds) {
+        Map<String, String> data = new HashMap<>();
+        data.put("sync_event", "auto_arrived");
+
+        String journeyIds = tokenToJourneyIds.get(token);
+        if (journeyIds != null) data.put("journey_ids", journeyIds);
+
+        String appointmentIds = tokenToAppointmentIds.get(token);
+        if (appointmentIds != null) data.put("appointment_ids", appointmentIds);
+
+        return data;
     }
 
     // READY/DEPARTING/MOVING + targetTime+1시간 초과 → ARRIVED (지각 1시간 여유)

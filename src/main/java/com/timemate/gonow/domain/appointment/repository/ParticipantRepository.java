@@ -160,4 +160,20 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
                         TokenAppointmentIdsProjection::getAppointmentIds
                 ));
     }
+
+    // 스케줄러: NEARDEST + targetTime 초과 자동 ARRIVED 전환 대상의 (fcmToken, appointmentIds 콤마 문자열) 조회
+    // (NEARDEST가 지오펜싱 기반이 된 뒤로는 클라이언트가 이 자동 전환을 스스로 알 방법이 없어짐 → FCM으로 알려줌)
+    // findAppointmentIdsWithOverdueParticipants와 동일 WHERE 조건, 벌크 업데이트 전에 조회해야 NEARDEST 상태 기준으로 잡힘
+    @Query(value = "SELECT m.fcm_token AS fcmToken, GROUP_CONCAT(p.appointment_id) AS appointmentIds FROM participant p JOIN member m ON p.member_id = m.member_id JOIN appointment a ON p.appointment_id = a.appointment_id WHERE p.status = :neardestStatus AND a.plan_date = :today AND a.target_time < :now AND m.fcm_token IS NOT NULL GROUP BY m.fcm_token", nativeQuery = true)
+    List<TokenAppointmentIdsProjection> findTokenAppointmentIdPairsForNeardestOverdueInternal(@Param("neardestStatus") String neardestStatus, @Param("today") LocalDate today, @Param("now") LocalDateTime now);
+
+    // 외부 호출용 래퍼 — 반환: Map<fcmToken, appointmentId 콤마 문자열>
+    default Map<String, String> findTokenToAppointmentIdsForNeardestOverdue(LocalDate today, LocalDateTime now) {
+        return findTokenAppointmentIdPairsForNeardestOverdueInternal(ParticipantStatus.NEARDEST.name(), today, now)
+                .stream()
+                .collect(Collectors.toMap(
+                        TokenAppointmentIdsProjection::getFcmToken,
+                        TokenAppointmentIdsProjection::getAppointmentIds
+                ));
+    }
 }

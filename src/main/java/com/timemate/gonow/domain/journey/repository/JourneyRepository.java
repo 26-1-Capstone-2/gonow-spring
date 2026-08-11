@@ -93,4 +93,22 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
                         TokenJourneyIdsProjection::getJourneyIds
                 ));
     }
+
+    // 스케줄러: NEARDEST + targetTime 초과 자동 ARRIVED 전환 대상의 (fcmToken, journeyIds 콤마 문자열) 조회
+    // (NEARDEST가 지오펜싱 기반이 된 뒤로는 클라이언트가 이 자동 전환을 스스로 알 방법이 없어짐
+    // → FCM으로 알려줘서 대신 트리거
+    // findIdsNeardestOverdue와 동일 WHERE 조건, 벌크 업데이트 전에 조회해야 NEARDEST 상태 기준으로 잡힘
+    // 비트마스크 연산으로 네이티브 쿼리 필수 — findTokenToJourneyIdsForNeardestOverdue(...) 래퍼를 통해 호출할 것
+    @Query(value = "SELECT m.fcm_token AS fcmToken, GROUP_CONCAT(j.journey_id) AS journeyIds FROM journey j JOIN member m ON j.member_id = m.member_id WHERE j.status = :neardestStatus AND (j.plan_date = :planDate OR (j.repeat_days & :planDateBit) > 0) AND j.plan_date <= :planDate AND j.target_time < :now AND m.fcm_token IS NOT NULL GROUP BY m.fcm_token", nativeQuery = true)
+    List<TokenJourneyIdsProjection> findTokenJourneyIdPairsForNeardestOverdueInternal(@Param("neardestStatus") String neardestStatus, @Param("planDate") LocalDate planDate, @Param("now") LocalDateTime now, @Param("planDateBit") int planDateBit);
+
+    // 외부 호출용 래퍼 — 반환: Map<fcmToken, journeyId 콤마 문자열>
+    default Map<String, String> findTokenToJourneyIdsForNeardestOverdue(LocalDate planDate, LocalDateTime now, int planDateBit) {
+        return findTokenJourneyIdPairsForNeardestOverdueInternal(JourneyStatus.NEARDEST.name(), planDate, now, planDateBit)
+                .stream()
+                .collect(Collectors.toMap(
+                        TokenJourneyIdsProjection::getFcmToken,
+                        TokenJourneyIdsProjection::getJourneyIds
+                ));
+    }
 }

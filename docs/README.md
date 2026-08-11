@@ -25,6 +25,7 @@
 |---|---|---|
 | 2026 오픈소스 개발자대회 참가 규정 요약 | [planning/oss-contest-2026.md](planning/oss-contest-2026.md) | 대회 출품 준비, 라이선스/AI 모델 규정 확인, 기능 확장 아이디어 검토 시 |
 | GoNow 기능 확장 아이디어 (지도/캘린더/지오펜싱/UX) | [planning/feature-ideas.md](planning/feature-ideas.md) | 대회 출품용 신규 기능 검토, 서비스 확장 방향 논의 시 |
+| 쿼리 최적화 백로그 (네이티브 쿼리 → 포터블 JPQL 등) | [planning/query-optimization.md](planning/query-optimization.md) | 리포지토리 쿼리 리팩터링 여유 생겼을 때, `nativeQuery` 사용 이유 재검토 시 |
 | 지오펜싱 도입 계획 (READY/DEPARTING/NEARDEST 대체) | [planning/geofencing-migration-plan.md](planning/geofencing-migration-plan.md) | 지오펜싱 착수/설계 시, 버그3·8·29·34·41과 지오펜싱의 관계 확인 시 |
 | 카카오맵 딥링크 공식 스펙 + GoNow 구현 가이드 | [reference/kakao-map-deeplink-spec.md](reference/kakao-map-deeplink-spec.md) | 지도 딥링크(아이디어 A) 구현/디버깅 시 |
 | ODsay MCP 서버 활용 가이드 | [reference/odsay-mcp-guide.md](reference/odsay-mcp-guide.md) | 개발 중 Claude로 ODsay 경로/역 정보를 직접 조회하고 싶을 때 |

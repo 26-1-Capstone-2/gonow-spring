@@ -66,6 +66,12 @@
 
 ---
 
+### 🟡 버그43 — READY 상태에서 앵커 500m 이탈과 출발 알람 시각 도달이 같은 요청에 겹치면 플라스크가 두 번 호출됨 [영향 낮음, 순수 비효율]
+
+→ 아래 버그43 상세 참고
+
+---
+
 ## 미수정 버그 상세
 
 ---
@@ -242,6 +248,33 @@ function getEffectiveDate(): string {
 
 ---
 
+### 🟡 버그43 — READY 상태에서 앵커 500m 이탈과 출발 알람 시각 도달이 같은 요청에 겹치면 플라스크가 두 번 호출됨 [영향 낮음, 순수 비효율]
+
+**파일**: `JourneyService.java`(`updateLocation()` READY 분기), `ParticipantService.java`(동일 구조)
+
+**증상**: READY 분기는 이렇게 짜여 있다.
+```java
+if (isNearDest || isFirstReceive || isOutOfAnchor) {   // 500m 이탈 등
+    journey.updateCurrentPoint(newPoint);
+    flaskResponse = callFlaskAndUpdate(...);             // 1차 호출, departureAlarmTime 갱신
+}
+if (isNearDest) {
+    journey.updateStatus(NEARDEST);
+} else if (isPastAlarmTime(journey.getDepartureAlarmTime())) {  // 방금 갱신된 값으로 재판정
+    journey.updateStatus(DEPARTING);
+    flaskResponse = callFlaskAndUpdate(...);             // 2차 호출
+}
+```
+`isOutOfAnchor`(앵커 500m 이탈)가 참이라 1차 호출이 발생했는데, 그 호출이 갱신한 새 `departureAlarmTime`이 하필 이미 지난 시각이면(`isPastAlarmTime` 참) 바로 이어서 DEPARTING 분기로 들어가 **같은 요청 안에서 플라스크를 또 호출**한다. 결과값 자체는 정확하지만(둘 다 같은 입력으로 같은 계산을 함) 카카오/ODsay API를 불필요하게 두 번 때린다. DRIVING 2-pass(버그40) 로직까지 겹치면 최악의 경우 한 요청 안에서 카카오 API를 4번(1차 realtime+future, 2차 realtime+future)까지 호출할 수 있다.
+
+**발생 조건**: 앵커가 500m 이탈한 그 순간에 마침 출발 알람 시각도 지나 있는 경우 — 자주는 아니지만, 사용자가 실제로 차를 몰고 출발하는 시점이 딱 이 순간이라면 꽤 현실적으로 일어날 수 있다. READY는 이 조건이 한 번 충족되면 바로 DEPARTING으로 넘어가므로, 한 여정당 최대 1회만 발생 가능한 엣지케이스다.
+
+**발견 경위**: 지오펜싱 도입 논의(`docs/planning/geofencing-migration-plan.md`) 중 READY 분기 코드를 재검토하면서 발견(2026-08-11). 지오펜싱과는 무관한 독립적인 기존 버그.
+
+**수정 방향**: 1차 호출 결과로 이미 `isPastAlarmTime`이 참이 되면 2차 호출을 생략하고 1차 `flaskResponse`를 그대로 재사용하도록 분기 정리.
+
+---
+
 ## 인과관계 요약
 
 ```
@@ -254,9 +287,10 @@ function getEffectiveDate(): string {
 버그23 (GPS 획득/권한 실패 시 무알림) → 영향 중간, 미사용 앱 권한 자동 해제로 실제 발생 가능성 있음
 버그25 (/location 폴링 4xx 시 무알림) → 버그22 조사 중 발견, 수정했다가 롤백(단 메시지 파싱 유틸은 시나리오 A용으로 유지)
 버그27 (도착 예정 알림 커스텀 사운드 시스템 목록 등록) → 버그 아님. 프로토타입으로 검증까지 마쳤으나 우선순위 낮아 코드 롤백, 레시피만 기록해둠
-버그29 (READY interval 계산이 departureAlarmTime 임박 미반영) → 실기기 테스트로 발견, 최대 5분까지 DEPARTING 전환 지연 가능. 지오펜싱 도입 시 이 트리거를 통합 설계할 예정 — 별도 착수 대신 geofencing-migration-plan.md에 흡수
+버그29 (READY interval 계산이 departureAlarmTime 임박 미반영) → 실기기 테스트로 발견, 최대 5분까지 DEPARTING 전환 지연 가능. 지오펜싱 도입 시 이 트리거를 `DepartingTransitionScheduler`(신규 서버 스케줄러)로 해결하는 것으로 설계 확정 — geofencing-migration-plan.md 참고, 별도 착수 없이 지오펜싱 작업에 흡수
 버그41 (막차 모드 귀가 여정, 목적지 700m 이내에서 최초 계산 시 새벽4시에 즉시 DEPARTING/NEARDEST 오작동) → 코드로 원인 확정·수정 설계까지 완료했으나, 지오펜싱 도입 시 "새벽4시 첫 위치 확인" 흐름 자체가 바뀌므로 지오펜싱과 함께 재설계 필요. 착수는 보류, 추후 진행
-지오펜싱 도입 (신규 계획, 버그 아님) → 버그3 완전 해결(백그라운드에서 interval 실시간 재조정) 시도 중 위험한 코드(FGS 재시작, 과거 크래시 전례 있음)가 필요하다는 걸 확인, READY/DEPARTING/NEARDEST를 지오펜싱으로 대체하면 이 문제 자체가 구조적으로 사라진다는 결론. 상세 설계는 docs/planning/geofencing-migration-plan.md 참고 — 착수 전 버그29/41과 통합 설계 필요
+버그43 (READY 상태 앵커 500m 이탈 + 알람시각 도달이 겹치면 플라스크 중복 호출) → 지오펜싱 논의 중 코드 재검토로 발견한 독립적 비효율. 영향 낮고 수정 방향은 간단(2차 호출 생략) — 우선순위 낮아 미착수
+지오펜싱 도입 (신규 계획, 버그 아님) → 버그3 완전 해결(백그라운드에서 interval 실시간 재조정) 시도 중 위험한 코드(FGS 재시작, 과거 크래시 전례 있음)가 필요하다는 걸 확인, READY/DEPARTING/NEARDEST를 지오펜싱으로 대체하면 이 문제 자체가 구조적으로 사라진다는 결론. 상세 설계는 docs/planning/geofencing-migration-plan.md 참고 — 착수 전 버그41과 통합 설계 필요
 
 해결된 버그(버그1, 2, 4~7, 9, 10-A, 10-B, 11, 12, 13, 14, 15, 16, 18, 19, 20, 24, 26, 28, 30, 34(별도 수정 없이 버그40으로 실질 해소), 35, 36, 37, 38, 39, 40(카카오모빌리티 future API 2-pass 도입), 42(코드 롤백으로 해당없음 처리), 임시 interval 변경, Picker New Architecture 네이티브 크래시, 출발 알람 채널 사전 생성/단계별 커스텀 사운드, 배터리 최적화 상태 확인 네이티브 모듈, 단계별 알람 중복 발송/재발송 등)는 docs/history/resolved-bugs.md 참고. (버그3/8은 한 차례 해결 후 다시 롤백되어 이 목록에서 제외 — 위 "현재 남은 실질적 문제" 참고)
 ```
