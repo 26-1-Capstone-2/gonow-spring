@@ -1,6 +1,6 @@
 # GPS 폴링 버그 목록
 
-마지막 업데이트: 2026-08-16
+마지막 업데이트: 2026-08-17
 
 해결된 버그는 `docs/history/resolved-bugs.md` 참고.
 
@@ -48,21 +48,15 @@
 
 ---
 
-### 🟡 버그29 — READY 상태 GPS interval 계산이 `departureAlarmTime` 임박을 반영 못 해 DEPARTING 전환이 로컬 1단계 알람보다 늦어짐 [영향 중간]
-
-→ 아래 버그29 상세 참고
-
----
-
 ### 🔴 버그41 — 막차 모드 귀가 여정, 목적지(집) 700m 이내에서 최초 계산 시 새벽 4시에 즉시 DEPARTING/NEARDEST로 오작동 [영향 높음, 재현 조건 흔함]
 
 → 아래 버그41 상세 참고
 
 ---
 
-### 🟡 버그43 — READY 상태에서 앵커 500m 이탈과 출발 알람 시각 도달이 같은 요청에 겹치면 플라스크가 두 번 호출됨 [영향 낮음, 순수 비효율]
+### 🟡 버그45 — 반복 알람이 ARRIVED를 지나도 FGS(포그라운드 서비스)를 유지하도록 `AlarmRunner` 생명주기 재설계 필요 [영향 낮음, 반복 알람 전용]
 
-→ 아래 버그43 상세 참고
+→ 아래 버그45 상세 참고
 
 ---
 
@@ -182,25 +176,6 @@ function getEffectiveDate(): string {
 
 ---
 
-### 🟡 버그29 — READY 상태 GPS interval 계산이 `departureAlarmTime` 임박을 반영 못 해 DEPARTING 전환이 로컬 1단계 알람보다 늦어짐 [영향 중간]
-
-**관련 저장소**: `gonow-flask`(플라스크), 연관 로직: 스프링 `JourneyService.updateLocation()`(READY 분기), 프론트 로컬 알림(`notifications.ts`)
-
-**파일**: `CounterClockEngine/gps_api/core/optimizer.py`(`calculate_next_interval`, `_cosine_blend_interval`), `CounterClockEngine/gps_api/routes/alarm.py`(`_adaptive_gps_interval`)
-
-**증상**: 실기기 테스트 중 발견 — `departureAlarmTime`(예: 02:34:25)이 되어 프론트의 로컬 1단계 알람("지금 나가야 함")은 정확한 시각에 울렸는데, 서버 DB의 `journey.status`는 한참 지나서도(02:29 시점 기준 이전 폴링에서 이미 `READY`) 계속 `READY`로 남아있어 `DEPARTING`으로 전환되지 않음.
-
-**원인**:
-1. `READY → DEPARTING` 전환은 `JourneyService.updateLocation()`이 **`/location` 호출을 받을 때만** `P >= Q`를 체크한다(시간 기반 스케줄러 없음, GPS 폴링 도착에 완전히 반응형). 즉 다음 GPS가 언제 오느냐가 전환 시점을 좌우함.
-2. 그런데 폴링 주기(`interval`)를 정하는 `_adaptive_gps_interval`/`calculate_next_interval`은 **목적지까지의 거리·시간(`target_time` 기준)만 반영**하고, `departure_alarm_time`까지 얼마나 남았는지는 계산에 전혀 넣지 않는다.
-3. 게다가 출발 전이라 사용자가 정지 상태(`stationary`)면 활동 배율이 `×3.0`(`_ACT_ANCHORS`)까지 걸려서, 다른 요소가 중간 수준이어도 최종 interval이 최대 상한(`INTERVAL_MAX_S=300`)으로 쉽게 클램프됨 — 실측 사례에서 `departureAlarmTime` 불과 5분 전 폴링 응답이 `interval:300`(5분)을 반환해서, 다음 폴링이 도착할 때까지 `DEPARTING` 전환 자체가 최대 5분까지 늦어질 수 있었음.
-
-**수정 방향(논의만 하고 보류, 아직 미착수)**: `departure_alarm_time`까지 남은 시간을 urgency 계산에 새 신호로 추가하거나, `READY` 상태에서 알람 시각이 임박(예: 남은 시간 < 일정 임계값)하면 정지 활동 배율과 무관하게 interval을 짧게(예: 10~30초) 강제하는 로직을 별도로 추가. 플라스크(`gonow-flask`) 리포 수정 필요.
-
-**지오펜싱 도입 계획과의 관계 (2026-08-11 추가)**: READY가 지오펜싱 기반으로 바뀌면(`docs/planning/geofencing-migration-plan.md` 참고) 이 버그의 원인이었던 "폴링 주기 계산"이라는 개념 자체가 READY 상태에서 없어진다. 다만 이 버그가 다루는 `P >= Q`(출발 알람 시각 도달) 감지는 순수 시간 기반이라 지오펜스 이벤트만으로는 여전히 못 잡는다 — 지오펜싱 설계 시 이 시간 기반 체크를 어떻게 트리거할지 별도로 정해야 한다(위 문서의 "미결정 사항" 참고). 즉 이 버그를 지금 이대로 고치기보다, 지오펜싱 설계에 이 트리거를 포함시키는 쪽으로 통합하는 게 합리적.
-
----
-
 ### 🔴 버그41 — 막차 모드 귀가 여정, 목적지(집) 700m 이내에서 최초 계산 시 새벽 4시에 즉시 DEPARTING/NEARDEST로 오작동 [영향 높음, 재현 조건 흔함]
 
 **관련 저장소**: 스프링(`JourneyService.java`) + 플라스크(`alarm.py`)
@@ -222,34 +197,21 @@ function getEffectiveDate(): string {
 - 스프링: `JourneyService.updateLocation()`의 READY 분기, `isNearDest` 체크에 `journey.isLastMode() && journey.getTargetTime() == null`이면 이 체크 자체를 건너뛰는 가드 추가 — 100m 이내에서도 target_time 미확정 상태면 NEARDEST로 넘어가지 않도록.
 - **검토했다가 기각한 대안**: "700m 밖의 임의 좌표로 출발지를 치환해서 계산"(사용자 제안) — (1) `isNearDest`는 플라스크 응답과 무관하게 스프링이 실제 GPS 거리로만 판단하므로 이 방법으로는 100m 이내 문제를 못 막고, 여전히 스프링 가드가 별도로 필요해서 작업량이 줄지 않음. (2) 사용자가 그날 정말 500m 밖으로 안 나가면(재택 등) 이 가짜 계산값이 그대로 확정되어 엉뚱한 시각에 DEPARTING 알림이 뜨는 새로운 오작동 위험이 생김. (3) 가짜 좌표를 어느 방향으로 잡을지도 불명확(강/막힌 구역 등으로 잡히면 ODsay가 이상한 경로를 줄 수 있음).
 
-**지오펜싱 도입 계획과의 관계 (2026-08-11 추가)**: 위 수정 방향은 "새벽 4시에 폴링으로 첫 `/location` 호출이 들어온다"는 전제로 짜여 있다. READY가 지오펜싱 기반으로 바뀌면(`docs/planning/geofencing-migration-plan.md` 참고) 첫 위치 확인이 "폴링"이 아니라 "지오펜스 등록 전 앵커 확정용 단발성 GPS 획득"으로 바뀌는데, 이미 그 시점에 목적지 500m/100m 이내라면 지오펜스를 등록하는 의미 자체가 없어진다(등록해도 이미 안에 있어 EXIT 이벤트가 안 옴). 즉 이 버그는 지오펜싱 설계와 맞물려 함께 재설계해야 할 가능성이 높음 — 지오펜싱 착수 전 이 버그를 독립적으로 먼저 고칠지, 지오펜싱과 통합 설계할지는 미결정(계획 문서의 "미결정 사항" 참고).
+**지오펜싱 도입 계획과의 관계 (2026-08-11 추가, 2026-08-17 재검토)**: 애초엔 "지오펜스 등록 시점에 이미 목적지 근처면 등록 자체가 무의미해진다"는 우려로 이 버그를 지오펜싱과 통합 설계해야 할 수도 있다고 봤으나, 실제 구현 결과 이 우려는 발생하지 않는 것으로 확인됐다(READY 지오펜스는 항상 직전 `/location` 응답이 READY임을 전제로만 등록되므로 — `docs/history/geofencing-migration-plan.md` "새로 설계해야 하는 것들 3" 참고). **다만 이건 지오펜싱 쪽 상호작용만 해소된 것이고, 버그41 본체(플라스크 최초 계산 로직)는 독립적으로 여전히 미착수 상태.**
 
 ---
 
-### 🟡 버그43 — READY 상태에서 앵커 500m 이탈과 출발 알람 시각 도달이 같은 요청에 겹치면 플라스크가 두 번 호출됨 [영향 낮음, 순수 비효율]
+### 🟡 버그45 — 반복 알람이 ARRIVED를 지나도 FGS(포그라운드 서비스)를 유지하도록 `AlarmRunner` 생명주기 재설계 필요 [영향 낮음, 반복 알람 전용]
 
-**파일**: `JourneyService.java`(`updateLocation()` READY 분기), `ParticipantService.java`(동일 구조)
+**관련 저장소**: 프론트(`GoNow_Fronted`)
 
-**증상**: READY 분기는 이렇게 짜여 있다.
-```java
-if (isNearDest || isFirstReceive || isOutOfAnchor) {   // 500m 이탈 등
-    journey.updateCurrentPoint(newPoint);
-    flaskResponse = callFlaskAndUpdate(...);             // 1차 호출, departureAlarmTime 갱신
-}
-if (isNearDest) {
-    journey.updateStatus(NEARDEST);
-} else if (isPastAlarmTime(journey.getDepartureAlarmTime())) {  // 방금 갱신된 값으로 재판정
-    journey.updateStatus(DEPARTING);
-    flaskResponse = callFlaskAndUpdate(...);             // 2차 호출
-}
-```
-`isOutOfAnchor`(앵커 500m 이탈)가 참이라 1차 호출이 발생했는데, 그 호출이 갱신한 새 `departureAlarmTime`이 하필 이미 지난 시각이면(`isPastAlarmTime` 참) 바로 이어서 DEPARTING 분기로 들어가 **같은 요청 안에서 플라스크를 또 호출**한다. 결과값 자체는 정확하지만(둘 다 같은 입력으로 같은 계산을 함) 카카오/ODsay API를 불필요하게 두 번 때린다. DRIVING 2-pass(버그40) 로직까지 겹치면 최악의 경우 한 요청 안에서 카카오 API를 4번(1차 realtime+future, 2차 realtime+future)까지 호출할 수 있다.
+**파일**: `src/services/alarmService.ts`(`AlarmRunner`), `src/tasks/backgroundLocationTask.ts`
 
-**발생 조건**: 앵커가 500m 이탈한 그 순간에 마침 출발 알람 시각도 지나 있는 경우 — 자주는 아니지만, 사용자가 실제로 차를 몰고 출발하는 시점이 딱 이 순간이라면 꽤 현실적으로 일어날 수 있다. READY는 이 조건이 한 번 충족되면 바로 DEPARTING으로 넘어가므로, 한 여정당 최대 1회만 발생 가능한 엣지케이스다.
+**배경**: 지오펜싱 마이그레이션(`docs/history/geofencing-migration-plan.md`, "FGS 생명주기 정책" 섹션) 중 확정된 정책은 "알람이 하나라도 있으면 FGS를 상시 유지, 완전히 없어지면만 끈다"이다 — 안드로이드 12+에서는 백그라운드 상태에서 FGS를 새로 켤 방법이 없기 때문에(`ForegroundServiceStartNotAllowedException`, 실기기로 가설 기각까지 확인됨), 한 번이라도 FGS가 꺼지면 다음 새벽 4시 같은 백그라운드 시점에 다시 켤 방법이 없다.
 
-**발견 경위**: 지오펜싱 도입 논의(`docs/planning/geofencing-migration-plan.md`) 중 READY 분기 코드를 재검토하면서 발견(2026-08-11). 지오펜싱과는 무관한 독립적인 기존 버그.
+**증상**: ARRIVED 도달 시 `handlePersonalStatus`/`handleGroupStatus`가 반복 여부와 무관하게 무조건 `AlarmRunner.stop()`을 호출해 runner가 사라진다. 그런데 반복 여정은 서버 스케줄러가 다음 해당 요일 새벽 4시에 이 여정을 다시 `READY`로 되돌리므로(`CLAUDE.md` 스케줄러 섹션), 이 runner가 마지막 하나였다면 그 사이 FGS가 꺼져 있다가 다음 새벽 4시 전환 때 또 "백그라운드에서 FGS 못 켬" 문제를 겪는다 — **매 회차마다 반복될 수 있음.**
 
-**수정 방향**: 1차 호출 결과로 이미 `isPastAlarmTime`이 참이 되면 2차 호출을 생략하고 1차 `flaskResponse`를 그대로 재사용하도록 분기 정리.
+**수정 방향(미착수)**: `AlarmRunner`의 생명주기 자체를 손봐야 한다 — ARRIVED에서도 반복 여정이면 runner를 완전히 지우지 않고 "다음 회차 대기" 상태로 남기는 로직 필요, `AlarmTarget`에 반복 여부/`repeatDays` 전달도 추가해야 함. 범위가 있는 별도 작업이라 지오펜싱 마이그레이션 착수 당시 의도적으로 미룸.
 
 ---
 
@@ -264,10 +226,8 @@ if (isNearDest) {
 버그23 (GPS 획득/권한 실패 시 무알림) → 영향 중간, 미사용 앱 권한 자동 해제로 실제 발생 가능성 있음
 버그25 (/location 폴링 4xx 시 무알림) → 버그22 조사 중 발견, 수정했다가 롤백(단 메시지 파싱 유틸은 시나리오 A용으로 유지)
 버그27 (도착 예정 알림 커스텀 사운드 시스템 목록 등록) → 버그 아님. 프로토타입으로 검증까지 마쳤으나 우선순위 낮아 코드 롤백, 레시피만 기록해둠
-버그29 (READY interval 계산이 departureAlarmTime 임박 미반영) → 실기기 테스트로 발견, 최대 5분까지 DEPARTING 전환 지연 가능. 안드로이드는 READY가 지오펜싱으로 전환되며 이 트리거 자체가 GPS interval과 무관한 `DepartingTransitionScheduler`(신규 서버 스케줄러, 구현 완료 2026-08-17·실기기 검증 전)로 대체돼 해소됨 — geofencing-migration-plan.md 참고. iOS는 여전히 폴링 기반이라 이 버그가 그대로 남아있음(원인은 `gonow-flask`의 interval 계산 로직, 미착수)
-버그41 (막차 모드 귀가 여정, 목적지 700m 이내에서 최초 계산 시 새벽4시에 즉시 DEPARTING/NEARDEST 오작동) → 코드로 원인 확정·수정 설계까지 완료했으나, 지오펜싱 도입 시 "새벽4시 첫 위치 확인" 흐름 자체가 바뀌므로 지오펜싱과 함께 재설계 필요. 착수는 보류, 추후 진행
-버그43 (READY 상태 앵커 500m 이탈 + 알람시각 도달이 겹치면 플라스크 중복 호출) → 지오펜싱 논의 중 코드 재검토로 발견한 독립적 비효율. 영향 낮고 수정 방향은 간단(2차 호출 생략) — 우선순위 낮아 미착수
-지오펜싱 도입 (신규 계획, 버그 아님) → 버그3 완전 해결(백그라운드에서 interval 실시간 재조정) 시도 중 위험한 코드(FGS 재시작, 과거 크래시 전례 있음)가 필요하다는 걸 확인, READY/DEPARTING/NEARDEST를 지오펜싱으로 대체하면 이 문제 자체가 구조적으로 사라진다는 결론. 상세 설계는 docs/planning/geofencing-migration-plan.md 참고 — 착수 전 버그41과 통합 설계 필요. 이후 FGS/GPS 완전 분리(2026-08-13)로 애초에 이 문제를 만들었던 위험한 재시작 코드 자체가 안전해져서, 버그3/8을 READY/DEPARTING/MOVING 전 범위로 재구현·완전 해결(2026-08-14, 아래 해결된 버그 목록 참고)
+버그41 (막차 모드 귀가 여정, 목적지 700m 이내에서 최초 계산 시 새벽4시에 즉시 DEPARTING/NEARDEST 오작동) → 코드로 원인 확정·수정 설계까지 완료. 애초 우려했던 지오펜싱과의 통합 설계 필요성은 실제 구현 결과 발생하지 않는 것으로 확인됨(READY 지오펜스 등록 시점 전제 덕분 — 위 버그41 상세 참고). 지오펜싱과 독립적으로 여전히 미착수, 착수는 보류
+버그45 (반복 알람 ARRIVED 이후 FGS 미유지) → 지오펜싱 마이그레이션(READY 완료, 2026-08-17) 중 확정된 정책("알람이 있는 한 FGS 상시 유지")의 남은 구멍. 반복 여정에서만 재현되는 낮은 우선순위 TODO, 착수는 보류
 
-해결된 버그(버그1, 2, 3, 4~7, 8, 9, 10-A, 10-B, 11, 12, 13, 14, 15, 16, 18, 19, 20, 24, 26, 28, 30, 34(별도 수정 없이 버그40으로 실질 해소), 35, 36, 37, 38, 39, 40(카카오모빌리티 future API 2-pass 도입), 42(코드 롤백으로 해당없음 처리), 임시 interval 변경, Picker New Architecture 네이티브 크래시, 출발 알람 채널 사전 생성/단계별 커스텀 사운드, 배터리 최적화 상태 확인 네이티브 모듈, 단계별 알람 중복 발송/재발송 등)는 docs/history/resolved-bugs.md 참고. (버그3/8은 2026-08-10 한 차례 해결 후 2026-08-11 롤백, 2026-08-14 재구현으로 최종 해결됨)
+해결된 버그(버그1, 2, 3, 4~7, 8, 9, 10-A, 10-B, 11, 12, 13, 14, 15, 16, 18, 19, 20, 24, 26, 28, 29(안드로이드 전용 서비스 기준 지오펜싱 마이그레이션으로 해소), 30, 34(별도 수정 없이 버그40으로 실질 해소), 35, 36, 37, 38, 39, 40(카카오모빌리티 future API 2-pass 도입), 42(코드 롤백으로 해당없음 처리), 43(READY 분기 플라스크 중복 호출 가드 추가), 44(반복 여정 앵커/출발시각 스테일 값 리셋), 임시 interval 변경, Picker New Architecture 네이티브 크래시, 출발 알람 채널 사전 생성/단계별 커스텀 사운드, 배터리 최적화 상태 확인 네이티브 모듈, 단계별 알람 중복 발송/재발송, 지오펜싱 마이그레이션(READY/DEPARTING/MOVING/NEARDEST 4개 상태, 2026-08-17 완료) 등)는 docs/history/resolved-bugs.md 참고. (버그3/8은 2026-08-10 한 차례 해결 후 2026-08-11 롤백, 2026-08-14 재구현으로 최종 해결됨)
 ```

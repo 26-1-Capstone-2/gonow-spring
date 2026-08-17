@@ -33,9 +33,9 @@
 
 ## 아이디어 C — 실제 지오펜싱 도입
 
-**현재 상태(2026-08-13 갱신)**: NEARDEST 상태는 안드로이드에서 순수 지오펜싱(`Location.startGeofencingAsync`, EXIT 이벤트 기반)으로 전환·배포 완료됐다. iOS는 "Apple Developer 계정 없이 지오펜싱 불가" 제약이 여전해 기존 폴링을 유지하고, 안드로이드도 NEARDEST 외 상태(READY/DEPARTING/MOVING)는 아직 폴링 그대로다. 상세 진행 상황은 [geofencing-migration-plan.md](geofencing-migration-plan.md) 참고.
+**현재 상태(2026-08-17, 마이그레이션 완료)**: NEARDEST/DEPARTING/MOVING/READY 4개 상태 전부 안드로이드에서 지오펜싱(또는 폴링 병행) 기반으로 전환·실기기 검증·커밋까지 완료됐다. iOS는 "Apple Developer 계정 없이 지오펜싱 불가" 제약이 여전해 모든 상태에서 기존 폴링을 유지한다. 상세 진행 이력은 `docs/history/geofencing-migration-plan.md` 참고.
 
-**2026-08-11 — 착수 방향 구체화됨**: 버그3(백그라운드 GPS interval 고정) 수정 작업 중, "백그라운드에만 있으면 폴링 주기가 실시간으로 안 좁혀지는" 근본 한계를 완전히 해결하려면 위험한 코드(백그라운드에서 위치추적 서비스 재시작 — 과거 실제 크래시 전례 있음)가 필요하다는 걸 확인했다. READY/DEPARTING/NEARDEST는 애초에 폴링이 아니라 "경계 진입/이탈 감지"만 필요한 상태라 지오펜싱으로 바꾸면 이 문제 자체가 사라진다는 결론에 도달, 하이브리드가 아니라 **이 세 상태는 지오펜싱으로 완전히 대체, MOVING만 기존 폴링 유지**하는 방향으로 구체화됨. 상세 설계·앵커 확정 문제·기존 버그(버그41/29/34)와의 상호작용·구현 순서는 [geofencing-migration-plan.md](geofencing-migration-plan.md) 참고.
+**2026-08-11 — 착수 방향 구체화됨**: 버그3(백그라운드 GPS interval 고정) 수정 작업 중, "백그라운드에만 있으면 폴링 주기가 실시간으로 안 좁혀지는" 근본 한계를 완전히 해결하려면 위험한 코드(백그라운드에서 위치추적 서비스 재시작 — 과거 실제 크래시 전례 있음)가 필요하다는 걸 확인했다. READY/DEPARTING/NEARDEST는 애초에 폴링이 아니라 "경계 진입/이탈 감지"만 필요한 상태라 지오펜싱으로 바꾸면 이 문제 자체가 사라진다는 결론에 도달했다(이후 MOVING에도 폴링과 병행하는 보조 지오펜스가 추가됨). 상세 설계·앵커 확정 문제·기존 버그(버그41/29/34)와의 상호작용·구현 순서는 `docs/history/geofencing-migration-plan.md` 참고.
 
 ---
 

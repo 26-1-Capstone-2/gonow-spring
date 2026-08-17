@@ -17,6 +17,7 @@
 | 좀비 Runner 버그 수정 상세 | [history/zombie-runner-fix.md](history/zombie-runner-fix.md) | 폴링 중복 버그 원인/구조 상세 확인 시 |
 | GPS 동적 폴링/지오펜스 안정화(프론트, 2026-08-14) | [history/geofence-polling-stabilization-2026-08-14.md](history/geofence-polling-stabilization-2026-08-14.md) | 지오펜스↔폴링 경쟁조건, 콜드스타트 러너 복구, EXIT 지오펜스 OS 한계 확인 시 |
 | FCM/스케줄러 설계안 v1 (구버전, 대체됨) | [history/fcm-scheduler-design-v1.md](history/fcm-scheduler-design-v1.md) | 초기 설계 배경 파악 시 (실제 구현은 `CLAUDE.md`/`spec/journey-state-machine.md` 우선) |
+| 지오펜싱 도입 계획 (READY/DEPARTING/NEARDEST/MOVING 대체, 마이그레이션 완료) | [history/geofencing-migration-plan.md](history/geofencing-migration-plan.md) | 지오펜싱 설계 근거/이력 확인 시, 버그3·8·34·41과 지오펜싱의 관계 확인 시 |
 
 ## 그 외 참고 자료 (`/sync-docs` 비대상)
 
@@ -27,7 +28,6 @@
 | 2026 오픈소스 개발자대회 참가 규정 요약 | [planning/oss-contest-2026.md](planning/oss-contest-2026.md) | 대회 출품 준비, 라이선스/AI 모델 규정 확인, 기능 확장 아이디어 검토 시 |
 | GoNow 기능 확장 아이디어 (지도/캘린더/지오펜싱/UX) | [planning/feature-ideas.md](planning/feature-ideas.md) | 대회 출품용 신규 기능 검토, 서비스 확장 방향 논의 시 |
 | 쿼리 최적화 백로그 (네이티브 쿼리 → 포터블 JPQL 등) | [planning/query-optimization.md](planning/query-optimization.md) | 리포지토리 쿼리 리팩터링 여유 생겼을 때, `nativeQuery` 사용 이유 재검토 시 |
-| 지오펜싱 도입 계획 (READY/DEPARTING/NEARDEST 대체) | [planning/geofencing-migration-plan.md](planning/geofencing-migration-plan.md) | 지오펜싱 착수/설계 시, 버그3·8·29·34·41과 지오펜싱의 관계 확인 시 |
 | 카카오맵 딥링크 공식 스펙 + GoNow 구현 가이드 | [reference/kakao-map-deeplink-spec.md](reference/kakao-map-deeplink-spec.md) | 지도 딥링크(아이디어 A) 구현/디버깅 시 |
 | ODsay MCP 서버 활용 가이드 | [reference/odsay-mcp-guide.md](reference/odsay-mcp-guide.md) | 개발 중 Claude로 ODsay 경로/역 정보를 직접 조회하고 싶을 때 |
 | 대중교통 계산엔진 조사 (ODsay vs TMAP vs 카카오) | [reference/transit-provider-research.md](reference/transit-provider-research.md) | 계산 엔진 교체/병행 검토, `target_time` 지원 여부, ODsay SearchType 커버리지 확인 시 |

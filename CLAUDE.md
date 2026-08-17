@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 프로젝트 개요
 
-**GoNow** (TimeMate) — 실시간 위치 기반 약속/여정 관리 플랫폼. 모바일 앱(안드로이드/iOS)을 대상으로 하는 Spring Boot REST API 서버.
+**GoNow** (TimeMate) — 실시간 위치 기반 약속/여정 관리 플랫폼. 모바일 앱(순수 안드로이드 유저 대상, iOS 서비스 계획 없음 — 2026-08-17 확정)을 대상으로 하는 Spring Boot REST API 서버. GPS 상태 전이는 안드로이드 지오펜싱 기반으로 구현되어 있고(`docs/history/geofencing-migration-plan.md`), 코드/문서에 등장하는 iOS 분기·폴링 유지 서술은 실제 서비스 계획이 아니라 이론적 안전망일 뿐이다 — iOS 전용으로만 남아있는 이슈는 실질적으로 해결된 것으로 간주한다.
 
 ## 빌드 및 실행 명령어
 
@@ -412,7 +412,7 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 - 그룹 알람: 생성(초대코드 자동)·참여·수정·삭제·상세 조회·대시보드
 - 참가자: 알람 스위치·탈퇴(본인)/추방(방장)·이동수단 변경
 - 알람 조회: 날짜별(`?date=`) 혼합 조회, 타입별(`?type=PERSONAL|HOME|GROUP`) 조회
-- 스케줄러: 새벽 4시 SCHEDULED/ARRIVED → READY 벌크 전환(+ 반복 여정 앵커/출발시각 리셋, 버그44) + FCM Data 발송, 매분 정각 NEARDEST+targetTime 초과 → 자동 ARRIVED + FCM Data(`sync_event: auto_arrived`) 발송, 매분 정각 READY+departureAlarmTime 도달 → DEPARTING 벌크 전환 + FCM Data(`sync_event: departing_transition`) 발송(`DepartingTransitionScheduler`, 2026-08-17 — 지오펜싱된 READY의 시간 트리거 대체, `docs/planning/geofencing-migration-plan.md` 참고), READY/DEPARTING/MOVING 상태가 targetTime+1시간 초과해도 ARRIVED에 도달 못 하면 자동 ARRIVED(지각 정리, 여정·참가자 공통, FCM 발송 없음)
+- 스케줄러: 새벽 4시 SCHEDULED/ARRIVED → READY 벌크 전환(+ 반복 여정 앵커/출발시각 리셋, 버그44) + FCM Data 발송, 매분 정각 NEARDEST+targetTime 초과 → 자동 ARRIVED + FCM Data(`sync_event: auto_arrived`) 발송, 매분 정각 READY+departureAlarmTime 도달 → DEPARTING 벌크 전환 + FCM Data(`sync_event: departing_transition`) 발송(`DepartingTransitionScheduler`, 2026-08-17 — 지오펜싱된 READY의 시간 트리거 대체, `docs/history/geofencing-migration-plan.md` 참고), READY/DEPARTING/MOVING 상태가 targetTime+1시간 초과해도 ARRIVED에 도달 못 하면 자동 ARRIVED(지각 정리, 여정·참가자 공통, FCM 발송 없음)
 - 여정/참가자 GPS 상태 전이 (`/location`, `/arrive`) — 상태 머신 전체 구현 완료
 - FCM: `FcmSender`(Data/Notification), `FirebaseConfig` — READY 트리거·그룹 도착 알림·그룹 참가자/약속 실시간 동기화·NEARDEST 자동 ARRIVED 알림(개인/귀가/그룹 공통)
 - 플라스크 연동: `FlaskJourneyRequest/Response`, `FlaskParticipantRequest/Response`, memberId 포함 — 실제 통신 테스트 완료 (2026-06-03, `docs/status/frontend-impl-status.md` 참고). 이후 `flask.url`이 탈퇴한 팀원 개인 서버를 계속 가리키고 있어 한동안 연동이 조용히 실패했던 이력 있음 — 2026-07-31 프라이빗 IP로 재수정 후 재검증 완료 (`docs/history/resolved-bugs.md` 참고)

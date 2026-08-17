@@ -1,6 +1,6 @@
 # GPS 폴링 버그 — 해결된 항목 아카이브
 
-마지막 업데이트: 2026-08-16
+마지막 업데이트: 2026-08-17
 
 2026-08-14 프론트 GPS 동적 폴링/지오펜스 안정화(경쟁조건, 콜드스타트 러너 복구, EXIT 지오펜스 OS 한계 등) 상세는 별도 문서 참고: [geofence-polling-stabilization-2026-08-14.md](geofence-polling-stabilization-2026-08-14.md)
 2026-08-16 위 안정화 작업이 버그3/버그8(백그라운드 GPS interval 30초 고정 + 포그라운드 중복 호출)의 최종 해결이었음을 확인, `BUGS.md`에서 해결됨으로 이동
@@ -649,7 +649,7 @@ MODIFY COLUMN priority_type ENUM('MIN_TIME', 'MIN_TRANSFER', 'MIN_WALK', 'MIN_WA
 - interval 변경 즉시(백그라운드 진입 전) 재등록되어, 최초 등록 지연 없이 바로 새 값으로 도는 것 확인.
 - `npx tsc --noEmit` 클린 통과.
 
-**1차 롤백(같은 날, 버그42로 기록)**: `backgroundAlarmTask.ts`(완전 종료 상태 + 새벽 4시 FCM 헤드리스 웨이크업) 경로에서 새 코드(`getMinDesiredIntervalMs()`)가 실제로 도는 것 자체를 실기기로 재현하지 못함 — 원인 조사 결과 코드 문제가 아니라 테스트 환경(`adb shell am force-stop`이 FCM 리시버를 비활성화시킴, dev client의 Metro 재연결 지연 가능성, 기기 배터리 최적화 가능성) 쪽으로 추정됨. 이후 지오펜싱 도입(`docs/planning/geofencing-migration-plan.md`)을 결정하면서 이 파일이 새벽 4시에 하는 일 자체가 "GPS 폴링 시작"에서 "위치 1회 확인 + 지오펜스 등록"으로 바뀔 예정이라 이 수정이 무의미해질 것으로 판단, `backgroundAlarmTask.ts`의 해당 변경만 먼저 롤백함(이 시점엔 `backgroundLocationTask.ts`/`alarmService.ts`는 아직 유지).
+**1차 롤백(같은 날, 버그42로 기록)**: `backgroundAlarmTask.ts`(완전 종료 상태 + 새벽 4시 FCM 헤드리스 웨이크업) 경로에서 새 코드(`getMinDesiredIntervalMs()`)가 실제로 도는 것 자체를 실기기로 재현하지 못함 — 원인 조사 결과 코드 문제가 아니라 테스트 환경(`adb shell am force-stop`이 FCM 리시버를 비활성화시킴, dev client의 Metro 재연결 지연 가능성, 기기 배터리 최적화 가능성) 쪽으로 추정됨. 이후 지오펜싱 도입(`docs/history/geofencing-migration-plan.md`)을 결정하면서 이 파일이 새벽 4시에 하는 일 자체가 "GPS 폴링 시작"에서 "위치 1회 확인 + 지오펜스 등록"으로 바뀔 예정이라 이 수정이 무의미해질 것으로 판단, `backgroundAlarmTask.ts`의 해당 변경만 먼저 롤백함(이 시점엔 `backgroundLocationTask.ts`/`alarmService.ts`는 아직 유지).
 
 **2차 롤백(2026-08-11, 전면 롤백)**: 위 1차 롤백 논의 중 재검토하다가, 남겨뒀던 `backgroundLocationTask.ts`/`alarmService.ts` 쪽도 문제가 있다는 걸 추가로 발견함 — 기존 30초 고정 덕분에 백그라운드에서도 항상 자주(30초) 확인되던 것이, 버그29(`departureAlarmTime` 임박 반영 못 함) 증상을 의도치 않게 완화해주고 있었음. 이걸 "서버가 알려준 실제 값(최대 300초)"으로 바꾸면 배터리는 아끼지만 백그라운드에서 상태 전환 감지가 최대 300초까지 늦어질 수 있어 버그29의 영향 범위가 오히려 넓어짐 — 배터리 효율보다 반응 정확도를 우선하기로 하고, `backgroundLocationTask.ts`/`alarmService.ts`의 나머지 수정도 전부 롤백(`git restore`, 두 파일 모두 원래 상태로 완전 복원). 버그3/버그8은 다시 `BUGS.md`의 미해결 목록으로 복귀 — 지오펜싱 도입 시 "MOVING 상태 전용"으로 범위를 좁혀서 재구현할 예정(MOVING은 interval이 원래 짧아 위 트레이드오프의 심각도가 낮음). 검증까지 마쳤던 코드(`getMinDesiredIntervalMs()`/`applyNewInterval()` 설계)는 재구현 시 그대로 재사용 가능하므로 이 문서에 남겨둔 구현 내용은 유효한 참고 자료로 유지.
 
@@ -716,7 +716,7 @@ STEP0 사전 점검(근접 리드타임 3분 후): 예측 1313초 vs 실제 1281
 
 **원래 문제**: READY 상태에서 anchor로부터 500m 이상 이동하지 않으면 `departureAlarmTime`이 새벽 4시 값에 고정되는 문제 — 재계산 트리거가 `isFirstReceive`/`isOutOfAnchor`(500m 이동)/`isNearDest` 세 조건의 OR뿐이라 순수 시간 경과로는 재계산이 안 됨.
 
-**착수하지 않기로 한 이유**: 버그40 실측 결과 2-pass가 리드타임과 무관하게 안정적인 정확도를 보여서(리드타임이 가장 긴 44.5h 시나리오도 오차가 더 커지지 않음), 새벽 4시에 2-pass로 한 번만 계산해도 이미 "실제 출발 예정 시각의 예측 교통상황"이 반영된 값이 나옴 — 재계산 트리거를 별도로 추가할 필요성이 크게 줄어듦. 게다가 재검토 결과, 이 버그의 재계산 트리거(`isOutOfAnchor`, 500m 이동)는 애초에 "가만히 있는 사용자"에게는 폴링 방식에서도 원래부터 작동하지 않았음(이동 기반이지 시간 기반이 아니므로) — 즉 이 오차가 실제로 영향을 주는 상황(정지 상태)에서는 이 트리거를 고쳐도 도움이 안 됨. 지오펜싱 도입 계획(`docs/planning/geofencing-migration-plan.md`)에서도 이 결론을 전제로 별도 안전망을 추가하지 않기로 함.
+**착수하지 않기로 한 이유**: 버그40 실측 결과 2-pass가 리드타임과 무관하게 안정적인 정확도를 보여서(리드타임이 가장 긴 44.5h 시나리오도 오차가 더 커지지 않음), 새벽 4시에 2-pass로 한 번만 계산해도 이미 "실제 출발 예정 시각의 예측 교통상황"이 반영된 값이 나옴 — 재계산 트리거를 별도로 추가할 필요성이 크게 줄어듦. 게다가 재검토 결과, 이 버그의 재계산 트리거(`isOutOfAnchor`, 500m 이동)는 애초에 "가만히 있는 사용자"에게는 폴링 방식에서도 원래부터 작동하지 않았음(이동 기반이지 시간 기반이 아니므로) — 즉 이 오차가 실제로 영향을 주는 상황(정지 상태)에서는 이 트리거를 고쳐도 도움이 안 됨. 지오펜싱 도입 계획(`docs/history/geofencing-migration-plan.md`)에서도 이 결론을 전제로 별도 안전망을 추가하지 않기로 함.
 
 ---
 
@@ -805,3 +805,93 @@ function patchLocationOnce(path: string, token: string, lat: number, lng: number
 **해결**: `JourneyRepository`에 `bulkResetAnchorAndAlarmForReadyTransition(today, todayBit)` 신설 — `bulkUpdateToReady`와 동일한 WHERE 조건(대상 집합이 정확히 일치해야 함)으로 `current_lat/lng`·`departure_alarm_time`을 NULL로 리셋하는 네이티브 쿼리. `ReadyTransitionService.transitionToReady()`에서 `bulkUpdateToReady` **직전**에 호출(상태가 READY로 바뀌기 전에 리셋해야 WHERE의 `status IN (SCHEDULED, ARRIVED)` 조건이 유효함). SCHEDULED에서 넘어오는 여정은 두 값이 이미 null이라 리셋이 무해 — 반복/비반복 구분 없이 항상 호출해도 안전. 리셋 결과 반복 여정은 매일 첫 GPS 수신 시 무조건 "최초 좌표 수신"으로 처리돼 플라스크가 재호출된다(기존 로직 그대로 재사용, 새 분기 불필요).
 
 **검증**: `./gradlew compileJava` 통과. 실제 반복 여정 시나리오(새벽 4시 스케줄러 → 당일 첫 GPS)로 실측 검증은 아직 안 함 — 다음 스케줄러 사이클 또는 통합 테스트에서 확인 필요.
+
+### ✅ 버그43 — READY 상태에서 앵커 500m 이탈과 출발 알람 시각 도달이 같은 요청에 겹치면 플라스크가 두 번 호출됨 (스프링)
+
+**파일**: `JourneyService.java`(`updateLocation()` READY 분기), `ParticipantService.java`(동일 구조)
+
+**증상**: READY 분기는 `isOutOfAnchor`(앵커 500m 이탈) 등으로 플라스크를 1차 호출해 `departureAlarmTime`을 갱신한 뒤, 그 갱신된 값으로 곧바로 `isPastAlarmTime`을 재판정한다. 이 판정이 참이면(마침 그 순간 출발 알람 시각도 지나있으면) DEPARTING으로 전환하면서 **같은 요청 안에서 플라스크를 또(2차) 호출**했다 — 두 호출 다 완전히 같은 좌표로 부르므로 결과는 항상 동일, 순수하게 API 호출만 낭비. 자주는 아니지만 사용자가 실제로 이동을 시작하는 시점이 딱 이 순간이면 현실적으로 발생 가능한 엣지케이스(한 여정당 최대 1회).
+
+**해결**: 2차 호출 직전에 `if (flaskResponse == null)` 가드 추가 — 1차 호출로 이미 응답을 받았으면 재사용하고 재호출을 생략. 상태 전이(`updateStatus(DEPARTING)`) 로직 자체는 무변경.
+
+**검증**: `./gradlew compileJava` 통과.
+
+---
+
+## 지오펜싱 Phase 3(READY) 실기기 테스트 중 발견·수정한 프론트 버그 6건 (2026-08-17)
+
+READY 지오펜싱(`readyGeofenceTask.ts`) 실기기 검증 과정에서, 상태 전환 로직 자체와는 별개로 "도착 확인" 흐름과 FGS(포그라운드 서비스) 생명주기 레이어에서 6건의 버그를 추가로 발견·수정했다. 전부 개인/그룹/귀가 알람을 여러 개 연달아 만들고 포그라운드/백그라운드/스와이프를 빠르게 번갈아 테스트해야만 드러나는, "도착 확인이라는 사건이 다른 앱 생명주기 이벤트와 우연히 겹치는" 종류의 경쟁 조건이 대부분이다. 지오펜스 등록/재센터링/핸드오프 등 오늘 검증한 핵심 상태머신 로직과는 무관한 별도 레이어라, 아래 버그들의 발견·수정이 그쪽 검증 결과에 영향을 주지 않는다.
+
+### ✅ `resumeIfDue()`가 READY/DEPARTING 지오펜스 전담 구간도 재폴링시켜 지오펜스가 반복 재등록됨
+
+**파일**: `alarmService.ts` (`AlarmRunner.resumeIfDue()`)
+
+**증상**: 포그라운드 복귀 시 호출되는 `resumeIfDue()`에 "이미 지오펜스로 넘어간 상태면 재폴링 스킵" 가드가 `NEARDEST`만 걸려 있었다(과거 NEARDEST에서 실제로 겪었던 버그의 수정 흔적). Phase 3로 READY/DEPARTING도 지오펜싱 기반이 됐는데 이 가드가 안 넓혀져 있어서, 포그라운드 복귀가 반복되면 이미 지오펜스로 감시 중인 READY 알람이 30초 간격으로 계속 재등록되는 게 실기기 로그로 확인됐다(불필요한 GPS/서버 호출·지오펜스 재등록 반복).
+
+**해결**: `if (this.status === 'NEARDEST') return;` → `if (['NEARDEST', 'READY', 'DEPARTING'].includes(this.status)) return;`로 확장.
+
+**검증**: 실기기 로그로 재등록 반복이 사라진 것 확인.
+
+### ✅ `resumePolling()`이 활성 추적 가드에 막혀 지오펜스 재개 시 실제 `/location` 호출이 안 나감
+
+**파일**: `alarmService.ts` (`AlarmManager.resumeFromGeofence()` → `AlarmRunner.resumePolling()`)
+
+**증상**: `departing_transition` FCM 등으로 지오펜스에서 폴링을 재개시키는 `resumePolling()`이 `this.poll()`(기본값 `skipActiveCheck=false`)을 호출했다. 그런데 이 key는 지오펜스로 넘어갈 때 이미 "활성 추적 목록"(`ACTIVE_JOURNEYS_KEY`)에서 빠진 상태라, `poll()` 내부의 "활성 추적 대상 아님 — 낡은 타이머로 인한 호출 차단" 가드에 걸려 재개가 조용히 무산됐다(로그에 "poll() 진입"만 찍히고 그 뒤로 응답이 전혀 없는 증상으로 발견). `start()`의 최초 1회 호출과 똑같이 이 체크를 건너뛰어야 하는 케이스였는데 누락돼 있었다.
+
+**해결**: `resumePolling()`이 `this.poll(true)`로 호출하도록 수정.
+
+**검증**: 실기기 로그로 `skipActiveCheck:true` 확인 + 그 직후 `/location` 응답이 정상적으로 오는 것 확인.
+
+### ✅ 앱이 완전 종료된 상태에서 알림 액션으로 콜드부팅되면 액션 처리가 통째로 누락됨
+
+**파일**: `app/_layout.tsx`
+
+**증상**: `notifee.onForegroundEvent`/`onBackgroundEvent`는 "리스너 등록 이후에 발생하는 새 이벤트"만 잡는다. 앱이 완전 종료된 상태에서 알림 액션(예: "도착 확인" YES 버튼, `launchActivity: 'default'`로 앱을 콜드부팅시킴)을 누르면, 그 액션 자체가 콜드부팅을 유발한 원인인데 두 리스너 어디에도 안 걸려서 완전히 무시됐다 — 앱은 재실행되지만 `/arrive` 호출도, FGS 정리도, 아무 처리도 안 일어남. `getInitialNotification()`(콜드부팅을 유발한 액션을 별도로 조회하는 API)을 아예 안 쓰고 있던 게 원인. dlog에 "도착확인 YES버튼" 로그 자체가 안 남는 것으로 발견.
+
+**해결**: 포그라운드 핸들러의 액션 처리 로직을 `handleNotificationActionPress()` 함수로 분리하고, `init()`에서 `notifee.getInitialNotification()`을 조회해 존재하면 같은 함수로 처리하도록 추가.
+
+**검증**: 실기기로 앱 완전 종료 후 알림 액션 → dlog에 "콜드부팅 유발 알림 액션 처리" + "도착확인 YES버튼" 로그 정상 확인, `/arrive` 호출 및 FGS 정리까지 정상 동작 확인.
+
+### ✅ 도착 확인 직후 `startReadyAlarms()`의 재조정 로직이 서버 반영 전 stale 상태를 읽고 알람을 도로 살림
+
+**파일**: `alarmService.ts`, `app/_layout.tsx` (`doStartReadyAlarms()`)
+
+**증상**: 알림 액션으로 앱이 포그라운드로 올라오는 순간, "도착확인 YES버튼" 처리(`/arrive` 호출 + `alarmService.stop()`)와 `_layout.tsx`의 "포그라운드 복귀 시 서버 알람 목록 재조회 → 안 돌고 있는데 아직 활성 상태면 재시작" 로직(`startReadyAlarms()`)이 거의 동시에 실행됐다. `/arrive`가 서버에 반영되기 전에 `startReadyAlarms()`의 `getAlarms()`가 먼저 응답하면 아직 `NEARDEST`인 옛 상태를 그대로 읽어와서, 방금 `stop()`한 알람을 "안 돌고 있으니 재시작해야겠다"고 오판해 되살렸다. 서버가 뒤늦게 ARRIVED를 확인해주면서 결국엔 스스로 정리되지만, 그 사이 불필요한 서버 호출·지오펜스/FGS 토글이 낭비됐다.
+
+**해결**: `AlarmManager`에 `recentlyStoppedAt`(key별 마지막 `stop()` 시각, 15초 TTL) 추가, `wasRecentlyStopped()`로 조회 가능하게 노출. `doStartReadyAlarms()`의 재시작 분기(개인/귀가/그룹 3곳)에 `isRunning()` 체크와 나란히 `wasRecentlyStopped()` 체크를 추가해 최근 stop된 key는 재시작을 건너뜀.
+
+**검증**: 실기기 로그로 "방금 stop()됨(서버 반영 전 stale 응답으로 추정) — 재시작 스킵" 확인, 재시작 자체가 더 이상 안 일어남.
+
+### ✅ `startAlarmForegroundService()`/`stopAlarmForegroundService()`의 TOCTOU 경쟁으로 FGS 알림이 중복으로 뜸
+
+**파일**: `backgroundLocationTask.ts`
+
+**증상**: 두 함수 다 "AsyncStorage에서 현재 상태 읽기 → 판단 → 쓰기" 구조인데 직렬화가 안 돼 있었다. 도착 확인 한 번에 서로 다른 두 호출부(`alarmService.stop()`의 onFinish, `startReadyAlarms()`의 `syncForegroundService()`)가 6ms 안에 겹치면, 둘 다 "아직 안 바뀐" 값을 읽어버려서 "이미 꺼져있으면 skip"하는 방어 코드가 무력화되고 "FGS 꺼짐" 알림이 두 번 떴다(위 재시작 경쟁과 맞물려 더 자주 발생).
+
+**해결**: `withNavInfoLock`/`withIntervalsLock`과 동일한 프라미스 체인 락(`withFgsLock`)을 신설해 `startAlarmForegroundServiceInternal`/`stopAlarmForegroundServiceInternal`을 감싸서 직렬화.
+
+**검증**: 실기기 로그로 "실제로 끔" 알림이 정확히 한 번만 뜨고, 두 번째 시도는 "이미 꺼져있어 스킵"으로 정상 차단되는 것 확인.
+
+### ✅ 백그라운드 도착확인 경로가 `alarmService.runners`에 좀비 러너를 남김
+
+**파일**: `notifications.ts` (`onBackgroundEvent`의 `arrival-yes` 처리)
+
+**증상**: 백그라운드 경로는 헤드리스 컨텍스트 안전성 때문에 의도적으로 `alarmService.stop()`을 안 부르고, 대신 영속 저장소(`ALARM_NAV_INFO_KEY`) 기준으로 FGS만 별도 정리하도록 설계했다(설계 자체는 올바름). 그런데 앱 프로세스가 실제로는 살아있는 경우(스와이프만 하고 완전 종료는 아닌, 실측상 흔한 케이스)엔 `alarmService.runners`에서 해당 러너가 안 지워진 채로 좀비로 남았다 — 당장 기능 문제는 없지만, 오래 쌓이면 다른 판단(예: 같은 key 재사용 시점)에 영향을 줄 수 있는 잠재 위험.
+
+**해결**: `AlarmManager`에 `forgetIfExists()` 추가 — `onFinish`(FGS 재확인) 콜백을 억제한 채 메모리에서만 러너를 제거. 진짜 헤드리스 컨텍스트에서 호출되면 애초에 러너가 없어 조용히 no-op이라 안전. 백그라운드 `arrival-yes` 처리에서 FGS 정리와 나란히 호출하도록 추가.
+
+**검증**: 실기기 로그로 "좀비 러너 정리" 로그 확인.
+
+### ✅ 버그29 — READY 상태 GPS interval 계산이 `departureAlarmTime` 임박을 반영 못 해 DEPARTING 전환이 로컬 1단계 알람보다 늦어짐 → 지오펜싱 마이그레이션으로 해소
+
+**관련 저장소**: `gonow-flask`(원인 코드), 연관 로직: 스프링 `JourneyService.updateLocation()`(READY 분기)
+
+**원래 증상**: `READY → DEPARTING` 전환이 GPS 폴링 도착 시점에만 반응하는데, 폴링 주기 계산(`_adaptive_gps_interval`)이 `departureAlarmTime` 임박 여부를 반영하지 않아 최대 5분까지 전환이 지연될 수 있었음(상세는 `docs/history/geofencing-migration-plan.md` 참고).
+
+**해결**: GoNow는 순수 안드로이드 대상 서비스라 iOS 분기를 별도로 고려할 필요가 없다. READY가 지오펜싱 기반으로 전환되면서(2026-08-17) 이 버그의 원인이었던 "폴링 주기 계산"이라는 개념 자체가 READY 상태에서 없어졌고, `P >= Q`(출발 알람 시각 도달)는 신규 서버 스케줄러 `DepartingTransitionScheduler`(매분 폴링형, GPS interval과 무관)가 대신 감시하도록 대체됐다. 플라스크의 interval 계산 로직 자체는 손대지 않았지만, 안드로이드 전용 서비스에서는 이 로직을 더 이상 거치지 않으므로 실질적으로 해소.
+
+---
+
+## `dlog` 통일 (2026-08-17)
+
+위 6건 중 여러 개가 "이 지점은 `console.log`만 있고 `dlog`가 없어서 원인 파악에 시간이 걸렸다"는 공통 패턴으로 발견됐다. `dlog()`는 내부적으로 `console.log()`도 호출하므로(`deviceLogger.ts`) `console.log`의 완전 상위호환이라는 게 확인돼, 알람/GPS/지오펜스/알림 서브시스템 8개 파일(`alarmService.ts`, `backgroundLocationTask.ts`, `_layout.tsx`, `notifications.ts`, `readyGeofenceTask.ts`, `departingGeofenceTask.ts`, `nearDestGeofenceTask.ts`, `movingGeofenceTask.ts`) 안의 `console.log` 181개를 전부 `dlog`로 통일했다(단순 문자열 인자 155개는 스크립트로 일괄 변환, 에러 객체를 포함한 다중 인자 26개는 수동으로 병합). 이 서브시스템 밖(로그인/설정 등 무관한 화면)은 대상에서 제외 — 앞으로도 이 8개 파일 안에서는 `console.log` 대신 항상 `dlog`를 쓰는 것을 규칙으로 확정.
