@@ -273,10 +273,14 @@ public class JourneyService {
                     // 100m 이내 -> NEARDEST
                     journey.updateStatus(JourneyStatus.NEARDEST);
                 } else if (isPastAlarmTime(journey.getDepartureAlarmTime())) { // P >= Q?
-                    // P >= Q → DEPARTING, 300m 이탈 감지를 위해 주기를 타이트하게 갱신
+                    // P >= Q → DEPARTING
                     journey.updateStatus(JourneyStatus.DEPARTING);
-                    flaskResponse = callFlaskAndUpdate(memberId, journey, newPoint, setting);
-                    interval = flaskResponse.interval();
+                    // 바로 위에서(앵커 500m 이탈 등으로) 이미 같은 좌표로 플라스크를 불렀다면
+                    // 또 부를 필요 없음 — 입력(좌표/목적지/시각)이 완전히 같아 결과도 같다.
+                    if (flaskResponse == null) {
+                        flaskResponse = callFlaskAndUpdate(memberId, journey, newPoint, setting);
+                        interval = flaskResponse.interval();
+                    }
                 }
                 // P < Q → READY 유지
             }
