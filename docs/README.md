@@ -15,6 +15,7 @@
 | 해결된 버그 아카이브 | [history/resolved-bugs.md](history/resolved-bugs.md) | 과거 수정 이력 확인 시 |
 | GPS 폴링 동기화 변경 이력 | [history/gps-polling-sync-changes.md](history/gps-polling-sync-changes.md) | API 응답 필드 변경 이력 확인 시 |
 | 좀비 Runner 버그 수정 상세 | [history/zombie-runner-fix.md](history/zombie-runner-fix.md) | 폴링 중복 버그 원인/구조 상세 확인 시 |
+| GPS 동적 폴링/지오펜스 안정화(프론트, 2026-08-14) | [history/geofence-polling-stabilization-2026-08-14.md](history/geofence-polling-stabilization-2026-08-14.md) | 지오펜스↔폴링 경쟁조건, 콜드스타트 러너 복구, EXIT 지오펜스 OS 한계 확인 시 |
 | FCM/스케줄러 설계안 v1 (구버전, 대체됨) | [history/fcm-scheduler-design-v1.md](history/fcm-scheduler-design-v1.md) | 초기 설계 배경 파악 시 (실제 구현은 `CLAUDE.md`/`spec/journey-state-machine.md` 우선) |
 
 ## 그 외 참고 자료 (`/sync-docs` 비대상)

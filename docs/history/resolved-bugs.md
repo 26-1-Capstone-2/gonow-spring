@@ -1,6 +1,9 @@
 # GPS 폴링 버그 — 해결된 항목 아카이브
 
-마지막 업데이트: 2026-08-11
+마지막 업데이트: 2026-08-16
+
+2026-08-14 프론트 GPS 동적 폴링/지오펜스 안정화(경쟁조건, 콜드스타트 러너 복구, EXIT 지오펜스 OS 한계 등) 상세는 별도 문서 참고: [geofence-polling-stabilization-2026-08-14.md](geofence-polling-stabilization-2026-08-14.md)
+2026-08-16 위 안정화 작업이 버그3/버그8(백그라운드 GPS interval 30초 고정 + 포그라운드 중복 호출)의 최종 해결이었음을 확인, `BUGS.md`에서 해결됨으로 이동
 
 미해결 버그는 루트 `BUGS.md` 참고.
 
@@ -630,7 +633,7 @@ MODIFY COLUMN priority_type ENUM('MIN_TIME', 'MIN_TRANSFER', 'MIN_WALK', 'MIN_WA
 
 ## 수정 완료 목록 (2026-08-10)
 
-### ⏪ 버그3/버그8 — 백그라운드 GPS polling interval 30초 고정 + 포그라운드 중복 호출 (GoNow_Fronted, 검증 완료 후 전면 롤백됨 — 아래 마지막 문단 참고)
+### ✅ 버그3/버그8 — 백그라운드 GPS polling interval 30초 고정 + 포그라운드 중복 호출 (GoNow_Fronted, 2026-08-14 재구현·검증 완료 — 아래 "최종 해결" 문단 참고)
 
 **배경**: 지오펜싱 도입을 검토하던 중, "OS 레벨 GPS 구독의 `timeInterval`이 30초로 하드코딩돼 있어 서버가 알려준 실제 필요 주기(최대 300초)를 무시하고 항상 30초마다 GPS 하드웨어를 깨운다"(버그3)와 "포그라운드에서도 이 구독이 그대로 살아있어 `alarmService`의 정밀 폴링과 중복 발화한다"(버그8)는 두 문제를 라이브러리 교체 없이 기존 `expo-location` 안에서 해결하기로 결정. `react-native-background-geolocation` 등 대체 라이브러리는 유료 라이선스 + New Architecture 호환성 미검증 + 지오펜싱 자체는 `expo-location`에 이미 무료 내장(`startGeofencingAsync`)돼 있어 불필요하다고 판단해 채택하지 않음.
 
@@ -649,6 +652,11 @@ MODIFY COLUMN priority_type ENUM('MIN_TIME', 'MIN_TRANSFER', 'MIN_WALK', 'MIN_WA
 **1차 롤백(같은 날, 버그42로 기록)**: `backgroundAlarmTask.ts`(완전 종료 상태 + 새벽 4시 FCM 헤드리스 웨이크업) 경로에서 새 코드(`getMinDesiredIntervalMs()`)가 실제로 도는 것 자체를 실기기로 재현하지 못함 — 원인 조사 결과 코드 문제가 아니라 테스트 환경(`adb shell am force-stop`이 FCM 리시버를 비활성화시킴, dev client의 Metro 재연결 지연 가능성, 기기 배터리 최적화 가능성) 쪽으로 추정됨. 이후 지오펜싱 도입(`docs/planning/geofencing-migration-plan.md`)을 결정하면서 이 파일이 새벽 4시에 하는 일 자체가 "GPS 폴링 시작"에서 "위치 1회 확인 + 지오펜스 등록"으로 바뀔 예정이라 이 수정이 무의미해질 것으로 판단, `backgroundAlarmTask.ts`의 해당 변경만 먼저 롤백함(이 시점엔 `backgroundLocationTask.ts`/`alarmService.ts`는 아직 유지).
 
 **2차 롤백(2026-08-11, 전면 롤백)**: 위 1차 롤백 논의 중 재검토하다가, 남겨뒀던 `backgroundLocationTask.ts`/`alarmService.ts` 쪽도 문제가 있다는 걸 추가로 발견함 — 기존 30초 고정 덕분에 백그라운드에서도 항상 자주(30초) 확인되던 것이, 버그29(`departureAlarmTime` 임박 반영 못 함) 증상을 의도치 않게 완화해주고 있었음. 이걸 "서버가 알려준 실제 값(최대 300초)"으로 바꾸면 배터리는 아끼지만 백그라운드에서 상태 전환 감지가 최대 300초까지 늦어질 수 있어 버그29의 영향 범위가 오히려 넓어짐 — 배터리 효율보다 반응 정확도를 우선하기로 하고, `backgroundLocationTask.ts`/`alarmService.ts`의 나머지 수정도 전부 롤백(`git restore`, 두 파일 모두 원래 상태로 완전 복원). 버그3/버그8은 다시 `BUGS.md`의 미해결 목록으로 복귀 — 지오펜싱 도입 시 "MOVING 상태 전용"으로 범위를 좁혀서 재구현할 예정(MOVING은 interval이 원래 짧아 위 트레이드오프의 심각도가 낮음). 검증까지 마쳤던 코드(`getMinDesiredIntervalMs()`/`applyNewInterval()` 설계)는 재구현 시 그대로 재사용 가능하므로 이 문서에 남겨둔 구현 내용은 유효한 참고 자료로 유지.
+
+**최종 해결(2026-08-14)**: NEARDEST가 순수 지오펜싱으로 전환되고(2026-08-13) FGS(포그라운드 서비스)와 GPS 폴링을 완전히 분리하는 독립 네이티브 모듈(`modules/foreground-service`)이 도입되면서, 2차 롤백의 롤백 사유 2번("백그라운드 구독 stop→restart가 FGS 재시작을 걸어 크래시 위험")이 구조적으로 사라졌다. 이를 근거로 "MOVING 전용"이 아니라 READY/DEPARTING/MOVING 전체 범위로 재구현·전면 재검증했다([[geofence-polling-stabilization-2026-08-14]] 참고, 커밋 `65e90f6`).
+
+- **버그8(포그라운드 중복)**: `maybeSyncGpsPolling()`이 `AppState.currentState === 'active'`면 무조건 네이티브 GPS 구독을 끄고(`stopGpsPolling()`) 포그라운드 정밀 타이머(`AlarmRunner`)만 GPS를 쓰게 만드는 구조적 수정 — interval 값과 무관한 순수 구조적 보장이라, 3대 불변식 실기기 테스트 전 범위(fg/bg 반복 전환, NEARDEST 경쟁, 콜드스타트 등)로 폭넓게 검증됨. **완전 해결.**
+- **버그3(30초 고정)**: `getMinDesiredIntervalMs()`가 활성 journey/appointment의 서버 지시 interval 중 최솟값을 동적으로 계산해 네이티브 구독에 반영하고, 값이 바뀌면 재시작(stop→restart)한다. 로직 자체는 특정 값에 종속되지 않는 범용 코드(`Math.min` + 값 변경 시 재시작)이고, "값이 바뀌면 재시작"되는 경로도 이번 재검증 중 실제로 실행됨(기본 폴백값 30s → 테스트 강제값 15s 전환 시). 다만 이번 재검증 내내 `DEBUG_FORCE_INTERVAL_SEC = 15`(테스트용 상수, 의도적으로 유지 중)가 서버의 실제 interval 값을 항상 15초로 덮어썼기 때문에, 300초 같은 실제 서버 값 규모에서의 최종 실측 확인은 아직 이뤄지지 않았다. 코드 경로가 일반적이라 문제 소지는 낮다고 판단해 해결로 분류하되, 이 상수를 `null`로 되돌릴 때 한 번 더 실측 확인하는 걸 권장.
 
 ---
 
@@ -710,4 +718,90 @@ STEP0 사전 점검(근접 리드타임 3분 후): 예측 1313초 vs 실제 1281
 
 **착수하지 않기로 한 이유**: 버그40 실측 결과 2-pass가 리드타임과 무관하게 안정적인 정확도를 보여서(리드타임이 가장 긴 44.5h 시나리오도 오차가 더 커지지 않음), 새벽 4시에 2-pass로 한 번만 계산해도 이미 "실제 출발 예정 시각의 예측 교통상황"이 반영된 값이 나옴 — 재계산 트리거를 별도로 추가할 필요성이 크게 줄어듦. 게다가 재검토 결과, 이 버그의 재계산 트리거(`isOutOfAnchor`, 500m 이동)는 애초에 "가만히 있는 사용자"에게는 폴링 방식에서도 원래부터 작동하지 않았음(이동 기반이지 시간 기반이 아니므로) — 즉 이 오차가 실제로 영향을 주는 상황(정지 상태)에서는 이 트리거를 고쳐도 도움이 안 됨. 지오펜싱 도입 계획(`docs/planning/geofencing-migration-plan.md`)에서도 이 결론을 전제로 별도 안전망을 추가하지 않기로 함.
 
+---
+
+## 수정 완료 목록 (2026-08-13)
+
+### ✅ NEARDEST 지오펜스 EXIT 처리(및 평소 배경 폴링)의 `/location` 호출이 백그라운드에서 25~120초씩 불규칙 지연 → 근본 원인은 JS `setTimeout` 기반 타임아웃의 신뢰성 부족, 네이티브 `XMLHttpRequest.timeout`으로 해결
+
+**파일**: `src/tasks/backgroundLocationTask.ts`(`patchLocation`/`patchLocationOnce` 재작성), `src/tasks/nearDestGeofenceTask.ts`(등록 실패 처리·좌표 확보 순서 수정), `node_modules/expo-location` 패치(`patches/expo-location+19.0.8.patch`), `node_modules/expo-task-manager` 패치(`patches/expo-task-manager+14.0.9.patch`), `package.json`(`"postinstall": "patch-package"` 추가)
+
+**증상**: NEARDEST 지오펜스 EXIT 이벤트 수신과 GPS 좌표 확보는 항상 빨랐다(수십 ms, 백그라운드에서도 동일). 그런데 그 직후 서버에 위치를 보고하는 `/location` 호출(`patchLocation()`)만 백그라운드 상태에서 25초~119.7초까지 불규칙하게 지연됐다가, **정확히 앱을 포그라운드로 전환하는 순간 응답이 도착**하는 패턴이 여러 차례 실측으로 반복 확인됐다. 평소 배경 폴링 태스크(`BackgroundLocation`, 지오펜스와 무관한 별개 실행 경로)의 동일 호출에서도 같은 패턴이 나타나, 지오펜스 전용 문제가 아니라는 게 드러났다. 부수 증상으로 이로 인해 "EXIT 로컬 알림이 백그라운드에서 안 뜨고 앱을 열어야만 뜬다"는 사용자 체감 버그가 발생했다.
+
+**기각된 가설들 (각각 실측/코드 확인으로 검증 후 기각)**:
+1. 시스템 위치 캐시 오염으로 최신 좌표를 못 씀 → 좌표 확보 순서를 신규GPS 우선으로 바꿔도 무관하게 재현돼 기각.
+2. 배터리 최적화/백그라운드 데이터 제한/삼성 절전 앱 목록 → 전부 "제한 없음/허용/예외" 정상 확인.
+3. App Standby Bucket → `adb shell am get-standby-bucket <패키지>`로 `5`(`EXEMPTED`, 최고 등급) 확인.
+4. Doze 화이트리스트 → `adb shell dumpsys deviceidle`로 앱이 화이트리스트에 등록돼 있고 기기도 비-Doze 상태임을 확인.
+5. 지오펜스 태스크가 안드로이드 `JobScheduler` 경로를 타서 FGS급 실행 우선순위를 못 받는다 → `TaskManagerUtils.java`의 `createJobInfo()`에 안드로이드 12+ 대상 `setExpedited(true)`를 패치해 재빌드·재검증했으나 **효과 없음**(지연폭 그대로: 57.9초/46.8초). 결정적으로, JobScheduler를 전혀 안 쓰고 FGS가 직접 콜백을 주는 평소 배경 폴링 태스크(`BackgroundLocation`)에서도 동일 패턴(최대 119.7초)이 재현돼 이 가설도 기각. `setExpedited(true)` 패치 자체는 부작용이 없어 코드에는 그대로 남겨둠(아래 "부수적으로 함께 고친 것" 참고).
+
+**최종 원인**: `patchLocation()`이 쓰던 타임아웃 메커니즘(`fetch()` + `AbortController` + JS `setTimeout`)이 백그라운드에서 신뢰할 수 없었다. 지연 구간 도중에도 GPS 네이티브 호출이나 다른 TaskManager 헤드리스 태스크 발화 등 "JS 엔진이 살아있다"는 증거는 계속 나왔는데(로그로 확인), 오직 JS `setTimeout` 기반 타임아웃만 단 한 번도 제때 발동하지 않았다 — 매번 "1차 성공" 로그로 지연시간 전체를 그대로 먹고 끝났고, 재시도 로직 자체가 발동한 사례가 하나도 없었다. 즉 네트워크가 근본적으로 막힌 게 아니라, **리액트 네이티브의 JS `setTimeout` 콜백 전달이 백그라운드에서 지연될 수 있다는 알려진 한계**로 인해 저희 타임아웃 안전장치가 무력화되고 있었던 것으로 보인다.
+
+**해결**: `patchLocationOnce()`를 `fetch()`+`AbortController`(JS 타이머 경유) 대신 `XMLHttpRequest`의 네이티브 `timeout` 속성으로 재작성했다. 이 속성은 JS 타이머를 전혀 거치지 않고 안드로이드 네이티브 `NetworkingModule.kt`에서 OkHttp의 `callTimeout()`으로 직접 연결된다(코드로 직접 확인, `NetworkingModule.kt:329-330`) — JS 스레드 상태와 무관하게 OkHttp 자체 감시 스레드가 시간을 잰다.
+
+```ts
+function patchLocationOnce(path: string, token: string, lat: number, lng: number, timeoutMs: number): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.timeout = timeoutMs; // 네이티브 레벨(OkHttp callTimeout) — JS 타이머 아님
+    xhr.open('PATCH', `${BASE_URL}${path}`);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)); } catch (e) { reject(e); }
+      } else {
+        reject(new Error(`HTTP ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('네트워크 오류'));
+    xhr.ontimeout = () => reject(new Error(`timeout after ${timeoutMs}ms`));
+    xhr.send(JSON.stringify({ lat, lng }));
+  });
+}
+```
+
+`patchLocation()`(1회 재시도 래퍼)의 나머지 로직(HTTP 4xx/5xx는 재시도 안 함, 타이밍 로그, 디버그 알림)은 `patchLocationOnce()`가 같은 형태의 에러(`HTTP ${status}`)를 던지는 한 그대로 재사용 가능해서 손대지 않았다.
+
+**검증**: 재빌드 후 실기기로 백그라운드 상태에서 100m 경계를 2회 이상 왕복(ENTER/EXIT 반복) + 포그라운드 전환까지 같이 테스트. 전 구간에서 `/location` 응답이 193~476ms로 일관되게 빠르게 왔고, 재시도 로직이 단 한 번도 발동할 필요가 없었다(로그에 "1차 실패" 기록 0건). 기존(25~120초) 대비 확실한 개선을 확인.
+
+**부수적으로 함께 고친 것**:
+- `GeofencingTaskConsumer.kt`의 `addGeofences()`/`removeGeofences()`가 성공/실패 여부를 전혀 확인 안 하던 결함을 패치 — Play Services `Task`에 `addOnSuccessListener`/`addOnFailureListener`를 달아서, 실패 시 기존 이벤트 전달 통로(`taskManagerUtils.scheduleJob`)를 재사용해 JS(`nearDestGeofenceTask.ts`)까지 신호(`eventType: -1`)를 보낸다. JS 쪽은 이 신호를 받으면 현재 등록돼 있다고 믿는 모든 key를 **한 번에** 정리(개별 반복 호출 시 `saveRegionsAndSync`가 매번 재등록을 시도해서 스스로 재등록 경쟁을 만드는 문제가 있어 벌크 처리로 수정)하고 전부 폴링으로 자동 폴백한다. (`patches/expo-location+19.0.8.patch`)
+- `setExpedited(true)` 패치(`TaskManagerUtils.java`)는 최종적으로 근본 원인이 아닌 것으로 확인됐지만 부작용도 없어 그대로 유지(`patches/expo-task-manager+14.0.9.patch`) — 이 Job 스케줄링 경로는 지오펜스뿐 아니라 `expo-notifications`의 `BackgroundRemoteNotificationTaskConsumer`(우리 `BACKGROUND_ALARM_TASK`, 즉 새벽 4시 FCM 웨이크업)와도 공유되므로, 이 패치가 그쪽에도 함께 적용된다는 점을 인지해둘 것(현재까지 부작용 관측 없음). `LocationTaskConsumer.kt`도 `scheduleJob`을 호출하지만 `deferredUpdatesInterval` 옵션을 쓸 때만 타는 경로라 우리 앱(옵션 미사용)엔 영향 없음을 코드로 확인.
+- `backgroundLocationTask.ts`의 `BACKGROUND_LOCATION_TIME_INTERVAL_MS`를 진단용 임시값(1시간)에서 원래 운영값(30초)으로 원복.
+- `nearDestGeofenceTask.ts`의 EXIT 좌표 확보 순서를 캐시 우선 → 신규GPS 우선으로 변경(정확도 우선, 캐시는 실패 시 폴백으로 유지).
+
+**남은 과제(의도적으로 미룸)**: 지오펜스 목록을 짧은 시간에 반복 등록/해제하면(`GeofencingClient.addGeofences`/`removeGeofences`가 둘 다 fire-and-forget이라 순서 보장이 없음) 이론적으로 여전히 경쟁 상태가 발생할 수 있다. 오늘 결론상 이게 실제 지연의 원인은 아니었던 것으로 확정됐지만(위 "최종 원인" 참고), 근본적으로 고친 건 아니라서 지오펜스를 짧은 간격으로 반복 등록/해제하는 시나리오(예: 트러블슈팅 중 알람을 여러 번 빠르게 만들고 지움)에서 다시 마주칠 가능성은 남아있다.
+
+**교훈(향후 백그라운드 네트워크 작업에 재사용)**: 리액트 네이티브에서 백그라운드 상태의 네트워크 호출에 타임아웃을 걸어야 한다면, `fetch()`+`AbortController`(JS 타이머 경유)가 아니라 `XMLHttpRequest.timeout`(네이티브 레벨, OkHttp `callTimeout()`으로 직결)을 쓸 것 — JS 타이머가 백그라운드에서 지연 전달되는 문제를 원천적으로 피할 수 있다. `fetch()`는 RN에서 결국 `XMLHttpRequest`를 감싼 JS 폴리필(`whatwg-fetch`)일 뿐이라, XHR을 직접 쓴다고 "더 구식/저수준"이 되는 게 아니라 같은 엔진의 다른 진입점을 쓰는 것뿐이다.
+
 **설계 자체는 끝나있었음(참고용, 필요해지면 재검토)**: `JourneyService.updateLocation()` READY 분기에 `isAlarmImminent` 조건 추가, `GeoConstants.ALARM_IMMINENT_THRESHOLD_MINUTES` 상수 신설 — 위 결론에 따라 실제 구현은 하지 않음.
+
+### ✅ FGS(포그라운드 서비스)와 GPS 폴링을 완전히 분리하는 독립 네이티브 모듈 도입 (GoNow_Fronted)
+
+**파일**: `modules/foreground-service/`(신규 — `ForegroundAlarmService.kt`, `ForegroundServiceModule.kt`, `index.ts` 등), `src/tasks/backgroundLocationTask.ts`, `src/services/alarmService.ts`, `src/tasks/nearDestGeofenceTask.ts`, `src/tasks/backgroundAlarmTask.ts`
+
+**증상**: `expo-location`의 `Location.startLocationUpdatesAsync(taskName, { foregroundService: {...} })`는 FGS와 GPS 구독을 하나의 API로 묶어서, "FGS(상단바 알림)는 유지하되 GPS 폴링만 멈춘다"는 조합을 표현할 수 없었다. NEARDEST를 순수 지오펜싱으로 전환한 뒤에도(위 항목 참고) 이 제약 때문에 지오펜싱만으로 충분한 상태에서조차 GPS 폴링이 계속 돌아, 지오펜싱 도입의 배터리 절약 목적 중 "GPS 칩 사용량 감소"만 실현이 안 되고 있었다.
+
+**해결**: 알림 표시만 전담하는 순수 Android `Service`(`ForegroundAlarmService.kt`, 위치 콜백 전혀 참조 안 함)를 새 로컬 Expo 모듈로 만들고, GPS 구독은 항상 `foregroundService` 옵션 없이만 시작하도록 통일했다. `startAlarmForegroundService()`/`stopAlarmForegroundService()`(FGS 전담)와 `startGpsPolling()`/`stopGpsPolling()`(GPS 전담)이 완전히 독립된 함수가 됐고, `maybeSyncGpsPolling()`이 `ACTIVE_JOURNEYS_KEY`/`ACTIVE_APPOINTMENTS_KEY` 기준으로 GPS 폴링 필요 여부만 별도 재판단한다. 부수적으로, expo-location API의 한계 때문에 있었던 "FGS 없는 구독 발견 시 stop→재시작(승격)" 로직(`LOCATION_FGS_ACTIVE_KEY` 기반, 과거 크래시 전례가 있던 위험한 패턴)이 개념 자체가 사라져 통째로 제거됐다.
+
+**검증**: 실기기 dumpsys로 ① FGS만 켰을 때 GPS 요청 0건 ② FGS+GPS 동시 실행 ③ GPS만 끄고 FGS는 유지되는 것 ④ 실제 알람 생성→백그라운드 전환→NEARDEST 흐름에서 GPS 폴링이 멈추고 FGS는 67초 넘게 `isForeground=true` 유지되는 것까지 전부 확인. `npx tsc --noEmit` 통과.
+
+**부수적으로 함께 고친 것(같은 세션 코드 리뷰로 발견)**:
+- **`DESIRED_INTERVALS_KEY`(서버가 지시한 폴링 주기) 경쟁 조건**: 이 키를 잠금 없이 건드리는 지점이 헤드리스 틱(`backgroundLocationTask.ts`, 블랭킷 덮어쓰기), `fallbackToPolling()`(`nearDestGeofenceTask.ts`, 삭제), 포그라운드 폴링(`alarmService.ts`, fire-and-forget 갱신) 세 곳이나 있어서, 헤드리스 틱이 값을 읽은 "직후" 다른 경로가 특정 key를 지워도 틱이 자기 스냅샷을 통째로 다시 쓰면서 그 삭제를 되살릴 수 있었다 — NEARDEST 재진입 시 도착 확인 알림이 최대 5분 지연되는 버그(서버가 내려준 긴 주기가 EXIT 후에도 안 지워짐)가 이 경쟁 구간에서 재발할 수 있는 구조였다. `withIntervalsLock` + `setDesiredInterval()`/`clearDesiredInterval()` locked 헬퍼를 도입하고, 헤드리스 틱은 통째 덮어쓰기 대신 자신이 실제로 바꾼 key만 델타로 모아 최신 상태에 병합하도록 변경(`ACTIVE_JOURNEYS_KEY` 등에 이미 쓰던 것과 동일한 원칙).
+- **로그아웃(`AlarmManager.stopAll()`) 시 `stopBackgroundLocationUpdates()` 최대 N+2회 중복 호출**: `forEach(r => r.stop())`가 각 runner의 `onFinish`를 개별적으로 트리거해 매번 재확인하고, `stopAll()` 자신도 한 번 더 호출하고, 호출부(`ProfileSettingsScreen.tsx`)도 또 한 번 명시적으로 호출 + `ACTIVE_JOURNEYS_KEY`/`ACTIVE_APPOINTMENTS_KEY`를 잠금 없이 직접 덮어쓰고 있었다. 무해했지만(각 함수가 "이미 처리됨"을 자체 체크) 비효율적이라, `stopAll()`이 각 runner의 `onFinish`를 무력화한 뒤 신설한 `clearActiveIds()`(locked)로 한 번만 정리하도록 정리.
+- **위치 권한 미승인 상태에서 FGS 시작 시 앱 전체 크래시**: `ForegroundAlarmService.kt`가 권한 확인 없이 `startForeground(..., FOREGROUND_SERVICE_TYPE_LOCATION)`을 호출해서, 신규 설치 기기(위치 권한 승인 전)에서 로그인 직후 기존 알람을 발견해 FGS를 켜려는 순간 `SecurityException`으로 앱이 죽는 크래시가 실기기(신규 빌드 최초 실행)로 확인됐다. `startAlarmForegroundService()`(JS)에 `Location.getForegroundPermissionsAsync()` 체크를 추가해 미승인 시 조용히 skip하도록 하고, `ForegroundAlarmService.kt`에도 `SecurityException` try/catch(방어용, 이 서비스만 `stopSelf()`로 조용히 중단)를 추가. 로컬 release 빌드로 재현·재검증 완료(크래시 없이 정상 기동 확인).
+- **dev-client 환경에서 지오펜스 EXIT 처리 중 동적 import 실패로 헤드리스 태스크 전체 크래시**: `fallbackToPolling()`이 포그라운드일 때 `await import('@/src/services/alarmService')`로 순환 참조를 회피하는데, dev-client는 이 모듈을 앱 시작 시 전부 들고 있지 않고 Metro 서버(`127.0.0.1:8081`)에서 필요할 때 받아온다 — USB를 뽑고 밖에서 테스트하면 이 터널이 끊겨서 `LoadBundleFromServerRequestError`로 실패하고, 이 예외가 안 잡혀서 `NEARDEST-GEOFENCE-TASK` 전체(`TaskManager: Task ... failed`)가 죽는 게 실외 실기기 테스트로 재현됐다. `/location` 호출과 지오펜스 해제 자체는 이미 성공한 뒤였음에도 폴링 재개(`alarmService.resumeFromGeofence()`)만 못 하고 죽는 형태. 동적 import를 try/catch로 감싸서 실패 시 예외를 삼키고 아래 백그라운드 폴링 재시작 경로로 폴백하도록 방어 코드 추가 — **단, 근본 해결은 아니고 dev-client가 아닌 standalone 빌드(EAS build 또는 `expo run:android --variant release`)로 테스트하면 애초에 이 실패 자체가 안 일어난다.** 실외 재테스트에서 포그라운드·백그라운드 EXIT 둘 다 크래시 없이 정상 처리되는 것까지 확인.
+
+## 수정 완료 목록 (2026-08-17)
+
+### ✅ 버그44 — 반복 여정이 ARRIVED → READY로 넘어갈 때 앵커/출발 알람 시각이 어제 값으로 남아있어 당일 재계산 없이 곧바로 DEPARTING 오판 가능 (스프링)
+
+**파일**: `JourneyRepository.java`, `ReadyTransitionService.java`
+
+**증상**: `ReadyTransitionService.transitionToReady()`가 반복 여정을 `ARRIVED → READY`로 벌크 전환할 때 `status`만 바꾸고 `current_lat/lng`(앵커)·`departure_alarm_time`은 그대로 남겨뒀다(수정 API 호출 시엔 두 값을 null로 리셋하는 코드가 있는데, 이 스케줄러 경로엔 없었음). `JourneyService`의 READY 분기는 "앵커가 없거나(`isFirstReceive`) 앵커에서 500m 이상 벗어났을 때만" 플라스크를 재호출해 `departureAlarmTime`을 재계산하는데, 반복 여정은 보통 매일 비슷한 위치(집)에서 첫 GPS를 찍으므로 이 재계산 게이트를 통과 못 하는 경우가 흔하다 — 그러면 어제 계산된 스테일 `departureAlarmTime`으로 곧바로 `isPastAlarmTime` 체크를 해버려서, 오늘 좌표를 한 번도 재계산 안 한 채 DEPARTING으로 잘못 전환될 수 있었다. 지오펜싱 Phase 3(READY) 설계 중 코드 재검토로 발견 — 기존 폴링 방식에도 이미 있던 버그이지만, 새로 만들 `DepartingTransitionScheduler`가 GPS 재계산 게이트 없이 DB의 `departureAlarmTime`만 보고 벌크 전환하는 구조라 스테일 값에 훨씬 직접적으로 노출되는 것을 계기로 먼저 고쳤다.
+
+**해결**: `JourneyRepository`에 `bulkResetAnchorAndAlarmForReadyTransition(today, todayBit)` 신설 — `bulkUpdateToReady`와 동일한 WHERE 조건(대상 집합이 정확히 일치해야 함)으로 `current_lat/lng`·`departure_alarm_time`을 NULL로 리셋하는 네이티브 쿼리. `ReadyTransitionService.transitionToReady()`에서 `bulkUpdateToReady` **직전**에 호출(상태가 READY로 바뀌기 전에 리셋해야 WHERE의 `status IN (SCHEDULED, ARRIVED)` 조건이 유효함). SCHEDULED에서 넘어오는 여정은 두 값이 이미 null이라 리셋이 무해 — 반복/비반복 구분 없이 항상 호출해도 안전. 리셋 결과 반복 여정은 매일 첫 GPS 수신 시 무조건 "최초 좌표 수신"으로 처리돼 플라스크가 재호출된다(기존 로직 그대로 재사용, 새 분기 불필요).
+
+**검증**: `./gradlew compileJava` 통과. 실제 반복 여정 시나리오(새벽 4시 스케줄러 → 당일 첫 GPS)로 실측 검증은 아직 안 함 — 다음 스케줄러 사이클 또는 통합 테스트에서 확인 필요.

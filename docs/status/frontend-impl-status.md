@@ -2,7 +2,7 @@
 
 프론트 경로: `D:\gonow-app\GoNow_Fronted`
 플라스크 경로: `D:\gonow-flask\CounterClockEngine`
-마지막 확인일: 2026-08-08(TRANSIT 모드 카카오맵 딥링크 확장 + `PriorityType.MIN_WAIT` 추가 반영)
+마지막 확인일: 2026-08-16(GPS 폴링 구조를 2026-08-14 재구현 내용으로 갱신 — 상세는 `docs/history/geofence-polling-stabilization-2026-08-14.md` 참고)
 
 ---
 
@@ -17,9 +17,12 @@
 
 ## GPS 폴링 구조
 
-- **포그라운드**: `alarmService` (AlarmRunner 클래스) — `setTimeout` 기반 폴링, `expo-location` 사용
-- **백그라운드**: `backgroundLocationTask.ts` — `expo-task-manager` 기반, OS가 주기적으로 깨워서 실행
-- 포그라운드 전환 시 백그라운드 태스크 `AsyncStorage` 목록에서 해당 알람 제거 (이중 처리 방지)
+- **포그라운드**: `alarmService.ts`의 `AlarmRunner` — `setTimeout` 기반 폴링, `expo-location` 사용
+- **백그라운드**: `backgroundLocationTask.ts` — `expo-task-manager` 기반 네이티브 구독(`Location.startLocationUpdatesAsync`), OS가 주기적으로 깨워서 실행
+- 포그라운드/백그라운드 중 정확히 하나만 활성화되도록 `maybeSyncGpsPolling()`(AppState 인지형)이 상호배제한다. 백그라운드 구독의 interval도 서버 지시값 기준으로 동적 계산(`getMinDesiredIntervalMs()`) — 예전엔 30초 고정이었으나 2026-08-14 재구현으로 해소(버그3/8 최종 해결, `docs/history/resolved-bugs.md` 참고).
+- **예외(안드로이드, 2026-08-13~)**: NEARDEST 상태는 폴링 대신 순수 지오펜싱(`Location.startGeofencingAsync`, 목적지 100m 반경 EXIT 이벤트)으로 대체됨. iOS는 지오펜싱 미지원이라 NEARDEST에서도 폴링 유지(`docs/spec/journey-state-machine.md` 참고).
+- FGS(포그라운드 서비스, 상단바 알림)는 GPS 폴링과 완전히 분리된 독립 네이티브 모듈(`modules/foreground-service`)이 담당 — 알람 존재 여부와만 연동되고 GPS 구독 상태와는 무관하게 켜짐/꺼짐이 결정된다.
+- 상세 배경(경쟁조건, 콜드스타트 러너 복구 등)은 `docs/history/geofence-polling-stabilization-2026-08-14.md` 참고.
 
 ---
 
@@ -136,12 +139,11 @@
 | 화면 꺼진 상태 폴링 유지 | ✅ | foregroundService 활성 시 30초 보장 |
 | 로그인 후 READY 알람 GPS 폴링 복구 | ✅ | LoginScreen.tsx에서 getAlarms 호출 |
 
-### GPS 폴링 주기 특성
+### GPS 폴링 주기 특성 (2026-06-03 시점 스냅샷 — 아래 내용은 이후 재구현으로 대체됨, 최신 내용은 위 "GPS 폴링 구조" 절 참고)
 
-- **포그라운드 (`alarmService`)**: `setTimeout` 기반, `/location` 응답의 `interval` 값으로 동적 갱신
-- **백그라운드 (`backgroundLocationTask`)**: `startLocationUpdatesAsync` 등록, `timeInterval: 30000` 고정
-- **foregroundService**: `backgroundLocationTask.ts`의 `foregroundService` 설정으로 상단바 "GoNow 알람 실행 중" 표시 → Android Doze 모드 면제 → 화면 꺼져도 30초 보장
-- **foregroundService 미활성 상태**: 화면 꺼지면 Android Doze로 수분 단위 지연 가능
+- ~~**백그라운드 (`backgroundLocationTask`)**: `startLocationUpdatesAsync` 등록, `timeInterval: 30000` 고정~~ → 2026-08-14부터 서버 지시값 기준 동적 interval로 대체(버그3/8 최종 해결)
+- ~~**foregroundService**: `backgroundLocationTask.ts`의 `foregroundService` 설정으로 상단바 표시~~ → 2026-08-13부터 FGS가 GPS 구독과 분리된 독립 네이티브 모듈로 대체(`modules/foreground-service`)
+- **포그라운드 (`alarmService`)**: `setTimeout` 기반, `/location` 응답의 `interval` 값으로 동적 갱신 — 이 부분은 지금도 유효
 
 ### 미수정 사항 (팀원 전달 필요)
 

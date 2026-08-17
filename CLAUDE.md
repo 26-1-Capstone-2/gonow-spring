@@ -164,7 +164,7 @@ com.timemate.gonow/
 | DELETE | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 삭제 (방장 전용, 모든 Participant 벌크 삭제) |
 | PATCH | `/api/appointments/{appointmentId}/participants/active` | 필요 | 참가자 개인 알람 스위치 ON/OFF (본인만) |
 | DELETE | `/api/appointments/{appointmentId}/participants/{targetMemberId}` | 필요 | 참가자 탈퇴(본인) 또는 추방(방장) |
-| GET | `/api/alarms` | 필요 | 알람 조회 (`?date=` 날짜별 혼합 조회 또는 `?type=PERSONAL\|HOME\|GROUP` 타입별 조회, 둘 중 하나 필수) |
+| GET | `/api/alarms` | 필요 | 알람 조회 (`?date=` 날짜별 혼합 조회 또는 `?type=PERSONAL\|HOME\|GROUP` 타입별 조회, 둘 중 하나 필수. 응답에 목적지 좌표 `destLat`/`destLng` 포함) |
 | GET | `/api/journeys/{journeyId}` | 필요 | 여정 상세 조회 (개인/귀가 공통, `journeyType`+`isLastMode`로 프론트 분기) |
 | GET | `/api/appointments/{appointmentId}` | 필요 | 그룹 알람 상세 조회 (참여자 본인만, 참가자 목록 포함) |
 | GET | `/api/appointments/{appointmentId}/dashboard` | 필요 | 도착 예정 대시보드 조회 (참여자 본인만, 참가자별 participantStatus 포함, estimatedArrival은 최초엔 null, 참가자 GPS 수신(플라스크 연동) 후 채워짐) |
@@ -217,13 +217,13 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `/location` 응답에 `interval`(초) 포함 — 플라스크 호출 시에만 값 설정, 미호출 시 `null`
 - 프론트는 `interval != null`이면 폴링 주기를 해당 값으로 갱신, `null`이면 마지막 주기 유지
 - 새벽 4시 `ReadyTransitionService`에서 FCM Data 토큰별 개별 발송 → 프론트가 GPS 폴링 시작
-- FCM Data 페이로드: `journey_ids: "1,3"` (해당 유저의 당일 여정 ID 콤마 문자열) + `appointment_ids: "2,4"` (해당 유저의 당일 약속 ID 콤마 문자열, 없으면 미포함)
+- FCM Data 페이로드: `sync_event: "ready_transition"` + `journey_ids: "1,3"` (해당 유저의 당일 여정 ID 콤마 문자열) + `appointment_ids: "2,4"` (해당 유저의 당일 약속 ID 콤마 문자열, 없으면 미포함). `sync_event`는 2026-08-17 추가(다른 FCM Data 이벤트들과 통일 — 그 전엔 이 이벤트만 유일하게 구분자가 없었음, 최초로 구현된 FCM Data 트리거라 당시엔 구분자 개념 자체가 없었던 역사적 이유). 프론트는 하위호환을 위해 `sync_event` 부재도 READY로 간주함(`app/_layout.tsx`, `backgroundAlarmTask.ts`)
 
 #### 알람 울리기 방식
 | 방식 | 작동 조건 | 용도 |
 |------|----------|------|
 | expo-notifications (로컬 알림) | 앱 꺼져 있어도 작동 (OS 등록) | `departure_alarm_time` + `preparationTime` 기반 단계별 알람 시퀀스 (1→4단계) |
-| FCM Data | 앱 포그라운드/백그라운드 | ① 새벽 4시 READY 전환 → GPS 가동 트리거 (`journey_ids`, `appointment_ids`) ② 그룹 참가자/약속 정보 변경 동기화 (`sync_event`, 아래 표 참고) |
+| FCM Data | 앱 포그라운드/백그라운드 | ① 새벽 4시 READY 전환 → GPS 가동 트리거 (`sync_event: ready_transition`, `journey_ids`, `appointment_ids`) ② 그룹 참가자/약속 정보 변경 동기화 (`sync_event`, 아래 표 참고) ③ NEARDEST+targetTime 초과 자동 ARRIVED 전환 알림 (`sync_event: auto_arrived`, 개인/귀가/그룹 공통 — 아래 "FCM Data 자동 ARRIVED 알림" 참고) ④ READY→DEPARTING 시간 트리거 (`sync_event: departing_transition`) |
 | FCM Notification | 앱 완전 종료 포함 | 그룹 알람 도착 예정/완료 알림 (MOVING 진입, ARRIVED 진입 시) — 안드로이드 알림 채널을 `ArrivalChannel` enum으로 분리해서 실어 보냄(아래 FCM 그룹 알람 메시지 절 참고) |
 
 #### 단계별 출발 알람 (프론트 처리)
@@ -253,11 +253,15 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 | 참가자 탈퇴/추방 | `participants_changed` | 남은 참가자 전원(요청자 제외) | `ParticipantService.deleteParticipant()` → `sendAllData` |
 | 참가자 추방(대상자 전용) | `removed_from_appointment` | 쫓겨난 당사자 1명 | `ParticipantService.deleteParticipant()` → `sendData`(단건) |
 | 이동수단 변경 | `participants_changed` | 본인 제외 나머지 | `ParticipantService.updateTransportType()` → `sendAllData` |
-| 방장의 약속 정보 수정(목적지/날짜/시간/이동수단) | `participant_status`(READY/SCHEDULED) | 방장 제외 나머지 | `AppointmentService.updateAppointment()` → `sendAllData` |
+| 방장의 약속 정보 수정(목적지/날짜/시간이 실제로 바뀐 경우만 — 이동수단만 바뀐 경우는 발송 안 함, 위 "알람 수정 시 재계산 정책" 참고) | `participant_status`(READY/SCHEDULED) | 방장 제외 나머지 | `AppointmentService.updateAppointment()` → `sendAllData` |
 | 약속 삭제 | `appointment_deleted` | 방장 제외 나머지 | `AppointmentService.deleteAppointment()` → `sendAllData` |
 
 - 모든 이벤트에 `appointment_id` 필드 포함. `findFcmTokensByAppointmentIdExcluding` 사용 시 위와 동일하게 `isActive = false` 참가자는 제외됨(단, `removed_from_appointment` 단건 발송은 이 쿼리를 쓰지 않으므로 `isActive`와 무관하게 항상 발송)
-- 약속 삭제/추방 시 OS에 이미 등록된 로컬 단계별 알람 취소는 아직 미구현 (`BUGS.md` 버그14 참고)
+- 약속 삭제/추방 시 OS에 이미 등록된 로컬 단계별 알람 취소는 구현 완료 (`docs/history/resolved-bugs.md`의 "버그14" 참고 — `sync_event: appointment_deleted`/`removed_from_appointment` 수신 시 `cancelStagedAlarms()` 호출)
+
+#### FCM Data 자동 ARRIVED 알림 (개인/귀가/그룹 공통)
+
+NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘" 참고), 서버 스케줄러가 targetTime 초과로 NEARDEST → ARRIVED를 강제 전환해도 클라이언트가 폴링 중이 아니라 이 사실을 스스로 알 방법이 없다 — 그래서 `ArrivedTransitionService.transitionNeardestToArrived()`가 벌크 업데이트 직전에 대상 journey/appointment를 FCM 토큰별로 수집해뒀다가, 전환 완료 후 토큰별로 `sync_event: auto_arrived` + `journey_ids`/`appointment_ids`(콤마 문자열, 있는 것만 포함)를 `FcmSender.sendData()`(단건)로 발송한다. 위 "그룹 참가자/약속 동기화" 표와 달리 그룹 전용이 아니라 개인/귀가 여정에도 발송되고, 발송 주체도 `AppointmentService`/`ParticipantService`가 아니라 스케줄러(`ArrivedTransitionService`)다. 수신 측(`backgroundAlarmTask.ts`)은 이 신호로 단계별 알람 취소 + 지오펜스 해제 + 추적 목록 정리를 수행한다.
 
 ### 도메인 설계 원칙
 
@@ -320,6 +324,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - `findAppointmentIdsWithActiveOverdueParticipants(today, oneHourAgo)` — READY/DEPARTING/MOVING + targetTime+1시간 초과 참가자가 속한 약속 ID 조회 (지각 정리 대상)
 - `bulkUpdateActiveToArrivedByAppointmentIds(appIds)` — 약속 ID 목록 기준 READY/DEPARTING/MOVING → ARRIVED 벌크 전환 (지각 정리)
 - `findTokenToAppointmentIdsForReadyTransition(today)` — 스케줄러: 당일 READY 전환 대상 참가자를 FCM 토큰별로 그룹화해 (token → appointmentId 콤마 문자열) 맵 조회
+- `findTokenToAppointmentIdsForNeardestOverdue(today, now)` — 스케줄러: NEARDEST+targetTime 초과로 자동 ARRIVED 전환될 참가자를 FCM 토큰별로 그룹화해 (token → appointmentId 콤마 문자열) 맵 조회 (`sync_event: auto_arrived` 발송용, `ArrivedTransitionService`)
 
 ### Enum 상수 목록
 
@@ -338,7 +343,7 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 ### DTO 네이밍 규칙
 - `XxxSaveResponse`: 생성/수정 공통 최소 응답 (`JourneySaveResponse` — `journeyId` + `journeyStatus`)
 - `XxxResponse`: 상세 조회 응답 (`JourneyResponse`, `AppointmentResponse`, `DashboardResponse`)
-- `XxxCreateResponse`: 생성 전용 응답 (`AppointmentCreateResponse` — `appointmentId` + `inviteCode`)
+- `XxxCreateResponse`: 생성 전용 응답 (`AppointmentCreateResponse` — `appointmentId` + `inviteCode` + `participantStatus`(방장 초기 상태))
 - `XxxArriveResponse`: 도착 확인 응답 (`ParticipantArriveResponse` — `appointmentStatus`)
 - 중첩 record (`ParticipantInfo`, `ParticipantDashboard`): `public` 필수 (Jackson 직렬화)
 - 팩토리 메서드: 단일/다중 파라미터 무관하게 모두 `from()` 으로 통일
@@ -407,9 +412,9 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 - 그룹 알람: 생성(초대코드 자동)·참여·수정·삭제·상세 조회·대시보드
 - 참가자: 알람 스위치·탈퇴(본인)/추방(방장)·이동수단 변경
 - 알람 조회: 날짜별(`?date=`) 혼합 조회, 타입별(`?type=PERSONAL|HOME|GROUP`) 조회
-- 스케줄러: 새벽 4시 SCHEDULED/ARRIVED → READY 벌크 전환 + FCM Data 발송, 매분 정각 NEARDEST+targetTime 초과 → 자동 ARRIVED, READY/DEPARTING/MOVING 상태가 targetTime+1시간 초과해도 ARRIVED에 도달 못 하면 자동 ARRIVED(지각 정리, 여정·참가자 공통)
+- 스케줄러: 새벽 4시 SCHEDULED/ARRIVED → READY 벌크 전환(+ 반복 여정 앵커/출발시각 리셋, 버그44) + FCM Data 발송, 매분 정각 NEARDEST+targetTime 초과 → 자동 ARRIVED + FCM Data(`sync_event: auto_arrived`) 발송, 매분 정각 READY+departureAlarmTime 도달 → DEPARTING 벌크 전환 + FCM Data(`sync_event: departing_transition`) 발송(`DepartingTransitionScheduler`, 2026-08-17 — 지오펜싱된 READY의 시간 트리거 대체, `docs/planning/geofencing-migration-plan.md` 참고), READY/DEPARTING/MOVING 상태가 targetTime+1시간 초과해도 ARRIVED에 도달 못 하면 자동 ARRIVED(지각 정리, 여정·참가자 공통, FCM 발송 없음)
 - 여정/참가자 GPS 상태 전이 (`/location`, `/arrive`) — 상태 머신 전체 구현 완료
-- FCM: `FcmSender`(Data/Notification), `FirebaseConfig` — READY 트리거·그룹 도착 알림·그룹 참가자/약속 실시간 동기화
+- FCM: `FcmSender`(Data/Notification), `FirebaseConfig` — READY 트리거·그룹 도착 알림·그룹 참가자/약속 실시간 동기화·NEARDEST 자동 ARRIVED 알림(개인/귀가/그룹 공통)
 - 플라스크 연동: `FlaskJourneyRequest/Response`, `FlaskParticipantRequest/Response`, memberId 포함 — 실제 통신 테스트 완료 (2026-06-03, `docs/status/frontend-impl-status.md` 참고). 이후 `flask.url`이 탈퇴한 팀원 개인 서버를 계속 가리키고 있어 한동안 연동이 조용히 실패했던 이력 있음 — 2026-07-31 프라이빗 IP로 재수정 후 재검증 완료 (`docs/history/resolved-bugs.md` 참고)
 - NEARDEST 상태 interval 서버 자체 계산 (시간 기반: 30분↑→120초, 10~30분→60초, 10분↓→30초)
 
@@ -454,6 +459,20 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 #### 문서 추가/이동/삭제 시 반드시 할 것
 - `docs/README.md` 색인에 새 행 추가/경로 수정을 함께 반영한다.
 - 애매한 경우 매번 되묻기보다 위 기준으로 스스로 판단하고, 판단 이유를 한 줄로 남긴다.
+
+## 컨텍스트 관리 원칙
+
+세션이 길어질수록 자동 압축(`/compact`)이 반복돼 토큰 낭비와 정보 손실 위험이 커진다. 아래 습관으로 애초에 한 세션이 불필요하게 비대해지는 걸 막는다.
+
+- 대용량 로그(adb logcat 덤프 등)·긴 파일을 그대로 대화에 붙여서 분석하지 않는다 — fork/서브에이전트에 위임해서 원본 데이터가 메인 대화 컨텍스트에 안 쌓이게 한다.
+- 실기기 반복 디버깅처럼 긴 세션에서는 결론이 날 때마다(세션 끝까지 미루지 않고) 바로 관련 문서(`docs/history/` 등)에 반영한다.
+- 성격이 다른 작업 단위(예: 기능 디버깅 → 문서/버그트래커 정리 → 메타 논의)가 한 세션 안에서 이어지고, 이전 단위가 커밋/문서로 이미 확정된 시점이 오면, 다음 단위로 넘어가기 전에 `/clear`로 새 세션을 시작할지 먼저 물어본다.
+- 이전 세션 요약이나 문서 서술을 그대로 믿고 결론 내리지 않는다 — 특히 버그 상태(`BUGS.md` 등) 판단은 반드시 현재 코드를 재확인한 뒤에 옮긴다.
+
+**`/clear` 전에 반드시 확인할 것**: `/clear`는 대화 맥락을 통째로 버리는 행동이라, 코드만 봐서는 복원 안 되는 정보(왜 이렇게 결정했는지, 어떤 대안을 시도했다가 왜 롤백했는지, 의도적으로 남겨둔 임시 코드가 있는지 등)가 하나라도 문서화 안 된 채 남아있으면 다음 세션이 그 배경을 모른 채 이미 버린 방법을 다시 시도하거나 엉뚱한 방향으로 구현할 위험이 있다. 그래서 `/clear`를 제안하기 전에:
+- 지금까지의 결정·이유·트레이드오프가 관련 문서(`docs/history/`, `docs/planning/`, `BUGS.md` 등)에 이미 반영됐는지 점검하고, 빠진 게 있으면 먼저 문서화부터 마친다.
+- 이어질 작업이 있다면(다음 단계가 이미 정해진 경우) 그 내용도 문서나 `BUGS.md`/plan 파일에 남겨서, 새 세션이 이전 대화를 몰라도 정확히 이어받을 수 있게 한다.
+- 반대로 새 세션에서 기존 작업을 이어받을 때는 "이전 세션 맥락을 알고 있다"고 가정하지 말고, 관련 `docs/history/`·`BUGS.md`·`CLAUDE.md` 해당 섹션을 먼저 읽고 시작한다.
 
 ## 새 도메인 추가 시 체크리스트
 

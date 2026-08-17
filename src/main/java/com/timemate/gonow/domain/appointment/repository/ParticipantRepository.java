@@ -66,8 +66,6 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
     @Query("UPDATE Participant p SET p.participantStatus = :ready WHERE p.appointment.planDate = :today AND p.participantStatus = :scheduled")
     int bulkUpdateToReadyInternal(@Param("ready") ParticipantStatus ready, @Param("today") LocalDate today, @Param("scheduled") ParticipantStatus scheduled);
 
-
-
     // 약속 수정 시 참가자 departureAlarmTime + currentPos 일괄 리셋 (앵커 초기화 → 플라스크 강제 재호출)
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = "UPDATE participant SET departure_alarm_time = null, current_lat = null, current_lng = null WHERE appointment_id = :appointmentId", nativeQuery = true)
@@ -81,9 +79,6 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
     default int bulkResetStatusByAppointmentId(Long appointmentId, ParticipantStatus newStatus) {
         return bulkResetStatusByAppointmentIdInternal(newStatus, appointmentId, ParticipantStatus.SCHEDULED, ParticipantStatus.READY, ParticipantStatus.DEPARTING);
     }
-
-
-
 
     // 외부 호출용 래퍼 — Enum 파라미터 조립을 캡슐화
     default int bulkUpdateToReady(LocalDate today) {
@@ -102,6 +97,29 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
     // 나를 제외한 다른 참가자들의 FCM 토큰 조회 (null 토큰 제외, 알람 스위치 OFF 제외)
     @Query("SELECT p.member.fcmToken FROM Participant p WHERE p.appointment.id = :appointmentId AND p.member.id != :excludeMemberId AND p.member.fcmToken IS NOT NULL AND p.isActive = true")
     List<String> findFcmTokensByAppointmentIdExcluding(@Param("appointmentId") Long appointmentId, @Param("excludeMemberId") Long excludeMemberId);
+
+    // 스케줄러: READY + departureAlarmTime 도달 참가자 → DEPARTING 벌크 전환.
+    // departureAlarmTime은 참가자별 독립 계산값이라 약속 단위가 아닌 참가자 단위로 판정.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Participant p SET p.participantStatus = :departing WHERE p.participantStatus = :ready AND p.departureAlarmTime IS NOT NULL AND p.departureAlarmTime <= :now")
+    int bulkUpdateToDepartingInternal(@Param("departing") ParticipantStatus departing, @Param("ready") ParticipantStatus ready, @Param("now") LocalDateTime now);
+
+    default int bulkUpdateToDeparting(LocalDateTime now) {
+        return bulkUpdateToDepartingInternal(ParticipantStatus.DEPARTING, ParticipantStatus.READY, now);
+    }
+
+    // 스케줄러: READY → DEPARTING 전환 대상의 (fcmToken, appointmentIds) 조회 — 벌크 업데이트 전에 호출
+    @Query(value = "SELECT m.fcm_token AS fcmToken, GROUP_CONCAT(p.appointment_id) AS appointmentIds FROM participant p JOIN member m ON p.member_id = m.member_id WHERE p.status = :readyStatus AND p.departure_alarm_time IS NOT NULL AND p.departure_alarm_time <= :now AND m.fcm_token IS NOT NULL GROUP BY m.fcm_token", nativeQuery = true)
+    List<TokenAppointmentIdsProjection> findTokenAppointmentIdPairsForDepartingTransitionInternal(@Param("readyStatus") String readyStatus, @Param("now") LocalDateTime now);
+
+    default Map<String, String> findTokenToAppointmentIdsForDepartingTransition(LocalDateTime now) {
+        return findTokenAppointmentIdPairsForDepartingTransitionInternal(ParticipantStatus.READY.name(), now)
+                .stream()
+                .collect(Collectors.toMap(
+                        TokenAppointmentIdsProjection::getFcmToken,
+                        TokenAppointmentIdsProjection::getAppointmentIds
+                ));
+    }
 
     // NEARDEST 상태 + targetTime 초과 참가자가 속한 약속 ID 목록 조회 (즉시 ARRIVED)
     @Query("SELECT DISTINCT p.appointment.id FROM Participant p WHERE p.participantStatus = :status AND p.appointment.planDate = :today AND p.appointment.targetTime < :now")

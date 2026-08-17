@@ -31,6 +31,10 @@ public class ReadyTransitionService {
         Map<String, String> tokenToJourneyIds = journeyRepository.findTokenToJourneyIdsForReadyTransition(today, todayBit);
         Map<String, String> tokenToAppointmentIds = participantRepository.findTokenToAppointmentIdsForReadyTransition(today);
 
+        // 반복 여정의 어제 앵커/출발시각이 남아있지 않도록 상태 전환 전에 리셋
+        journeyRepository.bulkResetAnchorAndAlarmForReadyTransition(today, todayBit);
+
+        // SCHEDULED/ARRIVED + 당일 새벽 4시 도달 → READY 벌크 전환.
         int journeyCount = journeyRepository.bulkUpdateToReady(today, todayBit);
         int participantCount = participantRepository.bulkUpdateToReady(today);
         log.info("[스케줄러] READY 전환 완료 - 여정: {}건, 참가자: {}건", journeyCount, participantCount);
@@ -48,6 +52,7 @@ public class ReadyTransitionService {
 
     private Map<String, String> createReadyData(String token, Map<String, String> tokenToJourneyIds, Map<String, String> tokenToAppointmentIds) {
         Map<String, String> data = new HashMap<>();
+        data.put("sync_event", "ready_transition");
 
         String journeyIds = tokenToJourneyIds.get(token);
         if (journeyIds != null) data.put("journey_ids", journeyIds);

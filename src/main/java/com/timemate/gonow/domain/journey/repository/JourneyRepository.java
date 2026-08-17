@@ -41,6 +41,17 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
                 JourneyStatus.SCHEDULED.name(), JourneyStatus.ARRIVED.name());
     }
 
+    // 반복 여정의 어제 앵커/출발시각이 남아있지 않도록 리셋 (bug44, 2026-08-17)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "UPDATE journey SET current_lat = NULL, current_lng = NULL, departure_alarm_time = NULL WHERE (plan_date = :today OR (repeat_days & :todayBit) > 0) AND plan_date <= :today AND status IN (:scheduledStatus, :arrivedStatus)", nativeQuery = true)
+    int bulkResetAnchorAndAlarmInternal(@Param("today") LocalDate today, @Param("todayBit") int todayBit, @Param("scheduledStatus") String scheduledStatus, @Param("arrivedStatus") String arrivedStatus);
+
+    // bulkUpdateToReady 직전에 호출 — 상태가 READY로 바뀌기 전에 리셋해야 WHERE 조건이 유효함
+    default int bulkResetAnchorAndAlarmForReadyTransition(LocalDate today, int todayBit) {
+        return bulkResetAnchorAndAlarmInternal(today, todayBit,
+                JourneyStatus.SCHEDULED.name(), JourneyStatus.ARRIVED.name());
+    }
+
     // 스케줄러: ID 목록 → ARRIVED 벌크 업데이트
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Journey j SET j.journeyStatus = :arrived WHERE j.id IN :ids")
@@ -49,6 +60,29 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
     // 외부 호출용 래퍼 — Enum 파라미터 조립을 캡슐화
     default int bulkUpdateToArrived(List<Long> ids) {
         return bulkUpdateToArrivedInternal(JourneyStatus.ARRIVED, ids);
+    }
+
+    // 스케줄러: READY + departureAlarmTime 도달 → DEPARTING 벌크 전환.
+    // P>=Q는 위치와 무관해 지오펜스로 못 잡으므로 서버가 시간으로 감시(좌표는 READY 앵커 재사용).
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Journey j SET j.journeyStatus = :departing WHERE j.journeyStatus = :ready AND j.departureAlarmTime IS NOT NULL AND j.departureAlarmTime <= :now")
+    int bulkUpdateToDepartingInternal(@Param("departing") JourneyStatus departing, @Param("ready") JourneyStatus ready, @Param("now") LocalDateTime now);
+
+    default int bulkUpdateToDeparting(LocalDateTime now) {
+        return bulkUpdateToDepartingInternal(JourneyStatus.DEPARTING, JourneyStatus.READY, now);
+    }
+
+    // 스케줄러: READY→DEPARTING 전환 대상의 (fcmToken, journeyIds) 조회 — 벌크 업데이트 전에 호출
+    @Query(value = "SELECT m.fcm_token AS fcmToken, GROUP_CONCAT(j.journey_id) AS journeyIds FROM journey j JOIN member m ON j.member_id = m.member_id WHERE j.status = :readyStatus AND j.departure_alarm_time IS NOT NULL AND j.departure_alarm_time <= :now AND m.fcm_token IS NOT NULL GROUP BY m.fcm_token", nativeQuery = true)
+    List<TokenJourneyIdsProjection> findTokenJourneyIdPairsForDepartingTransitionInternal(@Param("readyStatus") String readyStatus, @Param("now") LocalDateTime now);
+
+    default Map<String, String> findTokenToJourneyIdsForDepartingTransition(LocalDateTime now) {
+        return findTokenJourneyIdPairsForDepartingTransitionInternal(JourneyStatus.READY.name(), now)
+                .stream()
+                .collect(Collectors.toMap(
+                        TokenJourneyIdsProjection::getFcmToken,
+                        TokenJourneyIdsProjection::getJourneyIds
+                ));
     }
 
     // 스케줄러: NEARDEST + 해당 날짜 + targetTime 초과 → ID 목록 반환 (즉시 ARRIVED)
@@ -76,8 +110,6 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
                 planDate, oneHourAgo, planDateBit);
     }
 
-    // 스케줄러: 당일 READY 전환 대상 여정의 (fcmToken, journeyIds 콤마 문자열) 조회 (null 토큰 제외)
-    // GROUP_CONCAT으로 DB에서 토큰별 그룹화 — 비트마스크 연산으로 네이티브 쿼리 필수
     // 스케줄러: 당일 READY 전환 대상 여정의 (fcmToken, journeyIds 콤마 문자열) 조회 (null 토큰 제외)
     // GROUP_CONCAT으로 DB에서 토큰별 그룹화 — 비트마스크 연산으로 네이티브 쿼리 필수
     @Query(value = "SELECT m.fcm_token AS fcmToken, GROUP_CONCAT(j.journey_id) AS journeyIds FROM journey j JOIN member m ON j.member_id = m.member_id WHERE (j.plan_date = :today OR (j.repeat_days & :todayBit) > 0) AND j.plan_date <= :today AND j.status IN (:scheduledStatus, :arrivedStatus) AND m.fcm_token IS NOT NULL GROUP BY m.fcm_token", nativeQuery = true)
