@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.hyeongwon.gonow",
+      "sha256_cert_fingerprints": [
+        "7A:A0:DA:20:8B:00:93:12:E2:63:42:7D:F6:FE:97:83:F0:FE:7A:11:4E:03:DA:21:B6:87:03:E3:25:C9:A8:C3"
+      ]
+    }
+  }
+]
