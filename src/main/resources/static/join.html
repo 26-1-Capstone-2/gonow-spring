@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GoNow로 이동 중...</title>
+</head>
+<body>
+  <p>GoNow 앱을 여는 중입니다...</p>
+  <script>
+    // 카카오톡/인스타그램 등 자체 인앱 브라우저는 https App Links를 무시하고 항상 자기
+    // 웹뷰로 링크를 가로챈다 — 그래서 OS의 App Links 판정을 아예 못 탄다. intent:// 스킴은
+    // 패키지명을 명시해서 앱을 강제로 지정 호출하는 방식이라 이 웹뷰들 안에서도 동작한다
+    // (토스/배달의민족 등이 쓰는 것과 동일한 표준 우회 패턴).
+    (function () {
+      var match = window.location.search.match(/[?&]code=([^&]+)/);
+      var code = match ? decodeURIComponent(match[1]) : '';
+      window.location.href =
+        'intent://join?code=' + encodeURIComponent(code) +
+        '#Intent;scheme=gonow;package=com.hyeongwon.gonow;end';
+    })();
+  </script>
+</body>
+</html>
