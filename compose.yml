@@ -1,11 +1,12 @@
 services:
   my-db:
-    image: mysql:8.4
+    image: mysql:9.7.2
     # [ 공통 설정 ] 로컬에서는 이 대로 실행 됩니다 .
-    restart: always  # 어떤 이유로든 MySQL이 멈추면 자동으로 다시 시작함
+    restart: unless-stopped  # 크래시 시 자동 재시작하되, 점검 등으로 직접 멈춘 경우 재부팅돼도 그대로 유지
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-pwd1234} # 로컬 & prod 비번
       MYSQL_DATABASE: mydb
+      TZ: Asia/Seoul
     volumes:
       - ./mysql_data:/var/lib/mysql
     ports:
@@ -24,7 +25,7 @@ services:
     # [ 운영 전용 서비스 ] profiles 가 붙어 있어 서 로컬 up 명령 시 무시 됩니다 .
     profiles:
       - prod
-    restart: always  # 어떤 이유로든 서버가 멈추면 자동으로 다시 시작함
+    restart: unless-stopped  # 크래시 시 자동 재시작하되, 점검 등으로 직접 멈춘 경우 재부팅돼도 그대로 유지
     environment:
       SPRING_PROFILES_ACTIVE: prod # 스프링 부트 prod 프로파일을 활성화해줌
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD} # GitHub Secrets 에서 주입

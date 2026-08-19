@@ -111,12 +111,12 @@ com.timemate.gonow/
     ├── auth/         # JWT 필터(JwtTokenFilter), 토큰 프로바이더(JwtTokenProvider), @MemberId 어노테이션
     ├── client/       # FlaskClient (HTTP Interface), dto/ (FlaskJourneyRequest/Response, FlaskParticipantRequest/Response, TransportMode)
     ├── config/       # SecurityConfig, RestClientConfig (flask.url baseUrl 설정), QueryDslConfig, FirebaseConfig
-    ├── controller/   # AuthController, HealthController
+    ├── controller/   # AuthController, HealthController, InviteRedirectController(그룹 초대 유니버설 링크)
     ├── dto/          # LoginRequest, LoginResponse
     ├── entity/       # BaseTimeEntity (createdAt, updatedAt, touch())
     ├── exception/    # GlobalExceptionHandler
     ├── response/     # ApiResult (success/fail 팩토리 메서드)
-    ├── scheduler/    # ReadyTransitionScheduler/Service, ArrivedTransitionScheduler/Service
+    ├── scheduler/    # ReadyTransitionScheduler/Service, ArrivedTransitionScheduler/Service, DepartingTransitionScheduler/Service
     ├── service/      # AuthService
     ├── fcm/          # FcmSender (Data/Notification 다중 발송)
     └── util/         # GeoUtils (Haversine 거리 계산)
@@ -132,6 +132,9 @@ com.timemate.gonow/
 - `POST /api/members` (회원가입)
 - `GET /api/members/check?email=` (이메일 중복 확인)
 - `GET /api/members/check?nickname=` (닉네임 중복 확인)
+- `GET /join` (그룹 초대 유니버설 링크 — `InviteRedirectController`가 `join.html`로 forward, 상세는 `docs/spec/group-invite-applinks.md` 참고)
+- `GET /.well-known/**` (안드로이드 App Links 검증용 `assetlinks.json`, 정적 리소스)
+- `GET /images/**` (초대 링크 OG 태그용 로고 등 공개 정적 이미지)
 
 ### 현재 구현된 API 엔드포인트
 
@@ -325,6 +328,23 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 - `bulkUpdateActiveToArrivedByAppointmentIds(appIds)` — 약속 ID 목록 기준 READY/DEPARTING/MOVING → ARRIVED 벌크 전환 (지각 정리)
 - `findTokenToAppointmentIdsForReadyTransition(today)` — 스케줄러: 당일 READY 전환 대상 참가자를 FCM 토큰별로 그룹화해 (token → appointmentId 콤마 문자열) 맵 조회
 - `findTokenToAppointmentIdsForNeardestOverdue(today, now)` — 스케줄러: NEARDEST+targetTime 초과로 자동 ARRIVED 전환될 참가자를 FCM 토큰별로 그룹화해 (token → appointmentId 콤마 문자열) 맵 조회 (`sync_event: auto_arrived` 발송용, `ArrivedTransitionService`)
+- `bulkUpdateToDeparting(now)` — 스케줄러: READY + `departureAlarmTime` 도달 참가자 → DEPARTING 벌크 전환. `departureAlarmTime`은 참가자별 독립 계산값이라 약속 단위가 아닌 참가자 단위로 판정 (`DepartingTransitionService`)
+- `findTokenToAppointmentIdsForDepartingTransition(now)` — 스케줄러: READY→DEPARTING 전환 대상 참가자를 FCM 토큰별로 그룹화해 (token → appointmentId 콤마 문자열) 맵 조회 (`sync_event: departing_transition` 발송용, `DepartingTransitionService`)
+
+### JourneyRepository 조회 메서드
+
+- `findByIdAndMemberId(journeyId, memberId)` — 상세 조회/소유자 검증용
+- `findAllByJourneyType(memberId, type)` — 타입별(PERSONAL/HOME) 전체 조회, `departureAlarmTime` 정렬
+- `findAllByPlanDate(memberId, planDate, dateBit)` — 알람 날짜별 조회용 (당일 여정 + 반복 여정 비트마스크 매칭), `departureAlarmTime` 정렬
+- `bulkUpdateToReady(today, todayBit)` — 당일 SCHEDULED/ARRIVED → READY 벌크 전환 (새벽 4시 스케줄러용, 반복 여정 포함)
+- `bulkResetAnchorAndAlarmForReadyTransition(today, todayBit)` — READY 전환 직전 반복 여정의 어제 앵커(`currentPoint`)/출발 알람 시각(`departureAlarmTime`)을 null로 리셋 (버그44 — 스테일 값으로 당일 재계산 없이 즉시 DEPARTING 오판 방지)
+- `bulkUpdateToArrived(journeyIds)` — 여정 ID 목록 기준 ARRIVED 벌크 전환 (NEARDEST 초과 자동 전환·지각 정리 양쪽에서 공용)
+- `bulkUpdateToDeparting(now)` — 스케줄러: READY + `departureAlarmTime` 도달 여정 → DEPARTING 벌크 전환 (`DepartingTransitionService`)
+- `findTokenToJourneyIdsForDepartingTransition(now)` — 스케줄러: READY→DEPARTING 전환 대상 여정을 FCM 토큰별로 그룹화해 (token → journeyId 콤마 문자열) 맵 조회 (`sync_event: departing_transition` 발송용, `DepartingTransitionService`)
+- `findIdsNeardestOverdue(planDate, now, planDateBit)` — NEARDEST + targetTime 초과 여정 ID 조회 (즉시 ARRIVED 자동 전환 대상, 자정~새벽 `day-boundary-hour` 이전은 어제 날짜로 보정)
+- `findIdsActiveOverdue(planDate, oneHourAgo, planDateBit)` — READY/DEPARTING/MOVING + targetTime+1시간 초과 여정 ID 조회 (지각 정리 대상)
+- `findTokenToJourneyIdsForReadyTransition(today, todayBit)` — 스케줄러: 당일 READY 전환 대상 여정을 FCM 토큰별로 그룹화해 (token → journeyId 콤마 문자열) 맵 조회
+- `findTokenToJourneyIdsForNeardestOverdue(planDate, now, planDateBit)` — 스케줄러: NEARDEST+targetTime 초과로 자동 ARRIVED 전환될 여정을 FCM 토큰별로 그룹화해 (token → journeyId 콤마 문자열) 맵 조회 (`sync_event: auto_arrived` 발송용, `ArrivedTransitionService`)
 
 ### Enum 상수 목록
 
@@ -373,6 +393,15 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 - 플라스크 미기동 시 `ResourceAccessException` → 503 반환
 - **ODsay `-98` 에러** (출발지↔목적지 700m 이내): 플라스크가 도보 기준 폴백으로 핸들링해야 함 — `departureAlarmTime` + 막차 모드 시 `targetTime` 계산해서 반환 필요
 
+### 시간대(타임존) 처리 방침
+GoNow는 **UTC를 쓰지 않고 KST(Asia/Seoul) 벽시계 시각을 오프셋 없는 값 그대로 저장/교환**하는 방식으로 스프링·플라스크·프론트·DB 전체를 통일한다(2026-08-19 검토 후 확정 — 순수 국내·안드로이드 전용 서비스라 멀티 타임존/DST 대응이 필요 없고, 이미 만들어진 상태머신·스케줄러 핵심부가 이 전제 위에 서 있어 UTC 전환의 실이익이 없다고 판단). 방어 장치:
+- **스프링**: `GonowApplication.main()`이 `SpringApplication.run()` 이전에 `TimeZone.setDefault(Asia/Seoul)`을 강제(JVM 전체 기본 타임존 고정) + `application.yml`(local/prod 공통) `hibernate.jdbc.time_zone: Asia/Seoul`. 엔티티/DTO는 전부 `LocalDateTime`/`LocalDate`(오프셋 없음), DB 컬럼도 `DATETIME`(`TIMESTAMP` 아님 — UTC 자동 변환 없음). `Instant`/`ZonedDateTime`/`OffsetDateTime`은 코드베이스에서 쓰지 않는다(섞으면 JVM 기본 타임존 보호망을 우회해서 값이 어긋남).
+- **플라스크**: `gps_api/core/timeutil.py`의 `now_kst()`(naive KST 반환)를 전역에서 사용 — 컨테이너가 UTC로 뜰 수 있다는 걸 전제하고 만든 명시적 방어 함수. `now_kst_service_day()`는 스프링의 `scheduler.day-boundary-hour`(새벽 4시 보정)와 동일한 개념. **`datetime.now()`/`datetime.utcnow()`를 직접 쓰지 말고 항상 `now_kst()`를 쓸 것.** (2026-08-19 — 실제 알람 계산에 쓰이는 `alarm.py`/`personal.py`/`transit_route.py`는 처음부터 `now_kst()`로 일관돼 있었으나, 스프링이 호출하지 않는 legacy 라우트(`routes/optimizer.py`, `routes/kakao.py`, `core/optimizer.py`, `core/kakao_route.py`, `core/journey.py`, `core/group.py`, `core/appointment.py`, `core/battery_simulation.py`)에 순수 `datetime.now()`가 17곳 남아있던 걸 발견해 전부 `now_kst()`로 교체함 — 컨테이너가 UTC로 뜨면 9시간 어긋날 수 있었던 잠재 버그)
+- **Docker/Compose**: 스프링·플라스크 두 `Dockerfile` 모두 `ENV TZ=Asia/Seoul` 설정, `compose.yml`의 `my-db`(MySQL)도 `environment.TZ: Asia/Seoul` 설정 — JVM 강제 설정(스프링)이나 `now_kst()`(플라스크)로 이미 방어되지만, 컨테이너 자체 시스템 시각도 명시적으로 맞춰 향후 이 보호망 밖의 코드가 추가돼도 안전하도록 하는 여분의 방어선. MySQL은 `TZ` 환경변수를 glibc `localtime()` 경유로 실제로 반영한다(`@@system_time_zone`이 KST로 뜨고 `@@global.time_zone=SYSTEM`이라 `NOW()`도 KST로 나옴 — 로컬 Docker에서 직접 확인됨). 저장되는 `DATETIME` 값 자체는 이미 자바가 KST로 계산해서 넣으므로 이 설정과 무관하게 정확하지만, DB에 직접 붙어 `NOW()`를 쓰거나 향후 `DEFAULT CURRENT_TIMESTAMP`류를 쓰게 될 경우를 위한 방어선.
+- **프론트**: 서버가 내려주는 시각 문자열을 오프셋 없이 그대로 `new Date()`로 파싱 — 기기 시스템 타임존이 KST라는 전제(사용자가 실제로 한국에 있는 안드로이드 기기이므로 항상 성립)에 의존. 타임존 변환 라이브러리는 의도적으로 안 씀.
+
+**이 컨벤션을 지킬 것**: 새 코드에서 스프링에 `Instant.now()`/`OffsetDateTime.now()`, 플라스크에 `datetime.now()`/`datetime.utcnow()`를 섞어 쓰면 다른 곳과 9시간 어긋나는 조용한 버그가 생긴다. `System.currentTimeMillis()`(JWT 만료 계산 등 epoch 기반 순수 상대 시간 계산)는 타임존 자체와 무관하므로 예외.
+
 ### Firebase 설정
 - `firebase.credential: classpath:firebase-service-account.json` — JAR 안에 포함되어야 함
 - `firebase-service-account.json`은 `.gitignore`로 git 제외 (민감 정보)
@@ -417,6 +446,7 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 - FCM: `FcmSender`(Data/Notification), `FirebaseConfig` — READY 트리거·그룹 도착 알림·그룹 참가자/약속 실시간 동기화·NEARDEST 자동 ARRIVED 알림(개인/귀가/그룹 공통)
 - 플라스크 연동: `FlaskJourneyRequest/Response`, `FlaskParticipantRequest/Response`, memberId 포함 — 실제 통신 테스트 완료 (2026-06-03, `docs/status/frontend-impl-status.md` 참고). 이후 `flask.url`이 탈퇴한 팀원 개인 서버를 계속 가리키고 있어 한동안 연동이 조용히 실패했던 이력 있음 — 2026-07-31 프라이빗 IP로 재수정 후 재검증 완료 (`docs/history/resolved-bugs.md` 참고)
 - NEARDEST 상태 interval 서버 자체 계산 (시간 기반: 30분↑→120초, 10~30분→60초, 10분↓→30초)
+- 그룹 초대 유니버설 링크(Android App Links, 2026-08-19) — `gonow-api.uk/join?code=...` 링크 탭 한 번으로 앱 설치된 유저의 그룹 참여 화면까지 자동 연결(카톡 등 인앱브라우저 우회 포함), 상세는 `docs/spec/group-invite-applinks.md` 참고
 
 ### 미구현
 - Refresh Token

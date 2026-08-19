@@ -10,6 +10,7 @@
 |---|---|---|
 | DB 스키마 | [spec/db-schema.md](spec/db-schema.md) | 엔티티/테이블 관련 작업 시 |
 | 여정 상태머신 스펙 | [spec/journey-state-machine.md](spec/journey-state-machine.md) | 상태 전이/알람 로직 작업 시 |
+| 그룹 초대 유니버설 링크(Android App Links) 스펙 | [spec/group-invite-applinks.md](spec/group-invite-applinks.md) | 초대 링크/딥링크 작업 시, 카톡 인앱브라우저 우회·App Links 검증 원리 확인 시 |
 | 프론트엔드 구현 현황 | [status/frontend-impl-status.md](status/frontend-impl-status.md) | 프론트-백엔드 연동 작업 시 |
 | 백그라운드/FCM 테스트 가이드 | [testing/TEST_GUIDE.md](testing/TEST_GUIDE.md) | GPS 폴링/FCM 테스트 시 |
 | 해결된 버그 아카이브 | [history/resolved-bugs.md](history/resolved-bugs.md) | 과거 수정 이력 확인 시 |
@@ -26,8 +27,9 @@
 | 문서 | 경로 | 언제 참고할지 |
 |---|---|---|
 | 2026 오픈소스 개발자대회 참가 규정 요약 | [planning/oss-contest-2026.md](planning/oss-contest-2026.md) | 대회 출품 준비, 라이선스/AI 모델 규정 확인, 기능 확장 아이디어 검토 시 |
-| GoNow 기능 확장 아이디어 (지도/캘린더/지오펜싱/UX) | [planning/feature-ideas.md](planning/feature-ideas.md) | 대회 출품용 신규 기능 검토, 서비스 확장 방향 논의 시 |
+| GoNow 기능 확장 아이디어 (사후 지각 재알림/지속 알림/막차 생성 UX/초대 링크 미설치 폴백) | [planning/feature-ideas.md](planning/feature-ideas.md) | 대회 출품용 신규 기능 검토, 서비스 확장 방향 논의 시 |
 | 쿼리 최적화 백로그 (네이티브 쿼리 → 포터블 JPQL 등) | [planning/query-optimization.md](planning/query-optimization.md) | 리포지토리 쿼리 리팩터링 여유 생겼을 때, `nativeQuery` 사용 이유 재검토 시 |
+| 운영 환경 보안 강화 백로그 (Swagger UI, 프론트 npm 취약점/Expo 메이저 업그레이드) | [planning/security-hardening-backlog.md](planning/security-hardening-backlog.md) | 배포/운영 관점 보안 설정 재검토 시, 프로필 분리·Expo SDK 업그레이드 착수 시 |
 | 카카오맵 딥링크 공식 스펙 + GoNow 구현 가이드 | [reference/kakao-map-deeplink-spec.md](reference/kakao-map-deeplink-spec.md) | 지도 딥링크(아이디어 A) 구현/디버깅 시 |
 | ODsay MCP 서버 활용 가이드 | [reference/odsay-mcp-guide.md](reference/odsay-mcp-guide.md) | 개발 중 Claude로 ODsay 경로/역 정보를 직접 조회하고 싶을 때 |
 | 대중교통 계산엔진 조사 (ODsay vs TMAP vs 카카오) | [reference/transit-provider-research.md](reference/transit-provider-research.md) | 계산 엔진 교체/병행 검토, `target_time` 지원 여부, ODsay SearchType 커버리지 확인 시 |
