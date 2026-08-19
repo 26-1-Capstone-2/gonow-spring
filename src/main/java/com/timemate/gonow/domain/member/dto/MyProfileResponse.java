@@ -1,6 +1,7 @@
 package com.timemate.gonow.domain.member.dto;
 
 import com.timemate.gonow.domain.common.Location;
+import com.timemate.gonow.domain.member.constant.AlarmSoundMode;
 import com.timemate.gonow.domain.member.constant.PriorityType;
 import com.timemate.gonow.domain.member.constant.TransitType;
 import com.timemate.gonow.domain.member.entity.Member;
@@ -21,7 +22,9 @@ public record MyProfileResponse(
         // MemberSetting 정보
         TransitType transitType,
         PriorityType priorityType,
-        int preparationTime
+        int preparationTime,
+        AlarmSoundMode arrivalExpectedSoundMode,
+        AlarmSoundMode arrivalCompleteSoundMode
 ) {
     // Member + MemberSetting -> MyProfileResponse
     public static MyProfileResponse from(Member member, MemberSetting setting) {
@@ -36,7 +39,9 @@ public record MyProfileResponse(
                 location.point().lng(),
                 setting.getTransitType(),
                 setting.getPriorityType(),
-                setting.getPreparationTime()
+                setting.getPreparationTime(),
+                setting.getArrivalExpectedSoundMode(),
+                setting.getArrivalCompleteSoundMode()
         );
     }
 }

@@ -6,6 +6,7 @@ import com.timemate.gonow.domain.appointment.constant.ParticipantStatus;
 import com.timemate.gonow.domain.appointment.dto.ParticipantActiveUpdateRequest;
 import com.timemate.gonow.domain.appointment.dto.ParticipantArriveResponse;
 import com.timemate.gonow.domain.appointment.dto.ParticipantLocationUpdateResponse;
+import com.timemate.gonow.domain.appointment.dto.ParticipantTokenSoundModeProjection;
 import com.timemate.gonow.domain.appointment.dto.ParticipantTransportUpdateRequest;
 import com.timemate.gonow.domain.appointment.entity.Appointment;
 import com.timemate.gonow.domain.appointment.entity.Participant;
@@ -14,6 +15,7 @@ import com.timemate.gonow.domain.common.Point;
 import com.timemate.gonow.domain.common.constant.GeoConstants;
 import com.timemate.gonow.domain.common.dto.LocationUpdateRequest;
 import com.timemate.gonow.domain.common.constant.TransportType;
+import com.timemate.gonow.domain.member.constant.AlarmSoundMode;
 import com.timemate.gonow.domain.member.constant.TransitType;
 import com.timemate.gonow.domain.member.entity.MemberSetting;
 import com.timemate.gonow.domain.member.repository.MemberSettingRepository;
@@ -34,6 +36,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -295,10 +298,20 @@ public class ParticipantService {
         }
     }
 
-    // 나를 제외한 다른 참가자들에게 FCM Notification 발송
+    // 나를 제외한 다른 참가자들에게 FCM Notification 발송 — 수신자별 소리/진동/무음 선호도가 다를 수
+    // 있어서(MemberSetting.arrivalExpectedSoundMode/arrivalCompleteSoundMode) 한 번에 안 보내고
+    // 선호도별로 토큰을 묶어 채널ID를 다르게 해서 여러 번 발송한다.
     private void sendGroupNotification(Long memberId, Long appointmentId, String title, String body, ArrivalChannel channel) {
-        List<String> tokens = participantRepository.findFcmTokensByAppointmentIdExcluding(appointmentId, memberId);
-        fcmSender.sendAllNotification(tokens, title, body, channel.getChannelId());
+        List<ParticipantTokenSoundModeProjection> recipients =
+                participantRepository.findFcmTokensWithSoundModeByAppointmentIdExcluding(appointmentId, memberId);
+
+        Map<AlarmSoundMode, List<String>> tokensByMode = recipients.stream()
+                .collect(Collectors.groupingBy(
+                        r -> channel == ArrivalChannel.EXPECTED ? r.getArrivalExpectedSoundMode() : r.getArrivalCompleteSoundMode(),
+                        Collectors.mapping(ParticipantTokenSoundModeProjection::getFcmToken, Collectors.toList())
+                ));
+
+        tokensByMode.forEach((mode, tokens) -> fcmSender.sendAllNotification(tokens, title, body, channel.getChannelId(mode)));
     }
 
     // 플라스크 호출 → FlaskParticipantResponse 반환, MOVING이 아닐 때만 departureAlarmTime 저장

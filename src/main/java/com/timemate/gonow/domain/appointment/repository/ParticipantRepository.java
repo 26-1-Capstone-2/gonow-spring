@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.timemate.gonow.domain.appointment.dto.ParticipantTokenSoundModeProjection;
 import com.timemate.gonow.domain.appointment.dto.TokenAppointmentIdsProjection;
 
 import java.time.LocalDate;
@@ -97,6 +98,14 @@ public interface ParticipantRepository extends JpaRepository<Participant, Long> 
     // 나를 제외한 다른 참가자들의 FCM 토큰 조회 (null 토큰 제외, 알람 스위치 OFF 제외)
     @Query("SELECT p.member.fcmToken FROM Participant p WHERE p.appointment.id = :appointmentId AND p.member.id != :excludeMemberId AND p.member.fcmToken IS NOT NULL AND p.isActive = true")
     List<String> findFcmTokensByAppointmentIdExcluding(@Param("appointmentId") Long appointmentId, @Param("excludeMemberId") Long excludeMemberId);
+
+    // 나를 제외한 다른 참가자들의 FCM 토큰 + 도착 예정/완료 알림 소리 모드 조회 (도착 알림 발송 전용).
+    // MemberSetting은 Member 기준 단방향 연관관계라 이 프로젝트 컨벤션상 역방향 참조가 없어서
+    // ON절로 명시적 조인함(JPA 2.1+ ad-hoc join).
+    @Query("SELECT m.fcmToken AS fcmToken, s.arrivalExpectedSoundMode AS arrivalExpectedSoundMode, s.arrivalCompleteSoundMode AS arrivalCompleteSoundMode " +
+            "FROM Participant p JOIN p.member m JOIN MemberSetting s ON s.member = m " +
+            "WHERE p.appointment.id = :appointmentId AND m.id != :excludeMemberId AND m.fcmToken IS NOT NULL AND p.isActive = true")
+    List<ParticipantTokenSoundModeProjection> findFcmTokensWithSoundModeByAppointmentIdExcluding(@Param("appointmentId") Long appointmentId, @Param("excludeMemberId") Long excludeMemberId);
 
     // 스케줄러: READY + departureAlarmTime 도달 참가자 → DEPARTING 벌크 전환.
     // departureAlarmTime은 참가자별 독립 계산값이라 약속 단위가 아닌 참가자 단위로 판정.

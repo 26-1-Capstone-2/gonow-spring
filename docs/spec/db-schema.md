@@ -26,6 +26,8 @@
 | 선호 교통수단 | transit_type | ENUM | DEFAULT 'ALL', NOT NULL | 필터 1: ALL(상관없음), SUBWAY(지하철), BUS(버스)                            |
 | 경로 우선순위 | priority_type | ENUM | DEFAULT 'MIN_TIME', NOT NULL | 필터 2: MIN_TIME(최단 시간), MIN_TRANSFER(최소 환승), MIN_WALK(최소 도보), MIN_WAIT(최소 대기) |
 | 여유시간 | preparation_time | INT | NOT NULL | 사용자가 실제로 나갈 준비를 하는 준비시간 및 여유시간 (단위: 분)            |
+| 도착 예정 알림 소리 모드 | arrival_expected_sound_mode | ENUM | DEFAULT 'SOUND', NOT NULL | SOUND/VIBRATE/SILENT — 그룹 도착 예정 FCM 알림 소리/진동/무음 |
+| 도착 완료 알림 소리 모드 | arrival_complete_sound_mode | ENUM | DEFAULT 'SOUND', NOT NULL | SOUND/VIBRATE/SILENT — 그룹 도착 완료 FCM 알림 소리/진동/무음 |
 
 ---
 

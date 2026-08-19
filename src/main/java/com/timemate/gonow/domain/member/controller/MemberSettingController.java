@@ -1,5 +1,6 @@
 package com.timemate.gonow.domain.member.controller;
 
+import com.timemate.gonow.domain.member.dto.ArrivalSoundUpdateRequest;
 import com.timemate.gonow.domain.member.dto.SettingUpdateRequest;
 import com.timemate.gonow.domain.member.service.MemberSettingService;
 import com.timemate.gonow.global.response.ApiResult;
@@ -19,6 +20,15 @@ public class MemberSettingController {
     public ApiResult<Void> updateSetting(@MemberId Long memberId,
                                          @Valid @RequestBody SettingUpdateRequest request) {
         memberSettingService.updateSetting(memberId, request);
+
+        return ApiResult.success("설정 완료");
+    }
+
+    // 도착 예정/완료 알림 소리 모드 변경
+    @PatchMapping("/me/arrival-sound")
+    public ApiResult<Void> updateArrivalSoundMode(@MemberId Long memberId,
+                                                   @Valid @RequestBody ArrivalSoundUpdateRequest request) {
+        memberSettingService.updateArrivalSoundMode(memberId, request);
 
         return ApiResult.success("설정 완료");
     }

@@ -152,6 +152,7 @@ com.timemate.gonow/
 | PATCH | `/api/members/me/fcm-token` | 필요 | FCM 토큰 등록/갱신 |
 | PATCH | `/api/members/me/home` | 필요 | 귀가지 등록/수정 |
 | PATCH | `/api/members/me/setting` | 필요 | 멤버 설정 변경 (transitType, priorityType, preparationTime) |
+| PATCH | `/api/members/me/arrival-sound` | 필요 | 도착 예정/완료 알림(FCM) 소리 모드 변경 (arrivalExpectedSoundMode, arrivalCompleteSoundMode — 둘 다 nullable, 부분 업데이트로 바뀐 필드만 보내면 됨. 위 설정 API와 별개 엔드포인트, 프론트 다른 화면에서 씀) |
 | DELETE | `/api/members/me` | 필요 | 회원 탈퇴 (스켈레톤) |
 | GET | `/api/places` | 필요 | 장소 목록 조회 (`?place_type=HOME\|DEST`, 미전달 시 전체) |
 | POST | `/api/places` | 필요 | 장소 저장 (동일 주소 존재 시 updatedAt만 갱신 — Upsert) |
@@ -243,8 +244,9 @@ JSON 직렬화는 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 �
 | ARRIVED (DEPARTING→ARRIVED, 100m 자동) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
 | ARRIVED (MOVING→ARRIVED, 100m 자동) | 도착 완료 알림 | XXX님이 오전/오후 X시 X분에 도착했습니다. |
 
-- `isActive = false`인 참가자에게는 위 알림을 발송하지 않음 (`ParticipantRepository.findFcmTokensByAppointmentIdExcluding` 쿼리에 `isActive = true` 조건 포함)
-- 도착 예정/완료 알림은 `ArrivalChannel` enum(`EXPECTED`/`COMPLETE`)으로 안드로이드 알림 채널을 분리해서 `FcmSender.sendAllNotification(tokens, title, body, channelId)`에 실어 보냄 — `AndroidConfig`(백그라운드/종료 상태 OS 자동 표시용)와 `data.channel_id`(포그라운드 프론트 수동 재표시용) 양쪽에 실림. 채널ID 문자열은 프론트 `notifications.ts`의 `CHANNEL_BASE`와 반드시 일치해야 함(원래는 출발 단계별 채널을 그대로 재사용해서 소리가 섞이던 버그가 있었음 — 채널 분리로 해결).
+- `isActive = false`인 참가자에게는 위 알림을 발송하지 않음 (`ParticipantRepository.findFcmTokensWithSoundModeByAppointmentIdExcluding` 쿼리에 `isActive = true` 조건 포함)
+- 도착 예정/완료 알림은 `ArrivalChannel` enum(`EXPECTED`/`COMPLETE`)으로 안드로이드 알림 채널을 분리해서 `FcmSender.sendAllNotification(tokens, title, body, channelId)`에 실어 보냄 — `AndroidConfig`(백그라운드/종료 상태 OS 자동 표시용)와 `data.channel_id`(포그라운드 프론트 수동 재표시용) 양쪽에 실림. 채널ID 문자열은 프론트 `notifications.ts`의 `ARRIVAL_EXPECTED_CHANNEL_IDS`/`ARRIVAL_COMPLETE_CHANNEL_IDS`와 반드시 일치해야 함(원래는 출발 단계별 채널을 그대로 재사용해서 소리가 섞이던 버그가 있었음 — 채널 분리로 해결).
+- 수신자별 소리/진동/무음 선호도(`MemberSetting.arrivalExpectedSoundMode`/`arrivalCompleteSoundMode`, 앱 내 토글로 서버에 저장 — `PATCH /api/members/me/arrival-sound`)에 따라 채널ID가 3가지(`-sound`/`-vibrate`/`-silent`)로 갈림 — `ParticipantService.sendGroupNotification()`이 수신자를 선호도별로 그룹핑해서 그룹마다 별도로 FCM 발송함(`ArrivalChannel.getChannelId(AlarmSoundMode)`가 base 문자열에 모드를 조합).
 
 #### FCM Data 그룹 참가자/약속 동기화
 
@@ -322,6 +324,7 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 - `bulkResetStatusByAppointmentId(appointmentId, newStatus)` — 약속 수정 시 SCHEDULED/READY/DEPARTING 참가자 상태 일괄 재조정 (MOVING 이상은 건드리지 않음)
 - `countNotArrivedByAppointmentId(appointmentId)` — ARRIVED 아닌 참가자 수 조회 (전원 도착 여부 확인, FINISHED 전환 판단용)
 - `findFcmTokensByAppointmentIdExcluding(appointmentId, excludeMemberId)` — 특정 회원 제외 나머지 참가자 FCM 토큰 조회 (null 토큰·`isActive=false` 제외)
+- `findFcmTokensWithSoundModeByAppointmentIdExcluding(appointmentId, excludeMemberId)` — 위와 동일 대상 + 회원별 `arrivalExpectedSoundMode`/`arrivalCompleteSoundMode`까지 함께 조회 (Member 단방향 연관관계라 MemberSetting과 ON절 명시 조인, 도착 예정/완료 FCM 발송 시 선호도별 채널 분기용)
 - `findAppointmentIdsWithOverdueParticipants(today, now)` — NEARDEST + targetTime 초과 참가자가 속한 약속 ID 조회 (즉시 ARRIVED 자동 전환 대상)
 - `bulkUpdateToArrivedByAppointmentIds(appIds)` — 약속 ID 목록 기준 NEARDEST → ARRIVED 벌크 전환
 - `findAppointmentIdsWithActiveOverdueParticipants(today, oneHourAgo)` — READY/DEPARTING/MOVING + targetTime+1시간 초과 참가자가 속한 약속 ID 조회 (지각 정리 대상)
@@ -350,6 +353,7 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 
 - `TransitType`: ALL, SUBWAY, BUS (회원 선호 교통수단, domain/member/constant)
 - `PriorityType`: MIN_TIME, MIN_TRANSFER, MIN_WALK, MIN_WAIT (경로 우선순위, domain/member/constant — 카카오맵 자체 정렬 옵션과 1:1 매칭, 상세 근거는 docs/reference/kakao-map-deeplink-spec.md §2.4 참고)
+- `AlarmSoundMode`: SOUND, VIBRATE, SILENT (도착 예정/완료 FCM 알림 소리 모드, domain/member/constant — `MemberSetting.arrivalExpectedSoundMode`/`arrivalCompleteSoundMode`, 기본값 SOUND)
 - `TransportType`: DRIVING, TRANSIT (여정/참여자 이동 수단, domain/common/constant)
 - `TransportMode`: DRIVING, SUBWAY, BUS, ALL (플라스크 요청 전용 — TransportType+TransitType 조합, global/client/dto)
 - `AppointmentStatus`: WAITING, ACTIVE, FINISHED
@@ -358,7 +362,7 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 - `JourneyType`: HOME, PERSONAL
 - `PlaceType`: HOME, DEST
 - `AlarmType`: PERSONAL, HOME, GROUP (알람 조회용, domain/alarm/constant)
-- `ArrivalChannel`: EXPECTED("gonow-arrival-expected"), COMPLETE("gonow-arrival-complete") (그룹 도착 예정/완료 FCM 알림의 안드로이드 채널ID, domain/appointment/constant — 프론트 notifications.ts의 CHANNEL_BASE와 문자열이 반드시 일치해야 함)
+- `ArrivalChannel`: EXPECTED("gonow-arrival-expected"), COMPLETE("gonow-arrival-complete") (그룹 도착 예정/완료 FCM 알림의 안드로이드 채널ID base 문자열, domain/appointment/constant — `getChannelId(AlarmSoundMode)`로 수신자 선호도에 따라 `-sound`/`-vibrate`/`-silent`를 붙여 최종 채널ID를 조합함. 프론트 notifications.ts의 ARRIVAL_EXPECTED_CHANNEL_IDS/ARRIVAL_COMPLETE_CHANNEL_IDS와 문자열이 반드시 일치해야 함)
 
 ### DTO 네이밍 규칙
 - `XxxSaveResponse`: 생성/수정 공통 최소 응답 (`JourneySaveResponse` — `journeyId` + `journeyStatus`)
