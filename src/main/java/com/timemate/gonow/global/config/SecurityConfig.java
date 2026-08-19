@@ -46,6 +46,7 @@ public class SecurityConfig {
                                 "/.well-known/**",              // 안드로이드 App Links 검증용 assetlinks.json (정적 리소스)
                                 "/join",                        // 카톡 등 인앱 브라우저용 intent:// 리다이렉트 페이지 (InviteRedirectController)
                                 "/join.html",                   // 위 forward 대상 — 시큐리티가 내부 forward도 재검사하므로 함께 permitAll 필요
+                                "/images/**",                    // join.html OG 태그용 로고 등 공개 정적 이미지
                                 "/internal/scheduler/ready").permitAll() // TODO: 테스트 완료 후 삭제
                         .requestMatchers(HttpMethod.POST, "/api/members").permitAll() // 회원가입 (POST)
                         .anyRequest().authenticated() // 그 외 모든 요청은 반드시 우리 서비스의 JWT 토큰이 있어야 함

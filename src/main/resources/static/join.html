@@ -3,21 +3,115 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GoNow로 이동 중...</title>
+  <title>GoNow 그룹 초대</title>
+
+  <!-- 카카오톡/문자 등에서 링크 공유 시 미리보기 카드로 렌더링되는 메타데이터.
+       크롤러는 이 <head>만 파싱하고 스크립트는 실행하지 않으므로 아래 intent:// 자동
+       리다이렉트와 서로 간섭하지 않는다. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="GoNow" />
+  <meta property="og:title" content="🕒 GoNow 그룹 초대" />
+  <meta property="og:description" content="친구가 GoNow 약속 그룹에 초대했어요. 지금 확인해보세요!" />
+  <meta property="og:image" content="https://gonow-api.uk/images/gonow_logo.png" />
+  <meta property="og:url" content="https://gonow-api.uk/join" />
+
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: #F7F7F8;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      color: #1A1A1A;
+    }
+    .card {
+      width: 100%;
+      max-width: 360px;
+      background: #FFFFFF;
+      border-radius: 20px;
+      padding: 32px 24px 28px;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+    }
+    .logo {
+      font-size: 22px;
+      font-weight: 800;
+      color: #F5A623;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
+    }
+    .tagline {
+      font-size: 13px;
+      color: #999999;
+      margin-bottom: 24px;
+    }
+    .headline {
+      font-size: 17px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .desc {
+      font-size: 14px;
+      color: #666666;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .open-btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      background: #F5A623;
+      color: #FFFFFF;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .hint {
+      margin-top: 16px;
+      font-size: 12px;
+      color: #AAAAAA;
+      line-height: 1.5;
+    }
+  </style>
 </head>
 <body>
-  <p>GoNow 앱을 여는 중입니다...</p>
+  <div class="card">
+    <div class="logo">GoNow</div>
+    <div class="tagline">약속 시간까지, GoNow</div>
+    <div class="headline">그룹 초대가 도착했습니다</div>
+    <div class="desc">친구가 GoNow 그룹 약속에 초대했어요.<br />앱에서 초대코드를 확인하고 참여해보세요.</div>
+    <a id="open-btn" class="open-btn" href="#">GoNow 앱으로 열기</a>
+    <div class="hint">앱이 자동으로 열리지 않으면 버튼을 눌러주세요.<br />이미 앱으로 이동하셨다면 이 창은 닫으셔도 됩니다.</div>
+  </div>
   <script>
     // 카카오톡/인스타그램 등 자체 인앱 브라우저는 https App Links를 무시하고 항상 자기
     // 웹뷰로 링크를 가로챈다 — 그래서 OS의 App Links 판정을 아예 못 탄다. intent:// 스킴은
     // 패키지명을 명시해서 앱을 강제로 지정 호출하는 방식이라 이 웹뷰들 안에서도 동작한다
     // (토스/배달의민족 등이 쓰는 것과 동일한 표준 우회 패턴).
+    // 자동 실행 후에도 이 웹뷰 탭 자체는 안 닫히고 남는다(스크립트로 남의 탭을 못 닫는 브라우저
+    // 정책 때문에 window.close()도 대부분 안 먹힘) — 그래서 잔상 화면을 방치하지 않고
+    // 브랜드 카드 UI + 재시도 버튼으로 대체했다.
     (function () {
       var match = window.location.search.match(/[?&]code=([^&]+)/);
       var code = match ? decodeURIComponent(match[1]) : '';
-      window.location.href =
+      var intentUrl =
         'intent://join?code=' + encodeURIComponent(code) +
         '#Intent;scheme=gonow;package=com.hyeongwon.gonow;end';
+
+      document.getElementById('open-btn').addEventListener('click', function (e) {
+        e.preventDefault();
+        window.location.href = intentUrl;
+      });
+
+      window.location.href = intentUrl;
     })();
   </script>
 </body>
