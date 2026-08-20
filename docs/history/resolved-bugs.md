@@ -1021,3 +1021,5 @@ READY 지오펜싱(`readyGeofenceTask.ts`) 실기기 검증 과정에서, 상태
 - 반복 여정 리셋: 반복 막차 여정을 "어제 ARRIVED로 완료, target_time 확정됨" 상태로 DB에서 직접 세팅 후 `POST /internal/scheduler/ready`(버그21의 테스트 트리거) 실행 → `target_time`/`departure_alarm_time`/앵커 전부 `NULL`로 리셋 확인. 대조군(반복 데드라인 모드)은 같은 실행에도 `target_time`이 그대로 보존됨을 확인.
 
 검증 후 로컬 전용 임시 설정(`application.yml`의 `flask.url` → `localhost:5000`)은 원복, 검증용 컨테이너는 모두 삭제.
+
+**잔여 한계(버그 아님, 문서화만 하고 보류)**: 사용자가 그날 하루 종일 목적지(집) 700m 밖으로 한 번도 안 나가면 `target_time`이 끝내 확정되지 않아 그날 밤 막차 알람이 조용히 안 울린다 — 다음 정상 외출 시 자동 회복되므로 영구 고장은 아니다. 넛지 알림 아이디어는 `docs/planning/feature-ideas.md`의 "아이디어 J" 참고.
