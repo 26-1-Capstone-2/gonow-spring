@@ -1,4 +1,4 @@
-# 🛰️ Gonow: Universal Journey State Machine Specification (v1.5)
+# 🛰️ Gonow: Universal Journey State Machine Specification (v1.6)
 
 본 문서는 **Gonow** 서비스의 핵심 엔진인 **여정 상태 머신 (Journey State Machine)** 의 구조와 전역 비즈니스 로직을 정의합니다. 본 체계는 `PERSONAL`, `HOME (막차)`, `GROUP` 모든 모드에 공통 적용되는 핵심 아키텍처입니다.
 
@@ -51,13 +51,15 @@ NEARDEST: P >= Q → 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방
   - 최초 좌표 수신 시 → `current_lat/lng`에 앵커 저장
   - 이후 앵커로부터 500m 이탈 시에만 앵커 갱신 + 플라스크 호출 (500m 미만이면 좌표 갱신 안 함)
   - **500m 단위 앵커 보존 이유:** N초마다 좌표를 갱신하면 기준점이 계속 바뀌어 500m 이탈 감지 불가
-  - **반복 여정 주의(버그44, 2026-08-17 수정):** 반복 여정이 `ARRIVED → READY`로 넘어갈 때 이 앵커와 `departureAlarmTime`을 서버가 명시적으로 null 리셋한다(`ReadyTransitionService`) — 안 그러면 어제 값이 남아있어 오늘 첫 GPS가 어제 앵커 500m 안일 때 재계산 없이 스테일 값으로 판정될 수 있었음.
+  - **반복 여정 주의(버그44, 2026-08-17 수정 / 버그41, 2026-08-20 확장):** 반복 여정이 `ARRIVED → READY`로 넘어갈 때 이 앵커와 `departureAlarmTime`을 서버가 명시적으로 null 리셋한다(`ReadyTransitionService`) — 안 그러면 어제 값이 남아있어 오늘 첫 GPS가 어제 앵커 500m 안일 때 재계산 없이 스테일 값으로 판정될 수 있었음. 막차 모드(`isLastMode=true`)는 `targetTime`도 함께 null 리셋한다(데드라인 모드는 사용자 입력값이라 대상에서 제외) — 안 그러면 어제 확정된 막차 시각이 오늘도 유효한 것처럼 취급돼 바로 아래 "막차 모드 미확정 시 전이 보류" 가드가 무력화됨(`JourneyRepository.bulkResetAnchorAndAlarmForReadyTransition()`).
 - **전환 조건 (우선순위 순):**
   1. `distToDest < 100m` → `NEARDEST` (최우선, 플라스크 호출 + 앵커 저장 포함)
   2. `currentPoint == null` → 최초 앵커 저장 + 플라스크 호출
   3. `distFromAnchor >= 500m` → 앵커 갱신 + 플라스크 호출
   4. 위 조건 후 `P >= Q` → `DEPARTING`
-- **GPS 감지 방식(안드로이드, 2026-08-17~)**: 지오펜싱으로 전환 완료 — 앵커 500m EXIT(재센터링 시 재등록) + 목적지 100m ENTER(NEARDEST 핸드오프) 두 지오펜스(`readyGeofenceTask.ts`). `P >= Q` 도달은 서버 `DepartingTransitionScheduler`가 매분 감시해 FCM(`sync_event: departing_transition`)으로 클라이언트에 알리고, 클라이언트는 캐시해둔 앵커로 DEPARTING 지오펜스로 핸드오프한다(좌표 재확보 불필요). iOS는 기존 폴링 유지. 실기기 검증 전(2026-08-17 기준).
+  - **조건 3·4 중복 호출 방지(버그43, 2026-08-17 수정)**: 같은 `/location` 요청 안에서 조건 3(앵커 500m 이탈)과 조건 4(`P >= Q`)가 동시에 참이면, 조건 3에서 이미 같은 좌표로 플라스크를 호출했으므로 조건 4에서 `flaskResponse == null`일 때만(즉 아직 안 불렀을 때만) 재호출한다 — 입력(좌표/목적지/시각)이 동일해 결과도 같으므로 중복 호출이 무의미했음(`JourneyService.updateLocation()`, `ParticipantService.updateLocation()`).
+  - **막차 모드 미확정 시 전이 보류(버그41, 2026-08-20 수정)**: 막차 모드(`isLastMode=true`)인데 아직 막차 시각이 확정되지 않았으면(`Journey.isLastTrainTimeConfirmed() == false`), 조건 1(`NEARDEST` 전이)과 조건 4(`DEPARTING` 전이)를 둘 다 보류하고 `READY`를 유지한다 — 막차 모드는 생성 시점에 `targetTime`이 없어 당일 첫 GPS로 확정되는데, 새벽 4시 READY 전환 직후 사용자가 아직 목적지(집) 근처에 있는 흔한 상황에서 플라스크의 도보 폴백(700m 미만 분기)이 "지금 당장 출발"로 잘못 계산해 즉시 오작동 전이하던 문제를 막기 위함. 플라스크도 같은 상황(700m 미만 + `target_time` 없음)에서는 값을 지어내지 않고 `target_time`/`departure_alarm_time`을 `null`로 정직하게 응답하도록 함께 수정됨.
+- **GPS 감지 방식(안드로이드, 2026-08-17~)**: 지오펜싱으로 전환 완료 — 앵커 500m EXIT(재센터링 시 재등록) + 목적지 100m ENTER(NEARDEST 핸드오프) 두 지오펜스(`readyGeofenceTask.ts`). `P >= Q` 도달은 서버 `DepartingTransitionScheduler`가 매분 감시해 FCM(`sync_event: departing_transition`)으로 클라이언트에 알리고, 클라이언트는 캐시해둔 앵커로 DEPARTING 지오펜스로 핸드오프한다(좌표 재확보 불필요). iOS는 기존 폴링 유지. 실기기 검증 완료(2026-08-17, `docs/history/geofencing-migration-plan.md` 참고).
 
 ### ② DEPARTING (출발 준비 상태)
 - **정의:** 출발 알람(`departureAlarmTime`)이 도달하여 사용자 외출을 유도하는 단계
@@ -166,3 +168,5 @@ NEARDEST: P >= Q → 100m 벗어나도 NEARDEST 고정 (알람 울리는 중 방
 | `DEPARTING → MOVING` | `distFromAnchor >= 300m` | 서버 (좌표 수신 시) |
 | `MOVING → ARRIVED` | `distToDest < 100m` | 서버 (좌표 수신 시) |
 | `READY`/`DEPARTING`/`MOVING` → `ARRIVED` | `targetTime` + 1시간 초과 (지각 정리) | 서버 스케줄러 |
+
+\* `READY → NEARDEST`/`READY → DEPARTING`은 막차 모드(`isLastMode=true`)인데 `targetTime`이 아직 미확정이면 보류된다(버그41, "① READY" 절 참고).

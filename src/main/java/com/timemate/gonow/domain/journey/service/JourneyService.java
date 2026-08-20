@@ -269,10 +269,11 @@ public class JourneyService {
                     interval = flaskResponse.interval();
                 }
 
-                if (isNearDest) {
+                // 막차 시각 미확정 시, GPS 거리만으로는 어떤 상태 전이도 하지 않고 READY 유지
+                if (isNearDest && journey.isLastTrainTimeConfirmed()) {
                     // 100m 이내 -> NEARDEST
                     journey.updateStatus(JourneyStatus.NEARDEST);
-                } else if (isPastAlarmTime(journey.getDepartureAlarmTime())) { // P >= Q?
+                } else if (journey.isLastTrainTimeConfirmed() && isPastAlarmTime(journey.getDepartureAlarmTime())) { // P >= Q?
                     // P >= Q → DEPARTING
                     journey.updateStatus(JourneyStatus.DEPARTING);
                     // 바로 위에서(앵커 500m 이탈 등으로) 이미 같은 좌표로 플라스크를 불렀다면

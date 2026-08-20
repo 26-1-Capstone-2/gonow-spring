@@ -143,5 +143,13 @@ public class Journey {
         this.targetTime = targetTime;
     }
 
+    // 조회 메소드 ------------------------------------------------------------------------------
+    // 막차 모드가 아니거나(원래 target_time이 항상 있음), 막차 모드인데 이미 막차 시각이 확정됨.
+    // false면 READY 첫 GPS 수신 전(또는 반복 여정의 새벽 리셋 직후)이라, GPS 거리만으로
+    // NEARDEST/DEPARTING 등으로 전이하면 안 됨
+    public boolean isLastTrainTimeConfirmed() {
+        return !isLastMode || targetTime != null;
+    }
+
     // 단방향이므로 연관관계 편의 메소드 X
 }

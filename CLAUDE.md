@@ -340,7 +340,7 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 - `findAllByJourneyType(memberId, type)` — 타입별(PERSONAL/HOME) 전체 조회, `departureAlarmTime` 정렬
 - `findAllByPlanDate(memberId, planDate, dateBit)` — 알람 날짜별 조회용 (당일 여정 + 반복 여정 비트마스크 매칭), `departureAlarmTime` 정렬
 - `bulkUpdateToReady(today, todayBit)` — 당일 SCHEDULED/ARRIVED → READY 벌크 전환 (새벽 4시 스케줄러용, 반복 여정 포함)
-- `bulkResetAnchorAndAlarmForReadyTransition(today, todayBit)` — READY 전환 직전 반복 여정의 어제 앵커(`currentPoint`)/출발 알람 시각(`departureAlarmTime`)을 null로 리셋 (버그44 — 스테일 값으로 당일 재계산 없이 즉시 DEPARTING 오판 방지)
+- `bulkResetAnchorAndAlarmForReadyTransition(today, todayBit)` — READY 전환 직전 반복 여정의 어제 앵커(`currentPoint`)/출발 알람 시각(`departureAlarmTime`)을 null로 리셋 (버그44 — 스테일 값으로 당일 재계산 없이 즉시 DEPARTING 오판 방지). 막차 모드(`isLastMode=true`) 여정은 `targetTime`도 함께 리셋(버그41 — 데드라인 모드는 사용자 입력값이라 대상에서 제외). 반환값을 아무도 안 써서 `void`(내부 쿼리 `bulkResetLastModeTargetTimeInternal`도 동일)
 - `bulkUpdateToArrived(journeyIds)` — 여정 ID 목록 기준 ARRIVED 벌크 전환 (NEARDEST 초과 자동 전환·지각 정리 양쪽에서 공용)
 - `bulkUpdateToDeparting(now)` — 스케줄러: READY + `departureAlarmTime` 도달 여정 → DEPARTING 벌크 전환 (`DepartingTransitionService`)
 - `findTokenToJourneyIdsForDepartingTransition(now)` — 스케줄러: READY→DEPARTING 전환 대상 여정을 FCM 토큰별로 그룹화해 (token → journeyId 콤마 문자열) 맵 조회 (`sync_event: departing_transition` 발송용, `DepartingTransitionService`)

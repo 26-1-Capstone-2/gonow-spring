@@ -44,11 +44,18 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
     // 반복 여정의 어제 앵커/출발시각이 남아있지 않도록 리셋 (bug44, 2026-08-17)
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = "UPDATE journey SET current_lat = NULL, current_lng = NULL, departure_alarm_time = NULL WHERE (plan_date = :today OR (repeat_days & :todayBit) > 0) AND plan_date <= :today AND status IN (:scheduledStatus, :arrivedStatus)", nativeQuery = true)
-    int bulkResetAnchorAndAlarmInternal(@Param("today") LocalDate today, @Param("todayBit") int todayBit, @Param("scheduledStatus") String scheduledStatus, @Param("arrivedStatus") String arrivedStatus);
+    void bulkResetAnchorAndAlarmInternal(@Param("today") LocalDate today, @Param("todayBit") int todayBit, @Param("scheduledStatus") String scheduledStatus, @Param("arrivedStatus") String arrivedStatus);
+
+    // 반복 막차 여정의 어제 target_time이 남아있지 않도록 리셋
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "UPDATE journey SET target_time = NULL WHERE (plan_date = :today OR (repeat_days & :todayBit) > 0) AND plan_date <= :today AND status IN (:scheduledStatus, :arrivedStatus) AND is_last_mode = TRUE", nativeQuery = true)
+    void bulkResetLastModeTargetTimeInternal(@Param("today") LocalDate today, @Param("todayBit") int todayBit, @Param("scheduledStatus") String scheduledStatus, @Param("arrivedStatus") String arrivedStatus);
 
     // bulkUpdateToReady 직전에 호출 — 상태가 READY로 바뀌기 전에 리셋해야 WHERE 조건이 유효함
-    default int bulkResetAnchorAndAlarmForReadyTransition(LocalDate today, int todayBit) {
-        return bulkResetAnchorAndAlarmInternal(today, todayBit,
+    default void bulkResetAnchorAndAlarmForReadyTransition(LocalDate today, int todayBit) {
+        bulkResetLastModeTargetTimeInternal(today, todayBit,
+                JourneyStatus.SCHEDULED.name(), JourneyStatus.ARRIVED.name());
+        bulkResetAnchorAndAlarmInternal(today, todayBit,
                 JourneyStatus.SCHEDULED.name(), JourneyStatus.ARRIVED.name());
     }
 
