@@ -1,6 +1,6 @@
 # GPS 폴링 버그 — 해결된 항목 아카이브
 
-마지막 업데이트: 2026-08-17
+마지막 업데이트: 2026-08-20
 
 2026-08-14 프론트 GPS 동적 폴링/지오펜스 안정화(경쟁조건, 콜드스타트 러너 복구, EXIT 지오펜스 OS 한계 등) 상세는 별도 문서 참고: [geofence-polling-stabilization-2026-08-14.md](geofence-polling-stabilization-2026-08-14.md)
 2026-08-16 위 안정화 작업이 버그3/버그8(백그라운드 GPS interval 30초 고정 + 포그라운드 중복 호출)의 최종 해결이었음을 확인, `BUGS.md`에서 해결됨으로 이동
@@ -890,8 +890,134 @@ READY 지오펜싱(`readyGeofenceTask.ts`) 실기기 검증 과정에서, 상태
 
 **해결**: GoNow는 순수 안드로이드 대상 서비스라 iOS 분기를 별도로 고려할 필요가 없다. READY가 지오펜싱 기반으로 전환되면서(2026-08-17) 이 버그의 원인이었던 "폴링 주기 계산"이라는 개념 자체가 READY 상태에서 없어졌고, `P >= Q`(출발 알람 시각 도달)는 신규 서버 스케줄러 `DepartingTransitionScheduler`(매분 폴링형, GPS interval과 무관)가 대신 감시하도록 대체됐다. 플라스크의 interval 계산 로직 자체는 손대지 않았지만, 안드로이드 전용 서비스에서는 이 로직을 더 이상 거치지 않으므로 실질적으로 해소.
 
+### ✅ 버그17 — 자정~새벽 4시 날짜 경계 처리 → 코드 재검토 결과 버그 아님으로 종결
+
+**관련 레이어**: 프론트, 스프링 스케줄러
+
+**원래 우려**: 자정 넘긴 새벽 1~4시에 앱을 켜면 캘린더가 "오늘"을 표시하는데, 그날 알람이 아직 스케줄러(새벽 4시)를 안 거쳐 SCHEDULED로 보여서 혼란을 줄 수 있다는 가설. "00:00~04:00을 전날로 간주해서 날짜 조회 시 하루 빼자"는 정책안이 있었음.
+
+**재검토(2026-08-18) 결과 — 실제로는 문제가 없음을 코드로 확인**:
+1. `resolveInitialStatus(planDate)`(`JourneyService.java`/`AppointmentService.java` 양쪽 동일 로직)는 **생성 시점**에 `planDate.isEqual(LocalDate.now())`면 즉시 READY로 만든다. 즉 당일 생성한 알람은 시각과 무관하게 곧바로 READY이고, 새벽 4시 스케줄러를 기다릴 필요 자체가 없다.
+2. 새벽 4시 스케줄러(`bulkUpdateToReadyInternal`, `plan_date <= today AND status IN (SCHEDULED, ARRIVED)`)가 실제로 건드리는 건 **며칠 전에 미리 만들어둔 미래 날짜 알람**뿐이다. 이런 알람이 새벽 1~4시에 아직 SCHEDULED로 보이는 건, 그 알람이 몇 시간~며칠 뒤에나 있을 일정이라 GPS 추적이 아직 필요 없다는 뜻이므로 **정확한 상태 표시**다.
+3. 서버 타임존은 `GonowApplication.java`의 `TimeZone.setDefault(Asia/Seoul)`로 고정돼 있어 `LocalDate.now()`가 사용자 실제 시계와 어긋날 여지가 없다.
+4. 캘린더가 어느 날짜 칸에 표시되는지(`plan_date`)와 알람 상태(`myStatus`)는 `AlarmResponse`에서 완전히 독립된 필드다 — 날짜 버킷을 하루 밀어도 상태 문구(SCHEDULED)는 그대로라, 애초에 제안된 해결책이 우려했던 증상 자체를 못 고친다.
+5. 막차 모드는 생성 시점의 `plan_date`(나간 날)를 그대로 쓰는 게 의도된 설계다 — "어젯밤 나갔다가 새벽에 들어왔다"를 캘린더가 나간 날 기준으로 보여주는 건 직관과 일치하며, 이걸 다른 날짜로 재해석하는 로직은 서버 어디에도 없고 있을 필요도 없다.
+6. 프론트 "오늘" 계산은 캘린더/목록 화면(`MainCalendarScreen.tsx` 등 7개 파일)에만 쓰이고, 실제 알람 엔진(`alarmService.ts`, 지오펜스 태스크들)에는 전혀 관여하지 않는다 — GPS/지오펜스/로컬 알림 동작은 이 계산과 완전히 무관하게 서버 스케줄러·FCM·절대 시각 기준으로만 움직인다.
+
+**결론**: 데이터 유실, 잘못된 상태 표시, 시간대 불일치 등 실질적 문제를 하나도 발견하지 못함 — 애초에 이론적으로 제기된 우려였고 실사용 재현 사례도 없었음. 코드 변경 없이 종결.
+
 ---
 
 ## `dlog` 통일 (2026-08-17)
 
 위 6건 중 여러 개가 "이 지점은 `console.log`만 있고 `dlog`가 없어서 원인 파악에 시간이 걸렸다"는 공통 패턴으로 발견됐다. `dlog()`는 내부적으로 `console.log()`도 호출하므로(`deviceLogger.ts`) `console.log`의 완전 상위호환이라는 게 확인돼, 알람/GPS/지오펜스/알림 서브시스템 8개 파일(`alarmService.ts`, `backgroundLocationTask.ts`, `_layout.tsx`, `notifications.ts`, `readyGeofenceTask.ts`, `departingGeofenceTask.ts`, `nearDestGeofenceTask.ts`, `movingGeofenceTask.ts`) 안의 `console.log` 181개를 전부 `dlog`로 통일했다(단순 문자열 인자 155개는 스크립트로 일괄 변환, 에러 객체를 포함한 다중 인자 26개는 수동으로 병합). 이 서브시스템 밖(로그인/설정 등 무관한 화면)은 대상에서 제외 — 앞으로도 이 8개 파일 안에서는 `console.log` 대신 항상 `dlog`를 쓰는 것을 규칙으로 확정.
+
+---
+
+## 수정 완료 목록 (2026-08-18)
+
+### ✅ 버그45 — 반복 알람이 ARRIVED를 지나도 FGS(포그라운드 서비스)를 유지하도록 `AlarmRunner` 생명주기 재설계
+
+**관련 저장소**: 프론트(`GoNow_Fronted`)
+
+**파일**: `src/services/alarmService.ts`(`AlarmRunner`/`AlarmManager`), `src/tasks/backgroundLocationTask.ts`, `src/tasks/departingGeofenceTask.ts`(`finishAsArrived()`, `readyGeofenceTask.ts`/`movingGeofenceTask.ts` 공유), `src/tasks/backgroundAlarmTask.ts`, `src/utils/notifications.ts`, `src/screens/auth/LoginScreen.tsx`, 그 외 4개 알람 생성/수정 화면(`PersonalAlarmSheet.tsx`, `HomeAlarmSheet.tsx`, `PersonalAllAlarmSheet.tsx`, `HomeAllAlarmSheet.tsx`), `DailyAlarmScreen.tsx`, `app/_layout.tsx`
+
+**배경**: 지오펜싱 마이그레이션에서 확정된 정책은 "알람이 하나라도 있으면 FGS를 상시 유지, 완전히 없어지면만 끈다"(안드로이드 12+에서 백그라운드 상태로는 FGS를 새로 못 켜기 때문). 그런데 ARRIVED 도달 시 반복 여부와 무관하게 무조건 `AlarmRunner.stop()`이 호출돼 nav info까지 지워졌다 — 반복 여정은 다음 회차에 서버가 다시 READY로 되돌리는데, 그 사이 FGS가 꺼져 있으면 다음 회차 진입(주로 백그라운드)때 다시 FGS를 못 켜는 문제가 매 회차 재발할 수 있었다.
+
+**해결**: ARRIVED 도달 시 반복 여정(`repeatDays !== 0`)이면 `ALARM_NAV_INFO_KEY` 엔트리만 남기고(파킹) 나머지(타이머/단계별 알람/지오펜스/`AlarmManager.runners`)는 그대로 정리하도록 수정. ARRIVED로 가는 경로가 하나가 아니라 4개(①`/location` 폴링 응답 자연 전환, ②사용자의 "도착 확인" 버튼, ③서버 강제 전환 `sync_event: auto_arrived` FCM, ④목적지 100m 지오펜스 ENTER 감지)임을 확인하고 전부 대칭 적용:
+- `AlarmManager.stop()`에 `preserveIfRepeating` 파라미터 추가 — "도착확인/auto_arrived"(true) vs "삭제/비활성화/SCHEDULED 복귀"(기본값 false, 기존 호출부 무변경) 구분
+- 백그라운드 전용 헬퍼 `removeOrParkAlarmNavInfo()`(`backgroundLocationTask.ts`) 신설, `notifications.ts`/`backgroundAlarmTask.ts`/`departingGeofenceTask.ts`의 직접 `removeAlarmNavInfo()` 호출 대체
+- `AlarmTarget`에 `repeatDays` 필드 추가, `alarmService.start()` 호출부 9곳에 전부 플러밍
+- FGS on/off 판단을 포그라운드(`AlarmManager`)·백그라운드(`backgroundLocationTask.ts`) 양쪽에서 `runners.size===0`이어도 `hasAnyTrackedAlarm()`이 true면(파킹 엔트리 존재) GPS만 끄고 FGS는 유지하도록 통일
+- 삭제/로그아웃 경로(`AlarmManager.stop()`/`stopAll()`)에 파킹 엔트리 방어적 정리 로직 추가
+
+**코드 리뷰(`/code-review high`)로 추가 발견·수정**:
+- `AlarmManager.forgetIfExists()`(백그라운드 도착확인 시 좀비 러너 정리용)가 `runner.stop()`을 인자 없이 불러 nav info를 먼저 지워버리는 바람에, 뒤이은 `removeOrParkAlarmNavInfo()` 판단이 항상 "반복 아님"으로 오판하던 경쟁 조건 — `runner.stop(true)`로 수정
+- 지오펜스 ENTER 경로(`finishAsArrived()`)와 auto_arrived FCM 경로(`backgroundAlarmTask.ts`)에 `forgetIfExists()` 호출이 빠져 있어(도착확인 버튼 경로에만 있었음), 프로세스가 살아있는 채로(스와이프만 한 흔한 케이스) 이 경로로 ARRIVED가 처리되면 `AlarmManager.runners`에 좀비 러너가 남아 다음 회차 `isRunning()` 오판 위험 — 두 곳 모두 추가
+- 같은 문제가 `backgroundLocationTask.ts`의 헤드리스 폴링 자체(최초 파킹 구현 지점)에도 있었음 — 동일 수정
+- `DailyAlarmScreen.tsx`의 `toggleAlarm()`이 `alarmType`을 `isLastMode`로 잘못 유추해 데드라인 모드 HOME 여정이 토글 ON 시 PERSONAL로 등록되던 기존 버그(이번 작업과 무관하지만 같은 함수를 건드리는 김에 수정) — 호출부가 이미 아는 타입을 명시적으로 전달하도록 변경
+- `AlarmManager`의 `onFinish` 콜백과 `stop()`의 파킹 방어 분기가 동일한 GPS/FGS 3단계 판단을 중복 구현 — `reconcileGpsAfterRunnerGone()`으로 통합
+- `stop()`의 파킹 방어 분기가 한 번도 시작된 적 없는 key에도 매번 지오펜스 해제 4종+정리를 돌던 비효율 — `hasAlarmNavInfo()` 사전 체크로 제거
+- 로그아웃이 파킹 엔트리를 전부 지우는 게(정상 동작) 재로그인 시 문제가 됨 — `LoginScreen.tsx`의 복구 로직이 `ARRIVED`(파킹 대상)를 걸러내서 재로그인해도 파킹이 영구히 복원 안 되던 문제(사용자 질문으로 발견) → `my_status==='ARRIVED' && repeat_days` 조건의 별도 필터로 nav info 복원 + FGS 재시작 로직 추가
+
+**실기기 검증(2026-08-18)**: 개인/귀가 알람 × 4개 ARRIVED 경로 중 3개(폴링 자연 전환, 도착확인 버튼 포그라운드/백그라운드, 지오펜스 ENTER — 실제 도보 이동으로 확인)를 `adb logcat`으로 검증. 추가로 파킹 중 삭제, 로그아웃(FGS 종료 확인), 로그아웃→재로그인(파킹 복원+FGS 재시작 확인), 다음 회차 재개(`POST /internal/scheduler/ready`로 즉시 재현, 스와이프 상태에서 FCM 수신+GPS 폴링 재개+FGS 신규 시작 없이 유지됨 확인)까지 전부 실기기로 확인. auto_arrived FCM 경로(targetTime+1시간 대기 필요)만 실기기 미검증 — 다른 3개 경로와 완전히 동일한 코드 패턴(`forgetIfExists()`+`removeOrParkAlarmNavInfo()`)이라 리스크 낮음으로 판단.
+
+### ✅ 버그46 — `resumeIfDue()`가 낡은 `this.status`로 포그라운드 재폴링을 조용히 스킵 — MOVING 여정이 영원히 폴링 재개 안 됨
+
+**관련 저장소**: 프론트(`GoNow_Fronted`)
+
+**파일**: `src/services/alarmService.ts`(`AlarmRunner.resumeIfDue()`)
+
+**배경**: 지오펜싱 마이그레이션(READY/DEPARTING이 2026-08-17에 지오펜싱으로 전환됨)으로 READY→DEPARTING→MOVING 전환이 전부 백그라운드/헤드리스 지오펜스 이벤트로 일어나게 됐다. `resumeIfDue()`(포그라운드 복귀 시 폴링 재개 여부 판단)는 NEARDEST 전용으로 만들어진 낡은 사전 필터 `if (['NEARDEST','READY','DEPARTING'].includes(this.status)) return;`를 그대로 재사용하고 있었는데, `this.status`는 그 `AlarmRunner` 인스턴스가 마지막으로 "스스로" 관찰한 상태일 뿐이다.
+
+**증상**: READY→DEPARTING→MOVING 전환이 지오펜스(백그라운드)로 일어나면 포그라운드 러너 인스턴스는 이 전환들을 못 보고 `this.status`가 옛 값에 계속 묶인다. 실제로는 MOVING(폴링 필요)인데 앱을 포그라운드로 돌려도 `resumeIfDue()`가 낡은 값만 보고 "지오펜스 전담 구간"으로 오판해 로그 한 줄 없이 조용히 재폴링을 스킵 — 그 러너는 이후 몇 번을 포그라운드로 돌아와도 다시는 폴링을 재개 못 했다. 사용자가 실기기로 "백그라운드/스와이프에서는 잘 오는데 포그라운드에서는 전혀 안 온다" 패턴으로 발견.
+
+**해결**: 바로 다음 줄에 이미 있던 훨씬 신뢰할 수 있는 체크(`isKeyActivelyTracked()` — `ACTIVE_JOURNEYS_KEY`/`ACTIVE_APPOINTMENTS_KEY` 멤버십, 감지 주체와 무관하게 항상 정확)만으로 판단하도록 `this.status` 기반 사전 필터를 완전히 제거.
+
+**실기기 검증(2026-08-18)**: 실제 도보 이동으로 READY→DEPARTING까지 지오펜스로 진행 후, 백그라운드에서 앵커 EXIT로 MOVING 확정된 직후 포그라운드 전환 — `AlarmRunner.status`가 여전히 낡은 `DEPARTING`이었는데도 `isKeyActivelyTracked()`만으로 정확히 판단해 5초 뒤 재폴링이 발동하고 `DEPARTING → MOVING` 상태전이가 정상 반영되는 것을 로그로 직접 확인. 이후 여러 차례 포그라운드/백그라운드 전환에도 MOVING 폴링이 계속 정상 유지되다 ARRIVED 파킹까지 정상 완료.
+
+---
+
+### ✅ 버그48 — 자가용(DRIVING) 모드에서 출발지-목적지가 5m 이내면 카카오모빌리티가 경로 탐색을 거부해 생성 직후 알람이 통째로 사라짐
+
+**관련 저장소**: `gonow-flask`(플라스크)
+
+**파일**: `CounterClockEngine2/CounterClockEngine/gps_api/routes/personal.py`(`_get_driving_duration()`)
+
+**증상**: 자가용(DRIVING) 모드 개인/귀가 여정을 현재 위치와 목적지가 거의 같은 곳으로 만들면(실기기 재현 사례: "지성타운"→"지성타운"), 생성 직후 첫 GPS 폴링에서 알람이 통째로 사라짐. 실기기 로그로 "서버 HTTP 400 → ID 제거 (삭제된 알람)"가 생성 1초 만에 찍히는 것으로 발견됨.
+
+**원인**: `_get_driving_duration()`이 카카오모빌리티 Directions API(`kakao_fetch_route`)를 호출하기 전에 "출발지-목적지가 너무 가까운 경우"를 걸러주는 사전 체크가 없었음 — 대중교통(막차) 모드엔 `walk_fallback()`(`transit_route.py`)이 있었지만 DRIVING엔 대응물이 없었다. 카카오모빌리티 공식 문서(`developers.kakaomobility.com/guide/navi-api/reference.html`, WebFetch로 직접 확인)에 따르면 `result_code: 104`는 "출발지와 도착지가 5m 이내로 설정된 경우 경로를 탐색할 수 없음"을 의미하며, 이 경우 `kakao_route.py`의 `_call_directions_api()`가 `ValueError`를 던져 플라스크가 502를 반환하고, 스프링 `GlobalExceptionHandler.handleRestClientResponse()`가 이를 고정 문구 400으로 감싸 프론트에 전달한다. 프론트는 이 4xx를 "삭제된 알람"으로 오인해(`alarmService.ts`/`backgroundLocationTask.ts`) 방금 생성한 알람을 완전히 정리(`stop()`)해버린다 — 이 마지막 단계 자체는 여전히 열려있는 버그25(4xx 시 조용히 전체 정리)와 동일한 증상이지만, 이번 건의 근본 원인(카카오 API 거부)은 별개로 새로 발견된 것.
+
+**범위 밖**: `result_code 101/102/103`(시작/도착/경유 지점 "주변 도로를 탐색할 수 없음" — 건물 내부·공원 등 좌표 자체가 차량 도로에 안 붙어 있는 경우)은 거리 문제가 아니라 위치 자체의 문제라 이번 거리 기반 수정으로는 못 막는다. 재현 사례와 무관해 이번 수정 범위에서 제외 — 필요해지면 버그25(4xx 일반 처리)와 묶어 별도로 다룰 것.
+
+**해결**: `_get_driving_duration()` 맨 앞에 `walk_fallback()`과 동일한 패턴의 거리 사전 체크 추가 — `haversine()`(`optimizer.py`, 기존 유틸 재사용)로 계산한 직선거리가 100m 미만이면 카카오 API 호출 자체를 스킵하고 트리비얼 소요시간(60초)을 즉시 반환. 100m는 카카오 문서상 5m 경계에 GPS 오차 감안 안전마진을 둔 값이자, `alarm.py`의 NEARDEST 지오펜스 반경과 동일한 "목적지에 거의 다 왔다"는 기존 상수를 재사용한 것. 60초는 다운스트림(`_adaptive_gps_interval()`)에 0을 넘기는 위험을 피하고 `walk_fallback()`의 "최소 1분, 절대 0 아님" 원칙과 일관되게 맞춘 값. `_get_driving_duration()`은 개인/귀가(`_compute_alarm()`)와 그룹(`_compute_appointment_alarm()`) 양쪽에서 공용으로 호출되므로 이 함수 하나만 고쳐서 세 유형 모두 동시에 방어됨.
+
+---
+
+## 수정 완료 목록 (2026-08-19)
+
+### ✅ 버그27 — "도착 예정 알림" 커스텀 사운드를 시스템 소리 목록에 등록하는 방식 → 앱 내 소리/진동/무음 토글로 재설계해 최종 해결
+
+**관련 저장소**: `GoNow_Fronted`(프론트) + `gonow`(스프링)
+
+**경위**: 원래 버그27은 "MediaStore에 사운드를 정식 등록해서 OS 설정의 소리 선택 목록에 노출시키는" 네이티브 모듈 방식으로 한 차례 프로토타입까지 만들어 실기기 검증을 마쳤으나(과거 기록은 git 히스토리에 남아있지 않음 — 커밋 전 롤백됨), 우선순위 낮음으로 보류돼 있었다. 이번에 다시 착수하면서 실제로 구현·실기기 테스트하는 과정에서 근본적인 설계 재검토가 있었다.
+
+**1단계 — MediaStore 등록 방식 재구현**: `modules/notification-sound-registry/`(Kotlin 로컬 Expo 모듈)를 새로 작성 — `MediaStore.Audio.Media.EXTERNAL_CONTENT_URI`에 `arrived.wav`를 등록(`MimeTypeMap`으로 MIME 타입 동적 조회 — 하드코딩 시 `IllegalArgumentException` 실기기 재현 확인, `IS_PENDING` 플래그로 파일 복사 중 끊긴 깨진 항목 재사용 방지)하고 `NotificationChannel.setSound(content:// URI, ...)`로 채널 생성. 도착 여부 확인 채널에 우선 적용해 실기기에서 시스템 설정 "직접 설정" 목록 노출까지 확인.
+
+**2단계 — MediaStore 방식의 부작용 발견**: 등록된 사운드가 안드로이드 파일 관리자의 "오디오 파일" 목록에도 그대로 노출되고, 시스템 설정의 빨간 마이너스 버튼으로 사용자가 실수로 삭제할 수 있음을 실기기로 확인. 도착 예정/도착 완료 채널(FCM 발송, 채널ID를 스프링이 고정값으로 알고 있어야 함)은 삭제되면 복구 수단이 없어(`resetAlarmChannel()` 방식이 채널ID를 바꿔서 스프링과 어긋나므로 사용 불가) 리스크가 큼.
+
+**3단계 — 근본 설계 전환**: "OS 설정 화면에서 직접 고를 수 있게" 만드는 게 애초 목적이었는데, 대신 **앱 자체에 소리/진동/무음 3-way 토글 UI**를 만들면 OS 설정 노출 자체가 필요 없어진다는 결론에 도달. 채널을 모드별로 3개씩 미리 만들어두고(안드로이드 채널은 한 번 만들면 sound/vibration을 재변경 불가 — 그래서 "바뀔 필요 없는" 채널을 모드 수만큼 준비) 실제 발송 시점에 저장된 모드에 맞는 채널ID를 선택하는 방식으로 재설계:
+- **도착 여부 확인 / 출발 1~4단계** (100% 로컬 트리거): `AsyncStorage`에 모드 저장, 발송 함수가 그때그때 읽어서 채널 선택. 출발 1~4단계는 단계마다 독립적인 모드 지정 가능(예: 4단계만 소리, 나머지 무음).
+- **도착 예정 / 도착 완료** (FCM, 앱이 완전히 꺼진 상태에서도 OS가 서버 페이로드의 채널ID로 직접 표시 — 로컬 저장만으론 발송 시점에 서버가 알 방법이 없음): 스프링 `MemberSetting`에 `arrivalExpectedSoundMode`/`arrivalCompleteSoundMode`(둘 다 nullable, 부분 업데이트) 필드 신설, `PATCH /api/members/me/arrival-sound` 신설. `ArrivalChannel.getChannelId(AlarmSoundMode)`가 base 채널ID에 모드를 조합(`gonow-arrival-expected-sound`/`-vibrate`/`-silent` 등 총 6개). `ParticipantService.sendGroupNotification()`이 참가자들을 선호도별로 그룹핑해서 그룹마다 별도로 FCM 발송하도록 변경(기존엔 전체에게 한 번에 발송).
+
+**4단계 — 네이티브 모듈 삭제**: 위 재설계로 모든 채널이 "OS 설정 노출 불필요"해지면서 MediaStore 등록(1단계에서 만든 네이티브 모듈) 자체가 무의미해짐 — 전 채널을 notifee 번들 리소스 방식(`sound: 'arrived'` 등)으로 통일하고 `modules/notification-sound-registry/` 삭제. 커스텀 사운드는 `arrived.wav` 하나를 도착 계열 세 알림이 공유(소리 종류가 너무 다양하면 오히려 어떤 알림인지 구분하기 어려워진다는 판단).
+
+**부수 발견/수정**: 실기기 테스트 중 GPS 호출/FGS 켜짐·꺼짐 등 디버그 알림(`sendDebugNotification`)이 `arrived.wav`를 공유해서 실제 도착 알림과 소리로 구분이 안 되는 문제를 발견 — 전용 무음 채널(`gonow-debug-silent`)로 분리.
+
+**최종 아키텍처**: 출발 1~4단계(4×3) + 도착 여부 확인(3) + 도착 예정(3) + 도착 완료(3) = 총 21개 알림 채널, 전부 notifee 번들 리소스 방식. `ArrivalSoundUpdateRequest`가 두 필드 다 nullable인 이유는 프론트가 토글 하나 누를 때마다 즉시 저장하는 UX라(화면 전체를 "저장" 버튼으로 한 번에 제출하는 방식이 아님) 바뀐 필드만 보내면 되게 하기 위함 — 처음엔 두 필드를 `@NotNull`로 묶어서 매번 같이 보내게 했었으나, 리뷰 과정에서 불필요한 프론트-백엔드 결합(과 이론상의 레이스 컨디션)임을 확인하고 부분 업데이트로 수정.
+
+---
+
+## 수정 완료 목록 (2026-08-20)
+
+### ✅ 버그41 — 막차 모드 귀가 여정, 목적지(집) 700m 이내에서 최초 계산 시 새벽 4시에 즉시 DEPARTING/NEARDEST로 오작동
+
+**관련 저장소**: `gonow-flask`(플라스크) + `gonow`(스프링)
+
+**원인**: 막차 모드는 생성 시점엔 `target_time`이 없다(그날 GPS로 확정). 새벽 4시 READY 전환 직후 사용자가 아직 집(목적지)에서 자고 있는 흔한 상황이 겹치면, 플라스크 `alarm.py`의 `_compute_alarm()` 도보 폴백 분기(700m 미만, `walk_fallback()`)가 `target_time=None`일 때 "계산 시점(=지금)"을 기준으로 출발 시각을 계산해버려, `departure_alarm_time`이 계산되자마자 과거가 되거나(100~700m → 즉시 DEPARTING) 스프링의 `isNearDest` 체크가 플라스크 응답과 무관하게 GPS 거리만으로 즉시 NEARDEST로 전환해버렸다(100m 이내). 두 경로 모두 그날 밤 진짜 막차 계산이 이루어지지 않은 채 여정이 새벽에 끝나버림 — 막차 모드의 가장 흔한 실사용 패턴(전날 밤 집에서 자고, 낮에 나갔다가, 그날 밤 막차로 귀가)에서 사실상 매번 재현됐다.
+
+**추가로 발견한 연관 문제(기존 버그41 문서엔 없던 내용)**: 반복(`repeat_days`) 막차 여정은 새벽 4시 리셋 쿼리(버그44)가 앵커/출발알람시각만 리셋하고 `target_time`은 리셋하지 않아, 둘째 날부터는 "최초 계산" 신호(`target_time == null`) 자체가 성립하지 않았다. 스테일한 어제 확정값이 남아있으면 다른(더 나쁜) 코드 경로로 빠지거나, GPS가 오기도 전에 "지각 정리" 스케줄러(`ArrivedTransitionScheduler`)가 여정을 조용히 자동 ARRIVED 처리해버릴 수 있어, 반복 막차 알람은 매일 밤 통째로 죽을 위험이 있었다.
+
+**설계 검토 — 새 상태(`WAITING_OUTING` 등) 도입 vs 가드 조건**: 국소적인 설계 공백인지, FSM 자체를 다시 짜야 하는지 따져본 결과, "막차 시각이 없으면 아직 확정 전"이라는 하루짜리 전제를 반복 여정(여러 날 재사용되는 엔티티)에 그대로 적용한 게 진짜 원인으로 좁혀졌다. 새 상태를 도입하면(READY 진입 전 별도 대기 상태) 운영 MySQL의 네이티브 `ENUM` 컬럼 수동 ALTER, 새 지오펜스 태스크 신설, 프론트 전역 상태 분기 추가, 상태머신 스펙 재작성 등 비용이 커서 기각 — 대신 기존 `isPastAlarmTime()`이 이미 null-safe하게 짜여있던 것(DEPARTING 판정)과 대칭을 맞춰, NEARDEST 판정에도 같은 가드를 추가하는 쪽으로 결정.
+
+**수정 내용**:
+- **A. 플라스크** (`gps_api/routes/alarm.py`): `is_last_mode` + `is_short`(700m 미만) 분기에서 `target_time is None`이면 "지금 당장 출발"로 지어내지 않고 `target_time`/`departure_alarm_time`/`boarding_time`/`which_station`을 전부 `None`으로 응답. `interval`은 급할 게 없는 상태라 `INTERVAL_MAX_S`로 반환. `target_time`이 이미 있는 기존 경로는 무변경.
+- **B. 스프링** (`Journey.java` + `JourneyService.java`): `Journey`에 `isLastTrainTimeConfirmed()`(`!isLastMode || targetTime != null`) 추가, `updateLocation()`의 READY 분기에서 NEARDEST/DEPARTING 전이 두 곳 모두 이 가드로 감쌈. (최초 이름은 부정형 `isLastTrainTimePending()`이었으나, 호출부 2곳이 전부 `!`로 뒤집어 쓰는 걸 IDE가 감지해서 긍정형으로 리네이밍 — 이중부정 제거)
+- **C. 스프링** (`JourneyRepository.java`): `bulkResetAnchorAndAlarmForReadyTransition()`이 새벽 4시 리셋 시 `is_last_mode = TRUE`인 여정의 `target_time`도 함께 `NULL`로 리셋하는 쿼리(`bulkResetLastModeTargetTimeInternal`)를 추가 호출. 데드라인 모드는 `target_time`이 사용자 입력값이라 조건에서 명시적으로 제외. 두 리셋 쿼리 모두 반환값을 아무도 안 써서(카운트가 "0"이어도 이상하지 않은 좁은 대상이라 로그로도 가치가 낮음) `void`로 정리.
+
+**검증**: 로컬에 Docker Desktop(기존에 MySQL용으로 설치돼 있던 것) 위에서 플라스크는 저장소의 기존 `Dockerfile`로 이미지를 빌드해 임시 컨테이너로, 스프링은 `./gradlew bootRun`으로 직접 기동해 end-to-end로 확인:
+- 플라스크 단독: 700m 이내+`target_time` 없음 → `null` 응답 확인, 700m 이내+확정값 있음 → 기존처럼 정상 역산(회귀 없음).
+- 스프링 통합: 막차 모드 여정에 목적지=현재위치(0m)로 `/location` 호출 → `journeyStatus: READY` 유지 확인(수정 전이었다면 즉시 `NEARDEST`).
+- 반복 여정 리셋: 반복 막차 여정을 "어제 ARRIVED로 완료, target_time 확정됨" 상태로 DB에서 직접 세팅 후 `POST /internal/scheduler/ready`(버그21의 테스트 트리거) 실행 → `target_time`/`departure_alarm_time`/앵커 전부 `NULL`로 리셋 확인. 대조군(반복 데드라인 모드)은 같은 실행에도 `target_time`이 그대로 보존됨을 확인.
+
+검증 후 로컬 전용 임시 설정(`application.yml`의 `flask.url` → `localhost:5000`)은 원복, 검증용 컨테이너는 모두 삭제.
