@@ -33,7 +33,7 @@ docker compose down
 - **Java 21** / **Spring Boot 4.0.6** / **Gradle**
 - **인증**: Spring Security + JWT (JJWT 0.13)
 - **ORM**: JPA/Hibernate + QueryDSL 7.1
-- **DB**: MySQL 8.4 (Docker), Redis
+- **DB**: MySQL 9.7.2 (Docker), Valkey(Redis 호환 오픈소스 포크, BSD-3 — 2026-08-21부터 Redis 대신 채택. 프로토콜/명령어가 Redis와 완전히 호환돼서 스프링 쪽 코드·설정(`spring.data.redis.*`, `RedisTemplate` 계열 API)은 "Redis"라는 이름 그대로 사용)
 - **외부 API 호출**: Spring RestClient
 
 ## 아키텍처
@@ -380,7 +380,7 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 - DDL: `create` (서버 기동 시 테이블 재생성됨 — 데이터 초기화 주의)
 
 ### 플라스크 연동 설정
-- `flask.url`은 현재 프로필(local/prod) 분리 없이 `application.yml`에 단일 값으로 박혀 있음 — **운영(prod) 값(`http://172.31.34.244:5000`, 플라스크와 같은 EC2의 프라이빗 IP)이 기본값**이라, 로컬에서 WSL 플라스크(`localhost:5000`)로 테스트하려면 이 값을 직접 `http://localhost:5000`으로 바꿔서 실행해야 함(커밋 금지, 로컬 전용 임시 변경)
+- `flask.url`은 `application.yml`의 기본(로컬) 블록에서 `http://localhost:5000`, `prod` 프로파일 블록에서 `http://172.31.34.244:5000`(EC2 프라이빗 IP)로 분리되어 있다(2026-08-21 — 예전엔 단일 값으로 박혀 있어 로컬 테스트 때마다 수동으로 값을 바꿨다 되돌려야 했음). 로컬 테스트 시 WSL 등에서 플라스크를 직접 띄워 `localhost:5000`으로 떠 있게 해야 함(플라스크 자체는 `gonow`의 `compose.yml`과 무관한 별도 레포/배포 파이프라인 — 아래 항목 참고)
 - 같은 EC2 안에서도 스프링·플라스크가 서로 다른 Docker 컨테이너라 `localhost`로는 서로 못 찾음(컨테이너별 네트워크 네임스페이스 분리) — 그래서 운영 값이 `localhost`가 아니라 호스트의 프라이빗 IP로 되어 있음
 - `RestClientConfig`에서 `flask.url`을 `baseUrl`로 설정 → `FlaskClient` 빈 생성
 - 플라스크 엔드포인트:

@@ -21,6 +21,10 @@ spring:
   jackson:
     property-naming-strategy: SNAKE_CASE
 
+  data:
+    redis:
+      host: localhost
+      port: 6379
 
 logging:
   level:
@@ -36,7 +40,7 @@ springdoc:
     path: /docs
 
 flask:
-  url: http://172.31.34.244:5000 # EC2 private IP
+  url: http://localhost:5000 # 로컬 개발용 — WSL 등에서 플라스크를 직접 띄워서 테스트
 
 firebase:
   credential: classpath:firebase-service-account.json
@@ -58,19 +62,26 @@ spring:
     username: root
     password: ${MYSQL_ROOT_PASSWORD}
 
+  data:
+    redis:
+      host: my-valkey
+      port: 6379
+
   jpa:
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
         format_sql: false
-        jdbc:
-          time_zone: Asia/Seoul
 
 logging:
   level:
     root: INFO
+    org.hibernate.SQL: WARN            # 로컬 블록의 DEBUG(SQL 전문 출력)를 운영에서 명시적으로 잠금
+    org.hibernate.orm.jdbc.bind: WARN  # 로컬 블록의 TRACE(바인딩 값 출력)를 운영에서 명시적으로 잠금 — 개인정보 포함 가능
 
 jwt:
   secret: ${JWT_SECRET_PROD}
-  expiration: 10080 # 7일
+
+flask:
+  url: http://172.31.34.244:5000 # EC2 private IP (플라스크와 같은 EC2, 별도 docker run으로 떠 있음)

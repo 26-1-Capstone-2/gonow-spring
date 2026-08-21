@@ -29,6 +29,7 @@
 | 2026 오픈소스 개발자대회 참가 규정 요약 | [planning/oss-contest-2026.md](planning/oss-contest-2026.md) | 대회 출품 준비, 라이선스/AI 모델 규정 확인, 기능 확장 아이디어 검토 시 |
 | GoNow 기능 확장 아이디어 (사후 지각 재알림/지속 알림/막차 생성 UX/초대 링크 미설치 폴백/막차 미확정 넛지 알림) | [planning/feature-ideas.md](planning/feature-ideas.md) | 대회 출품용 신규 기능 검토, 서비스 확장 방향 논의 시 |
 | 쿼리 최적화 백로그 (네이티브 쿼리 → 포터블 JPQL 등) | [planning/query-optimization.md](planning/query-optimization.md) | 리포지토리 쿼리 리팩터링 여유 생겼을 때, `nativeQuery` 사용 이유 재검토 시 |
+| Redis 도입 백로그 (Refresh Token, 현재 위치, MOVING 재계산 게이팅 등) | [planning/redis-adoption-backlog.md](planning/redis-adoption-backlog.md) | Redis 도입 착수/재검토 시, 어떤 데이터가 Redis에 적합한지 판단 기준 확인 시 |
 | 운영 환경 보안 강화 백로그 (Swagger UI, 프론트 npm 취약점/Expo 메이저 업그레이드) | [planning/security-hardening-backlog.md](planning/security-hardening-backlog.md) | 배포/운영 관점 보안 설정 재검토 시, 프로필 분리·Expo SDK 업그레이드 착수 시 |
 | 카카오맵 딥링크 공식 스펙 + GoNow 구현 가이드 | [reference/kakao-map-deeplink-spec.md](reference/kakao-map-deeplink-spec.md) | 지도 딥링크(아이디어 A) 구현/디버깅 시 |
 | ODsay MCP 서버 활용 가이드 | [reference/odsay-mcp-guide.md](reference/odsay-mcp-guide.md) | 개발 중 Claude로 ODsay 경로/역 정보를 직접 조회하고 싶을 때 |

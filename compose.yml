@@ -20,6 +20,19 @@ services:
       timeout: 5s
       retries: 5
 
+  my-valkey:
+    image: valkey/valkey:9.1-alpine # Redis 포크(BSD-3, OSI 인증) — 프로토콜/명령어 완전 호환이라 스프링 쪽 코드/설정은 Redis와 동일
+    restart: unless-stopped  # 크래시 시 자동 재시작하되, 점검 등으로 직접 멈춘 경우 재부팅돼도 그대로 유지
+    ports:
+      - "6379:6379" # "로컬 전용, prod에선 안 쓰임"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # 인증코드/Refresh Token처럼 유실돼도 재요청/재로그인으로 복구되는 휘발성 데이터만 저장
+    # 영속 volume/비밀번호 인증 없이 단순하게 운영 (같은 docker 네트워크 내부에서만 접근 가능)
+
   my-server:
     build: .
     # [ 운영 전용 서비스 ] profiles 가 붙어 있어 서 로컬 up 명령 시 무시 됩니다 .
@@ -34,4 +47,6 @@ services:
       - "80:8080"
     depends_on:
       my-db:
+        condition: service_healthy
+      my-valkey:
         condition: service_healthy
