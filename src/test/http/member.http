@@ -63,7 +63,7 @@ GET {{baseUrl}}/api/members/check?nickname=영웅개발자
 ### STEP 3. 로그인 → accessToken 자동 저장
 ### ================================================================
 
-### 3. 로그인 → 200 { data: { member_id, access_token } }
+### 3. 로그인 → 200 { data: { member_id, access_token, refresh_token } }
 POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 

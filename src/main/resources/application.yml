@@ -38,7 +38,8 @@ spring:
             enable: true # 처음엔 평문으로 연결했다가 STARTTLS 명령으로 암호화 연결로 전환할지 여부 (587 포트는 이 방식 전제)
 
 jwt:
-  expiration: 10080 # 7일 — local/prod 공통, secret만 환경별로 다름(아래 각 프로필 블록)
+  expiration: 60 # 1시간 — Access Token, local/prod 공통, secret만 환경별로 다름(아래 각 프로필 블록)
+  refresh-expiration: 20160 # 2주 — Refresh Token, Redis(RefreshTokenService)에 저장·검증됨
 
 springdoc:
   swagger-ui:

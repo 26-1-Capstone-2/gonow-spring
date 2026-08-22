@@ -28,7 +28,7 @@ public class JwtTokenProvider {
     }
 
     // [1] 토큰 생성기: 로그인에 성공한 유저에게 새 출입증(JWT)을 만들어 줍니다.
-    public String createToken(Long id) {
+    public String createAccessToken(Long id) {
         // 유효 기간 계산 (현재 시간 + 설정된 N분)
         long nowTime = System.currentTimeMillis();
         Date now = new Date(nowTime);

@@ -129,9 +129,10 @@ com.timemate.gonow/
 **공개 엔드포인트** (인증 불필요):
 - `GET /health`
 - `POST /api/auth/login`
+- `POST /api/auth/reissue` (Access Token 재발급)
 - `POST /api/members` (회원가입)
-- `GET /api/members/check?email=` (이메일 중복 확인)
-- `GET /api/members/check?nickname=` (닉네임 중복 확인)
+- `GET /api/members/check?email=` (이메일 가입 여부 확인)
+- `GET /api/members/check?nickname=` (닉네임 사용 중 여부 확인)
 - `GET /join` (그룹 초대 유니버설 링크 — `InviteRedirectController`가 `join.html`로 forward, 상세는 `docs/spec/group-invite-applinks.md` 참고)
 - `GET /.well-known/**` (안드로이드 App Links 검증용 `assetlinks.json`, 정적 리소스)
 - `GET /images/**` (초대 링크 OG 태그용 로고 등 공개 정적 이미지)
@@ -141,8 +142,9 @@ com.timemate.gonow/
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/health` | 불필요 | 헬스 체크 |
-| POST | `/api/auth/login` | 불필요 | 로그인 (JWT 발급) |
-| POST | `/api/auth/logout` | 필요 | 로그아웃 (서버가 FCM 토큰을 null로 처리, 클라이언트 토큰 삭제는 앱 담당) |
+| POST | `/api/auth/login` | 불필요 | 로그인 (Access Token 1시간 + Refresh Token 2주 발급) |
+| POST | `/api/auth/reissue` | 불필요 | Access Token 재발급 (memberId + refreshToken → 새 accessToken + 새 refreshToken, 매번 회전) |
+| POST | `/api/auth/logout` | 필요 | 로그아웃 (서버가 FCM 토큰을 null로 처리 + Redis의 Refresh Token 삭제, 클라이언트 토큰 삭제는 앱 담당) |
 | POST | `/api/members` | 불필요 | 회원가입 (이메일 인증 완료 필요 — `EmailVerificationService.isRecentlyVerified()` 가드, MemberSetting 기본값 동시 생성) |
 | POST | `/api/members/email-verification` | 불필요 | 이메일 인증코드 발송 (AWS SES, 6자리 숫자, TTL 5분. 재발송 시 기존 코드 갱신, 동일 이메일 60초 재발송 쿨다운) |
 | POST | `/api/members/email-verification/confirm` | 불필요 | 이메일 인증코드 확인 (인증 성공 후 10분 이내에만 회원가입/비밀번호 재설정에 재사용 가능) |
@@ -434,9 +436,14 @@ GoNow는 **UTC를 쓰지 않고 KST(Asia/Seoul) 벽시계 시각을 오프셋 �
 - `firebase-admin` 의존성에서 `jackson-dataformat-xml` 전이 의존성 exclude 필수 — 미제거 시 Spring이 XML 응답을 JSON보다 우선하는 부작용 발생
 
 ### JWT 설정
-- 만료 시간: 3000분 (50시간)
-- Subject: Member ID (Long)
-- 알고리즘: HMAC SHA
+- **Access Token**: 만료 시간 60분(`jwt.expiration`), Subject: Member ID (Long), 알고리즘: HMAC SHA. `JwtTokenProvider`가 생성/검증 전담 — `JwtTokenFilter`가 매 요청마다 `Authorization: Bearer` 헤더를 파싱해 검증
+- **Refresh Token**: 만료 시간 2주(`jwt.refresh-expiration`), `RefreshTokenService`가 Redis에 `refresh:{memberId}` 키로 저장/검증/삭제. **JWT가 아니라 순수 랜덤 문자열(UUID)** — Access Token과 형식을 다르게 둬서, Refresh Token을 Access Token 대신 API 호출에 잘못 쓸 수 없게 함(`JwtTokenFilter`가 파싱 시도하면 형식이 안 맞아 바로 거부됨)
+- 로그인(`POST /api/auth/login`) 시 Access+Refresh 동시 발급. Access Token 만료 시 `POST /api/auth/reissue`(memberId + refreshToken)로 재로그인 없이 새 Access Token 발급
+- **Refresh Token 회전(rotation)**: `reissue()` 호출 시마다 Refresh Token도 새로 발급해서 Redis 값을 교체한다(단순 회전 — 재사용 탐지에 의한 자동 세션 무효화 같은 고급 방어까지는 안 함, 캡스톤 규모에 과함). 이렇게 하면 ① 탈취된 Refresh Token의 악용 가능 기간이 "최대 2주"에서 "다음 정상 재발급 전까지"로 줄어들고 ② 사용자가 계속 앱을 쓰는 한 만료시간이 매번 2주로 밀려나는 슬라이딩 세션 효과가 생겨 장기 미접속자만 재로그인하면 됨. 응답의 `refresh_token`으로 클라이언트가 저장값을 반드시 갱신해야 다음 재발급이 실패하지 않는다.
+- **동시 재발급 요청 방지**: 회전 방식이라 같은 Refresh Token으로 두 재발급 요청이 동시에 들어오면(모바일에서 여러 화면이 동시에 401을 맞는 경우 흔함) 하나만 성공하고 나머지는 실패해서 정상 유저가 로그아웃될 수 있다 — 프론트(`client.ts`)의 `reissueAccessToken()`이 재발급을 한 번에 하나만 실행하는 단일 비행(single-flight) 락으로 방지, 실기기 테스트로 확인 완료(`[AUTH]` 태그로 `dlog` 추적 가능)
+- 로그아웃(`POST /api/auth/logout`) 시 FCM 토큰 null 처리와 함께 Redis의 Refresh Token도 삭제 — 이후 그 Refresh Token으로 재발급 시도하면 거부됨
+- 프론트 저장소: Access Token/memberId는 `AsyncStorage`(기존 방식 유지 — 백그라운드 지오펜싱 태스크 5개가 Access Token을 직접 읽어서 저장소를 바꾸려면 그쪽 검증이 별도로 필요함), Refresh Token은 `expo-secure-store`(암호화 저장 — 수명이 길어서 더 강한 보호가 필요하고, 헤드리스 태스크가 안 쓰는 값이라 저장소를 바꿔도 안전함)
+- **로그인 API를 호출하는 모든 지점에서 accessToken/refreshToken/memberId 세 값을 반드시 함께 저장해야 함** — `LoginScreen.tsx`뿐 아니라 회원가입 직후 자동 로그인(`LeaveTimeSetupScreen.tsx`)도 `POST /api/auth/login`을 호출하는 별도 지점이라, 하나라도 빠뜨리면 그 경로로 로그인한 사용자는 Access Token 만료 시 재발급을 못 받고(memberId/refreshToken 없어서 `reissueAccessToken()`이 즉시 포기) 강제 로그아웃된다(실제 발견된 버그, 수정 완료)
 
 ### HTTP 테스트 파일
 `src/test/http/` 디렉토리에 IntelliJ HTTP Client용 시나리오 파일이 있다.
@@ -457,7 +464,7 @@ GoNow는 **UTC를 쓰지 않고 KST(Asia/Seoul) 벽시계 시각을 오프셋 �
 ## 구현 현황
 
 ### 완료
-- 인증: JWT (JwtTokenProvider, JwtTokenFilter), Spring Security (STATELESS)
+- 인증: JWT Access Token(1시간, JwtTokenProvider, JwtTokenFilter) + Refresh Token(2주, Redis 저장, RefreshTokenService) + 재발급(`POST /api/auth/reissue`), Spring Security (STATELESS)
 - 글로벌 예외 처리 (GlobalExceptionHandler), 표준 응답 포맷 (ApiResult + SNAKE_CASE)
 - 회원: 회원가입(이메일 인증 필수, AWS SES)/로그인/프로필/닉네임·비밀번호 변경/비밀번호 찾기(이메일 인증 재사용)/FCM 토큰/귀가지/설정/탈퇴(스켈레톤)
 - 장소: 목록 조회(타입 필터링), Upsert 저장, 삭제
@@ -473,8 +480,7 @@ GoNow는 **UTC를 쓰지 않고 KST(Asia/Seoul) 벽시계 시각을 오프셋 �
 - 그룹 초대 유니버설 링크(Android App Links, 2026-08-19) — `gonow-api.uk/join?code=...` 링크 탭 한 번으로 앱 설치된 유저의 그룹 참여 화면까지 자동 연결(카톡 등 인앱브라우저 우회 포함), 상세는 `docs/spec/group-invite-applinks.md` 참고
 
 ### 미구현
-- Refresh Token
-- Redis 확장 적용 (현재 위치 실시간 저장 등 — 이메일 인증코드 저장에는 이미 도입됨, 아래 "이메일 인증 규칙" 참고)
+- Redis 확장 적용 (현재 위치 실시간 저장 등 — 이메일 인증코드/Refresh Token 저장에는 이미 도입됨, 아래 "이메일 인증 규칙"·"JWT 설정" 참고)
 - 회원 탈퇴 실제 삭제 로직
 
 ### 설계 확정 사항

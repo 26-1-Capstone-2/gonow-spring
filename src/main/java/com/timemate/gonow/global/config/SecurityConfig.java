@@ -41,6 +41,7 @@ public class SecurityConfig {
                                 "/swagger-ui/**",               // Swagger UI 리다이렉트 경로
                                 "/v3/api-docs/**",              // OpenAPI 스펙 JSON
                                 "/api/auth/login",              // 로그인 (POST)
+                                "/api/auth/reissue",             // Access Token 재발급 (POST) — Access Token 만료 상태에서 호출되므로 인증 불필요
                                 "/api/members/check",           // 이메일/닉네임 사용 중 여부 확인 (GET, 회원가입 중복확인 + 비밀번호 찾기 계정 존재확인 공용)
                                 "/error",                       // 에러 핸들링 ANY
                                 "/.well-known/**",              // 안드로이드 App Links 검증용 assetlinks.json (정적 리소스)

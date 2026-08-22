@@ -1,0 +1,143 @@
+### ================================================================
+### auth.http — 인증(로그인/재발급/로그아웃) API 테스트
+### 매 테스트 전 서버를 재기동(DB create)하여 초기화할 것
+### ================================================================
+
+
+### ================================================================
+### STEP 1. 테스트 계정 사전 생성
+### ================================================================
+
+### 1-1. 이메일 인증코드 발송 (authtest@cau.ac.kr)
+POST {{baseUrl}}/api/members/email-verification
+Content-Type: application/json
+
+{
+  "email": "authtest@cau.ac.kr"
+}
+
+### 1-2. 이메일 인증코드 확인 → 서버 로그의 실제 code로 바꿔서 실행할 것
+POST {{baseUrl}}/api/members/email-verification/confirm
+Content-Type: application/json
+
+{
+  "email": "authtest@cau.ac.kr",
+  "code": "000000"
+}
+
+### 1-3. 회원가입 (1-2 확인 후 10분 이내에 호출해야 함)
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "email": "authtest@cau.ac.kr",
+  "password": "password123!",
+  "nickname": "인증테스트",
+  "home_name": "우리집",
+  "home_address": "서울특별시 동작구 흑석로 84",
+  "home_lat": 37.50490,
+  "home_lng": 126.96147,
+  "preparation_time": 10
+}
+
+
+### ================================================================
+### STEP 2. 로그인 → Access/Refresh Token 발급 확인
+### ================================================================
+
+### 2. 로그인 → 200 { data: { member_id, access_token, refresh_token } }
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "authtest@cau.ac.kr",
+  "password": "password123!"
+}
+
+> {%
+    client.global.set("memberId", response.body.data.member_id);
+    client.global.set("accessToken", response.body.data.access_token);
+    client.global.set("refreshToken", response.body.data.refresh_token);
+%}
+
+
+### ================================================================
+### STEP 3. Access Token 재발급 (회전 방식 — Refresh Token도 매번 새로 발급됨)
+### ================================================================
+
+### 3-1. 정상 재발급 → 200 { data: { access_token, refresh_token } }
+POST {{baseUrl}}/api/auth/reissue
+Content-Type: application/json
+
+{
+  "member_id": {{memberId}},
+  "refresh_token": "{{refreshToken}}"
+}
+
+> {%
+    client.global.set("reissuedAccessToken", response.body.data.access_token);
+    client.global.set("rotatedRefreshToken", response.body.data.refresh_token);
+%}
+
+### 3-2. 재발급된 Access Token으로 프로필 조회 → 200 (재발급된 토큰이 실제로 유효한지 확인)
+GET {{baseUrl}}/api/members/me
+Authorization: Bearer {{reissuedAccessToken}}
+
+### 3-3. 방금 회전으로 폐기된 "옛" Refresh Token(로그인 때 받은 것)으로 다시 재발급 시도 → 400
+# 회전 방식이라 3-1에서 이미 새 토큰으로 교체됨 — 옛 토큰 재사용은 거부돼야 정상
+POST {{baseUrl}}/api/auth/reissue
+Content-Type: application/json
+
+{
+  "member_id": {{memberId}},
+  "refresh_token": "{{refreshToken}}"
+}
+
+
+### ================================================================
+### STEP 4. 로그아웃 → Refresh Token 폐기 확인
+### ================================================================
+
+### 4-1. 로그아웃 → 200
+POST {{baseUrl}}/api/auth/logout
+Authorization: Bearer {{reissuedAccessToken}}
+
+### 4-2. 로그아웃 후 현재 유효한(회전된) Refresh Token으로 재발급 시도 → 400 "Refresh Token이 유효하지 않습니다. 다시 로그인해주세요."
+POST {{baseUrl}}/api/auth/reissue
+Content-Type: application/json
+
+{
+  "member_id": {{memberId}},
+  "refresh_token": "{{rotatedRefreshToken}}"
+}
+
+
+### ================================================================
+### 에러 케이스
+### ================================================================
+
+### E-1. 존재하지 않는 회원 ID로 재발급 시도 → 400
+POST {{baseUrl}}/api/auth/reissue
+Content-Type: application/json
+
+{
+  "member_id": 999999,
+  "refresh_token": "아무-랜덤-문자열"
+}
+
+### E-2. 조작된(엉뚱한) Refresh Token으로 재발급 시도 → 400
+POST {{baseUrl}}/api/auth/reissue
+Content-Type: application/json
+
+{
+  "member_id": {{memberId}},
+  "refresh_token": "조작된-가짜-토큰"
+}
+
+### E-3. Refresh Token 누락 → 400 (Bean Validation)
+POST {{baseUrl}}/api/auth/reissue
+Content-Type: application/json
+
+{
+  "member_id": {{memberId}}
+}
