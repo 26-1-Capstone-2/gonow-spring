@@ -1,46 +1,48 @@
+# ============================================================
+# 공통 영역 — 프로필 조건 없음, local/prod 어디서든 항상 로드됨
+# ============================================================
 spring:
+  # local 프로필 기본 활성화 → application-local.yml(gitignore 대상, SES SMTP 자격증명 등)이
+  # Spring의 프로필 파일 자동 인식 규칙으로 로드됨(파일 없으면 조용히 무시).
+  # prod에선 compose.yml의 SPRING_PROFILES_ACTIVE=prod 환경변수가 이 기본값을 덮어써서 무관해짐.
+  profiles:
+    active: local
+
   application:
     name: gonow
-
-  datasource:
-    url: jdbc:mysql://localhost:3306/mydb
-    username: root
-    password: pwd1234
-
-  jpa:
-    hibernate:
-      ddl-auto: create
-    properties:
-      hibernate:
-        format_sql: true
-        highlight_sql: true
-        use_sql_comments: true
-        jdbc:
-          time_zone: Asia/Seoul
 
   jackson:
     property-naming-strategy: SNAKE_CASE
 
-  data:
-    redis:
-      host: localhost
-      port: 6379
+  jpa:
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Seoul # local/prod 공통
 
-logging:
-  level:
-    org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
+  # JavaMailSender 빈을 자동 생성하는 설정 뿌리 — 여기 값들이 그대로 SMTP 접속 정보가 됨
+  mail:
+    # AWS SES SMTP 인터페이스 사용
+    # host의 리전(서울)은 SES 콘솔에서 도메인 인증한 실제 리전(서울)과 반드시 일치해야 함 — 리전 변경 시 여기도 함께 수정
+    # username/password는 prod에선 환경변수(compose.yml)로, 로컬에선 application-local.yml로 채워짐(이 자리의 ${...}를 덮어씀)
+    host: email-smtp.ap-northeast-2.amazonaws.com # 접속할 SMTP 서버 주소 (SES 서울 리전 엔드포인트)
+    port: 587 # SMTP 표준 포트
+    # SES 콘솔 "SMTP 설정 > IAM 자격 증명 생성"에서 별도로 발급받은 SMTP 전용 아이디/비밀번호(1회만 조회 가능).
+    username: ${SES_SMTP_USERNAME:}
+    password: ${SES_SMTP_PASSWORD:}
+    properties: # JavaMail(자바 표준 메일 라이브러리) 자체의 설정값을 그대로 전달하는 자리
+      mail:
+        smtp:
+          auth: true # SMTP 서버 접속 시 username/password로 로그인(인증)할지 여부
+          starttls:
+            enable: true # 처음엔 평문으로 연결했다가 STARTTLS 명령으로 암호화 연결로 전환할지 여부 (587 포트는 이 방식 전제)
 
 jwt:
-  secret: SL21AtKG1c3LRN2KKfhBcrc0Tlrxj6ACifgADCcT7VO5H+y7XrUoo/CLK/PME7sflGtc7eFvv55N4pq4vf43VQ==
-  expiration: 10080 # 7일
+  expiration: 10080 # 7일 — local/prod 공통, secret만 환경별로 다름(아래 각 프로필 블록)
 
 springdoc:
   swagger-ui:
     path: /docs
-
-flask:
-  url: http://localhost:5000 # 로컬 개발용 — WSL 등에서 플라스크를 직접 띄워서 테스트
 
 firebase:
   credential: classpath:firebase-service-account.json
@@ -51,6 +53,48 @@ scheduler:
   ready-transition-cron: "0 0 4 * * *"
   day-boundary-hour: 4
 
+# ============================================================
+# local 전용 (spring.profiles.active: local 기본값으로 활성화)
+# ============================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/mydb
+    username: root
+    password: pwd1234
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  jpa:
+    hibernate:
+      ddl-auto: create
+    properties:
+      hibernate:
+        format_sql: true
+        highlight_sql: true
+        use_sql_comments: true
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
+
+jwt:
+  secret: SL21AtKG1c3LRN2KKfhBcrc0Tlrxj6ACifgADCcT7VO5H+y7XrUoo/CLK/PME7sflGtc7eFvv55N4pq4vf43VQ==
+
+flask:
+  url: http://localhost:5000 # 로컬 개발용 — WSL 등에서 플라스크를 직접 띄워서 테스트
+
+# ============================================================
+# prod 전용 (SPRING_PROFILES_ACTIVE=prod 환경변수로 활성화, compose.yml 참고)
+# ============================================================
 ---
 spring:
   config:
@@ -77,8 +121,8 @@ spring:
 logging:
   level:
     root: INFO
-    org.hibernate.SQL: WARN            # 로컬 블록의 DEBUG(SQL 전문 출력)를 운영에서 명시적으로 잠금
-    org.hibernate.orm.jdbc.bind: WARN  # 로컬 블록의 TRACE(바인딩 값 출력)를 운영에서 명시적으로 잠금 — 개인정보 포함 가능
+    org.hibernate.SQL: WARN            # 공통 블록엔 이 값이 없음(local 블록에만 DEBUG) — 혼동 방지를 위해 명시적으로 다시 잠금
+    org.hibernate.orm.jdbc.bind: WARN  # 위와 동일 이유로 명시적 잠금 — 개인정보 포함 가능한 바인딩 값 로그
 
 jwt:
   secret: ${JWT_SECRET_PROD}

@@ -44,3 +44,6 @@ mysql_data/
 
 ### FCM ###
 /src/main/resources/firebase-service-account.json
+
+### 로컬 전용 비밀값 (SES SMTP 자격증명 등) ###
+/src/main/resources/application-local.yml

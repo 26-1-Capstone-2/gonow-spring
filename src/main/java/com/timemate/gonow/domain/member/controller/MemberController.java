@@ -1,6 +1,7 @@
 package com.timemate.gonow.domain.member.controller;
 
 import com.timemate.gonow.domain.member.dto.*;
+import com.timemate.gonow.domain.member.service.EmailVerificationService;
 import com.timemate.gonow.domain.member.service.MemberService;
 import com.timemate.gonow.global.response.ApiResult;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/members")
 public class MemberController {
     private final MemberService memberService;
+    private final EmailVerificationService emailVerificationService;
 
     // 회원가입
     @PostMapping
@@ -27,6 +29,21 @@ public class MemberController {
         return ApiResult.success("회원가입 완료");
     }
 
+    // 이메일 인증코드 발송 (재발송 시 기존 코드 갱신)
+    @PostMapping("/email-verification")
+    public ApiResult<Void> sendEmailVerification(@Valid @RequestBody EmailVerificationSendRequest request) {
+        emailVerificationService.sendCode(request.email());
+
+        return ApiResult.success("인증코드 발송 완료");
+    }
+
+    // 이메일 인증코드 확인
+    @PostMapping("/email-verification/confirm")
+    public ApiResult<Void> confirmEmailVerification(@Valid @RequestBody EmailVerificationConfirmRequest request) {
+        emailVerificationService.confirmCode(request.email(), request.code());
+
+        return ApiResult.success("이메일 인증 완료");
+    }
 
     // 이메일 중복 확인
     @GetMapping(value = "/check", params = "email")

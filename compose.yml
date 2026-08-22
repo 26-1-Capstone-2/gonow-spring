@@ -43,6 +43,8 @@ services:
       SPRING_PROFILES_ACTIVE: prod # 스프링 부트 prod 프로파일을 활성화해줌
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD} # GitHub Secrets 에서 주입
       JWT_SECRET_PROD: ${JWT_SECRET_PROD}         # GitHub Secrets 에서 주입
+      SES_SMTP_USERNAME: ${SES_SMTP_USERNAME}     # GitHub Secrets 에서 주입
+      SES_SMTP_PASSWORD: ${SES_SMTP_PASSWORD}     # GitHub Secrets 에서 주입
     ports:
       - "80:8080"
     depends_on:

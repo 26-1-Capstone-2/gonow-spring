@@ -33,7 +33,7 @@ docker compose down
 - **Java 21** / **Spring Boot 4.0.6** / **Gradle**
 - **인증**: Spring Security + JWT (JJWT 0.13)
 - **ORM**: JPA/Hibernate + QueryDSL 7.1
-- **DB**: MySQL 9.7.2 (Docker), Valkey(Redis 호환 오픈소스 포크, BSD-3 — 2026-08-21부터 Redis 대신 채택. 프로토콜/명령어가 Redis와 완전히 호환돼서 스프링 쪽 코드·설정(`spring.data.redis.*`, `RedisTemplate` 계열 API)은 "Redis"라는 이름 그대로 사용)
+- **DB**: MySQL 9.7.2 (Docker), Valkey(Redis 호환 오픈소스 포크, BSD-3 — 2026-08-21부터 Redis 대신 채택, 상세는 아래 "이메일 인증 규칙" 참고)
 - **외부 API 호출**: Spring RestClient
 
 ## 아키텍처
@@ -143,7 +143,9 @@ com.timemate.gonow/
 | GET | `/health` | 불필요 | 헬스 체크 |
 | POST | `/api/auth/login` | 불필요 | 로그인 (JWT 발급) |
 | POST | `/api/auth/logout` | 필요 | 로그아웃 (서버가 FCM 토큰을 null로 처리, 클라이언트 토큰 삭제는 앱 담당) |
-| POST | `/api/members` | 불필요 | 회원가입 (MemberSetting 기본값 동시 생성) |
+| POST | `/api/members` | 불필요 | 회원가입 (이메일 인증 완료 필요 — `EmailVerificationService.isRecentlyVerified()` 가드, MemberSetting 기본값 동시 생성) |
+| POST | `/api/members/email-verification` | 불필요 | 이메일 인증코드 발송 (AWS SES, 6자리 숫자, TTL 5분. 재발송 시 기존 코드 갱신, 동일 이메일 60초 재발송 쿨다운) |
+| POST | `/api/members/email-verification/confirm` | 불필요 | 이메일 인증코드 확인 (인증 성공 후 10분 이내에만 회원가입에 재사용 가능) |
 | GET | `/api/members/check?email=` | 불필요 | 이메일 중복 확인 |
 | GET | `/api/members/check?nickname=` | 불필요 | 닉네임 중복 확인 |
 | GET | `/api/members/me` | 필요 | 내 프로필 조회 (Member + MemberSetting 통합) |
@@ -288,6 +290,22 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
 | Participant | domain/appointment/entity | member, appointment, isHost, transportType, participantStatus, isActive | O (ParticipantController, ParticipantService) |
 | Journey | domain/journey/entity | member, journeyType, isLastMode, planDate, destination(Location), transportType, targetTime(막차 모드에서는 nullable), repeatDays, isActive, journeyStatus | O (JourneyController, JourneyService) |
 | Place | domain/place/entity | member, placeType, location(Location) | O (PlaceController, PlaceService) |
+
+### 이메일 인증 규칙
+
+- 회원가입(`signUp()`)은 시작부에서 `EmailVerificationService.isRecentlyVerified(email)`을 체크한다 — 인증 안 된 이메일이면 `Member`를 생성하지 않고 `IllegalArgumentException`(400)으로 즉시 거부한다. Member를 먼저 만들고 나중에 인증시키는 방식은 실소유자가 아닌 사람이 이메일을 선점(스쿼팅)해버릴 수 있어 채택하지 않음.
+- **저장소는 Redis 호환 서버**(`StringRedisTemplate`) — 이 프로젝트에서 이 계열 인메모리 저장소를 실사용하는 첫 사례. 실제 배포 이미지는 `valkey/valkey`(Valkey, Redis 7.2를 포크한 BSD-3 오픈소스 — 2026-08-21 도입, 오픈소스 대회 출품 시 라이선스 명시가 더 간단해서 채택)지만, 프로토콜/명령어가 Redis와 완전히 호환돼서 스프링 쪽 코드·설정(`spring.data.redis.*`, `RedisTemplate` 계열 API)은 전부 "Redis"라는 이름 그대로 사용한다 — 코드 레벨에서 Valkey인지 구분할 필요가 없기 때문. 키 3개로 상태를 표현한다:
+  - `email-verification:code:{email}` → 발송된 6자리 코드, TTL 5분 (재발송 시 SET으로 덮어씀 — Redis SET 자체가 Upsert)
+  - `email-verification:cooldown:{email}` → 발송 직후 TTL 60초 동안만 존재, 살아있는 동안 재요청하면 `sendCode()`가 남은 초를 담아("N초 후 다시 시도해주세요.") 즉시 거부 — 동일 이메일 재발송 남발/스팸성 발송 방지, 값 자체는 의미 없고 존재 여부만 확인
+  - `email-verification:verified:{email}` → 인증 성공 시각부터 TTL 10분 동안만 존재 (`isRecentlyVerified()`가 이 키의 존재 여부만 확인)
+  - MySQL이 아니라 Redis를 쓴 이유: 만료 판정을 직접 짠 타임스탬프 비교 대신 Redis의 TTL 자동 삭제에 맡길 수 있고(별도 정리 스케줄러 불필요), 인증코드/재설정 토큰/Refresh Token을 오늘 한 번에 도입하기로 하면서 굳이 MySQL로 먼저 갔다가 나중에 다시 옮기는 이중 작업을 피함(`docs/planning/redis-adoption-backlog.md`의 "Refresh Token 단계에서 최초 도입" 방침을 이 시점에 앞당김).
+  - 트레이드오프: Redis 키가 사라지면 "요청한 적 없음"과 "만료됨"을 서버가 구분 못 한다(MySQL 레코드처럼 남아있지 않으므로) — `confirmCode()`가 두 경우를 하나의 메시지("인증코드가 만료되었거나 요청 내역이 없습니다")로 안내.
+- 회원가입 정보(주소/이동수단 등)를 통째로 스테이징하지 않고 이메일+코드만 별도 관리 — 기존 `POST /api/members`/`SignupRequest`는 그대로 재사용.
+- 인증 성공(`confirm`) 후 **10분 이내에만** `isRecentlyVerified()`가 true를 반환 — 이 유예 시간 안에 회원가입을 완료해야 하며, 비밀번호 찾기(예정)도 동일한 가드를 재사용할 수 있도록 이메일 인증 목적(가입/비번재설정)을 구분하는 필드를 두지 않았다.
+- 메일 발송은 AWS SES SMTP 인터페이스(`spring.mail.*`, `EmailVerificationService`가 `JavaMailSender` 사용) — Gmail SMTP 대비 스팸함 분류 위험이 낮고, `gonow-api.uk` 도메인의 DKIM/SPF/DMARC 인증을 마쳤다(2026-08-21). SES 프로덕션 액세스도 승인 완료(2026-08-22)되어, 샌드박스 제약(사전 인증된 수신자에게만 발송 가능) 없이 임의 수신자에게 발송 가능.
+- 발신자 주소(`EmailVerificationService.FROM_ADDRESS`, `noreply@gonow-api.uk`)는 코드에 명시적으로 지정돼 있어야 한다 — `SimpleMailMessage`에 `setFrom()`을 생략하면 JavaMail이 로컬 OS 계정 정보로 자동 채워서 SES가 "발신자 미인증"으로 거부한다(실제로 겪은 버그, 도메인 인증된 주소만 발신 가능).
+- `sendCode()`는 Redis에 코드를 저장한 다음에 메일을 발송한다(순서 중요) — 메일 발송이 어떤 이유로든 실패해도 코드는 이미 Redis에 저장돼 있고 서버 로그(`이메일 인증코드 발송 시도 - email: ..., code: ...`)로 확인 가능해, 실제 메일 수신 없이도 확인(`confirm`) 단계까지 테스트할 수 있다.
+- 로컬 개발용 SES SMTP 자격증명은 `src/main/resources/application-local.yml`(gitignore 대상, `application-local.yml.example`이 템플릿)에 둔다 — `spring.profiles.active: local` 기본값 덕분에 Spring의 프로필 파일 자동 인식 규칙(`application-{profile}.yml`)으로 로드되며, prod는 `compose.yml`의 환경변수(GitHub Secrets)로 채워진다.
 
 ### MemberSetting 생성 규칙
 
@@ -439,7 +457,7 @@ GoNow는 **UTC를 쓰지 않고 KST(Asia/Seoul) 벽시계 시각을 오프셋 �
 ### 완료
 - 인증: JWT (JwtTokenProvider, JwtTokenFilter), Spring Security (STATELESS)
 - 글로벌 예외 처리 (GlobalExceptionHandler), 표준 응답 포맷 (ApiResult + SNAKE_CASE)
-- 회원: 회원가입/로그인/프로필/닉네임·비밀번호 변경/FCM 토큰/귀가지/설정/탈퇴(스켈레톤)
+- 회원: 회원가입(이메일 인증 필수, AWS SES)/로그인/프로필/닉네임·비밀번호 변경/FCM 토큰/귀가지/설정/탈퇴(스켈레톤)
 - 장소: 목록 조회(타입 필터링), Upsert 저장, 삭제
 - 개인/귀가 여정: 생성·수정·삭제·상세 조회·알람 스위치
 - 그룹 알람: 생성(초대코드 자동)·참여·수정·삭제·상세 조회·대시보드
@@ -454,7 +472,7 @@ GoNow는 **UTC를 쓰지 않고 KST(Asia/Seoul) 벽시계 시각을 오프셋 �
 
 ### 미구현
 - Refresh Token
-- Redis (현재 위치 실시간 저장, Refresh Token 저장 용도)
+- Redis 확장 적용 (현재 위치 실시간 저장 등 — 이메일 인증코드 저장에는 이미 도입됨, 아래 "이메일 인증 규칙" 참고)
 - 회원 탈퇴 실제 삭제 로직
 
 ### 설계 확정 사항

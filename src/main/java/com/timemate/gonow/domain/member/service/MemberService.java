@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class MemberService {
     private final MemberRepository memberRepository;
     private final MemberSettingRepository memberSettingRepository;
+    private final EmailVerificationService emailVerificationService;
 
     private final PasswordEncoder passwordEncoder;
 
@@ -25,13 +26,18 @@ public class MemberService {
     // 비밀번호를 암호화해서 DB에 저장한다.
     @Transactional
     public void signUp(SignupRequest request) {
-        // 1. 이메일 중복 체크
+        // 1. 이메일 인증 완료 확인 (미인증 상태로 Member가 먼저 생성되면 실소유자가 나중에 가입 못 하는 이메일 스쿼팅 문제가 생김)
+        if (!emailVerificationService.isRecentlyVerified(request.email())) {
+            throw new IllegalArgumentException("이메일 인증을 먼저 완료해주세요.");
+        }
+
+        // 2. 이메일 중복 체크
         checkEmailAvailable(request.email());
 
-        // 2. 닉네임 중복 체크
+        // 3. 닉네임 중복 체크
         checkNicknameAvailable(request.nickname());
 
-        // 3. 모든 검사를 통과하면 저장
+        // 4. 모든 검사를 통과하면 저장
         Location location = new Location(request.homeName(), request.homeAddress(), new Point(request.homeLat(), request.homeLng()));
 
         Member member = Member.builder()

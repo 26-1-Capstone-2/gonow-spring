@@ -66,6 +66,8 @@ jobs:
             # 2. .env 파일 깨끗하게 새로 만들기
             echo "MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}" > .env
             echo "JWT_SECRET_PROD=${{ secrets.JWT_SECRET_PROD }}" >> .env
+            echo "SES_SMTP_USERNAME=${{ secrets.SES_SMTP_USERNAME }}" >> .env
+            echo "SES_SMTP_PASSWORD=${{ secrets.SES_SMTP_PASSWORD }}" >> .env
 
             # 3. JAR 파일 위치 세팅
             mkdir -p build/libs

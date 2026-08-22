@@ -5,10 +5,28 @@
 
 
 ### ================================================================
-### STEP 1. 회원가입
+### STEP 1. 이메일 인증 + 회원가입
 ### ================================================================
 
-### 1. 회원가입 → 200 { data: null }
+### 1-1. 이메일 인증코드 발송 → 200 (SES 실발송 or 서버 로그에서 code 확인)
+POST {{baseUrl}}/api/members/email-verification
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr"
+}
+
+### 1-2. 이메일 인증코드 확인 → 200
+# 서버 로그 "이메일 인증코드 발송 - email: ..., code: ..."에서 실제 code로 바꿔서 실행할 것
+POST {{baseUrl}}/api/members/email-verification/confirm
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "code": "000000"
+}
+
+### 1-3. 회원가입 → 200 { data: null } (1-2 확인 후 10분 이내에 호출해야 함)
 POST {{baseUrl}}/api/members
 Content-Type: application/json
 

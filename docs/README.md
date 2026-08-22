@@ -31,6 +31,7 @@
 | 쿼리 최적화 백로그 (네이티브 쿼리 → 포터블 JPQL 등) | [planning/query-optimization.md](planning/query-optimization.md) | 리포지토리 쿼리 리팩터링 여유 생겼을 때, `nativeQuery` 사용 이유 재검토 시 |
 | Redis 도입 백로그 (Refresh Token, 현재 위치, MOVING 재계산 게이팅 등) | [planning/redis-adoption-backlog.md](planning/redis-adoption-backlog.md) | Redis 도입 착수/재검토 시, 어떤 데이터가 Redis에 적합한지 판단 기준 확인 시 |
 | 운영 환경 보안 강화 백로그 (Swagger UI, 프론트 npm 취약점/Expo 메이저 업그레이드) | [planning/security-hardening-backlog.md](planning/security-hardening-backlog.md) | 배포/운영 관점 보안 설정 재검토 시, 프로필 분리·Expo SDK 업그레이드 착수 시 |
+| API 에러 코드 도입 백로그 (message 문자열 매칭의 위험성, 정석 해결책) | [planning/api-error-code-backlog.md](planning/api-error-code-backlog.md) | 프론트가 특정 에러 사유별로 다르게 반응해야 하는 케이스가 또 생겼을 때, `ApiResult`에 에러 코드 필드 도입 재검토 시 |
 | 카카오맵 딥링크 공식 스펙 + GoNow 구현 가이드 | [reference/kakao-map-deeplink-spec.md](reference/kakao-map-deeplink-spec.md) | 지도 딥링크(아이디어 A) 구현/디버깅 시 |
 | ODsay MCP 서버 활용 가이드 | [reference/odsay-mcp-guide.md](reference/odsay-mcp-guide.md) | 개발 중 Claude로 ODsay 경로/역 정보를 직접 조회하고 싶을 때 |
 | 대중교통 계산엔진 조사 (ODsay vs TMAP vs 카카오) | [reference/transit-provider-research.md](reference/transit-provider-research.md) | 계산 엔진 교체/병행 검토, `target_time` 지원 여부, ODsay SearchType 커버리지 확인 시 |

@@ -1,0 +1,13 @@
+# 로컬 개발용 비밀값 템플릿.
+# 이 파일을 복사해서 application-local.yml(git 제외 대상)로 만들고 실제 값을 채워넣을 것.
+#
+#   cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
+#
+# application.yml의 spring.profiles.active: local 기본값 덕분에, Spring이 프로필 파일
+# 자동 인식 규칙(application-{profile}.yml)으로 이 파일을 알아서 로드한다.
+# 여기 없는 값은 application.yml의 값이 그대로 쓰인다.
+
+spring:
+  mail:
+    username: AWS_SES_SMTP_USERNAME_여기에
+    password: AWS_SES_SMTP_PASSWORD_여기에

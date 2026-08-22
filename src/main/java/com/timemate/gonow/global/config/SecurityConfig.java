@@ -48,7 +48,9 @@ public class SecurityConfig {
                                 "/join.html",                   // 위 forward 대상 — 시큐리티가 내부 forward도 재검사하므로 함께 permitAll 필요
                                 "/images/**",                    // join.html OG 태그용 로고 등 공개 정적 이미지
                                 "/internal/scheduler/ready").permitAll() // TODO: 테스트 완료 후 삭제
-                        .requestMatchers(HttpMethod.POST, "/api/members").permitAll() // 회원가입 (POST)
+                        .requestMatchers(HttpMethod.POST, "/api/members",
+                                "/api/members/email-verification",
+                                "/api/members/email-verification/confirm").permitAll() // 회원가입 + 이메일 인증코드 발송/확인 (POST, 전부 비로그인 상태 호출)
                         .anyRequest().authenticated() // 그 외 모든 요청은 반드시 우리 서비스의 JWT 토큰이 있어야 함
                 )
                 // 기존 로그인 필터가 실행되기 전에 우리 JWT 필터를 먼저 실행!
