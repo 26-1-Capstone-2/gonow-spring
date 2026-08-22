@@ -45,20 +45,29 @@ public class MemberController {
         return ApiResult.success("이메일 인증 완료");
     }
 
-    // 이메일 중복 확인
-    @GetMapping(value = "/check", params = "email")
-    public ApiResult<Void> checkEmailAvailable(@RequestParam @Email(message = "올바른 이메일 형식이 아닙니다.") String email) {
-        memberService.checkEmailAvailable(email);
+    // 비밀번호 찾기(재설정) — 로그인 없이, 이메일 인증코드 확인 완료 후 새 비밀번호로 변경
+    @PatchMapping("/password-reset")
+    public ApiResult<Void> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
+        memberService.resetPassword(request);
 
-        return ApiResult.success("사용 가능한 이메일");
+        return ApiResult.success("비밀번호 재설정 완료");
     }
 
-    // 닉네임 중복 확인
-    @GetMapping(value = "/check", params = "nickname")
-    public ApiResult<Void> checkNicknameAvailable(@RequestParam String nickname) {
-        memberService.checkNicknameAvailable(nickname);
+    // 이메일 가입 여부 확인 — 항상 200으로 응답하고 exists 값으로만 결과를 전달한다(에러로 취급 안 함).
+    // "중복이면 에러"라는 판단은 호출부(프론트 각 화면)가 exists 값을 보고 알아서 한다.
+    @GetMapping(value = "/check", params = "email")
+    public ApiResult<ExistsResponse> checkEmailExists(@RequestParam @Email(message = "올바른 이메일 형식이 아닙니다.") String email) {
+        boolean exists = memberService.existsByEmail(email);
 
-        return ApiResult.success("사용 가능한 닉네임");
+        return ApiResult.success(exists ? "이미 사용 중인 이메일입니다." : "사용 가능한 이메일입니다.", ExistsResponse.from(exists));
+    }
+
+    // 닉네임 사용 중 여부 확인 — 위와 동일한 이유로 항상 200 + exists 값만 전달
+    @GetMapping(value = "/check", params = "nickname")
+    public ApiResult<ExistsResponse> checkNicknameExists(@RequestParam String nickname) {
+        boolean exists = memberService.existsByNickname(nickname);
+
+        return ApiResult.success(exists ? "이미 사용 중인 닉네임입니다." : "사용 가능한 닉네임입니다.", ExistsResponse.from(exists));
     }
 
     // 닉네임 변경

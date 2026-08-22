@@ -43,19 +43,19 @@ Content-Type: application/json
 
 
 ### ================================================================
-### STEP 2. 이메일/닉네임 중복 확인 (인증 불필요)
+### STEP 2. 이메일/닉네임 사용 중 여부 확인 (인증 불필요, 항상 200)
 ### ================================================================
 
-### 2-1. 사용 가능한 이메일 → 200 "사용 가능한 이메일"
+### 2-1. 사용 가능한(미가입) 이메일 → 200 { data: { exists: false } }
 GET {{baseUrl}}/api/members/check?email=new@cau.ac.kr
 
-### 2-2. 이미 사용 중인 이메일 → 400
+### 2-2. 이미 사용 중인 이메일 → 200 { data: { exists: true } } (에러 아님 — 비밀번호 찾기가 같은 응답을 재사용)
 GET {{baseUrl}}/api/members/check?email=hero@cau.ac.kr
 
-### 2-3. 사용 가능한 닉네임 → 200 "사용 가능한 닉네임"
+### 2-3. 사용 가능한 닉네임 → 200 { data: { exists: false } }
 GET {{baseUrl}}/api/members/check?nickname=새닉네임
 
-### 2-4. 이미 사용 중인 닉네임 → 400
+### 2-4. 이미 사용 중인 닉네임 → 200 { data: { exists: true } }
 GET {{baseUrl}}/api/members/check?nickname=영웅개발자
 
 
@@ -155,3 +155,53 @@ Authorization: Bearer {{accessToken}}
 ### 6-2. 회원탈퇴 → 200 (현재 껍데기 — 로그만 찍힘)
 DELETE {{baseUrl}}/api/members/me
 Authorization: Bearer {{accessToken}}
+
+
+### ================================================================
+### STEP 7. 비밀번호 찾기(재설정, 비로그인) — 이메일 인증 재사용
+### ================================================================
+
+### 7-1. 이메일 인증코드 재발송 → 200 (직전 발송으로부터 60초 이내면 400)
+POST {{baseUrl}}/api/members/email-verification
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr"
+}
+
+### 7-2. 이메일 인증코드 확인 → 200
+# 서버 로그에서 실제 code로 바꿔서 실행할 것
+POST {{baseUrl}}/api/members/email-verification/confirm
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "code": "000000"
+}
+
+### 7-3. 비밀번호 재설정 → 200 { data: null } (7-2 확인 후 10분 이내에 호출해야 함)
+PATCH {{baseUrl}}/api/members/password-reset
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "new_password": "resetPassword123!"
+}
+
+### 7-4. 재설정한 비밀번호로 로그인 → 200
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "password": "resetPassword123!"
+}
+
+### 7-5. 같은 인증으로 재차 재설정 시도 → 400 (7-3에서 소진됨 — "이메일 인증을 먼저 완료해주세요.")
+PATCH {{baseUrl}}/api/members/password-reset
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "new_password": "anotherPassword123!"
+}

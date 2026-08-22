@@ -32,10 +32,14 @@ public class MemberService {
         }
 
         // 2. 이메일 중복 체크
-        checkEmailAvailable(request.email());
+        if (existsByEmail(request.email())) {
+            throw new IllegalArgumentException("이미 사용 중인 이메일입니다.");
+        }
 
         // 3. 닉네임 중복 체크
-        checkNicknameAvailable(request.nickname());
+        if (existsByNickname(request.nickname())) {
+            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
+        }
 
         // 4. 모든 검사를 통과하면 저장
         Location location = new Location(request.homeName(), request.homeAddress(), new Point(request.homeLat(), request.homeLng()));
@@ -57,18 +61,14 @@ public class MemberService {
         memberSettingRepository.save(setting);
     }
 
-    // 이메일 중복 확인 (중복 시 예외 발생)
-    public void checkEmailAvailable(String email) {
-        if (memberRepository.existsByEmail(email)) {
-            throw new IllegalArgumentException("이미 사용 중인 이메일입니다.");
-        }
+    // 이메일 가입 여부 확인 (예외 없이 boolean만 반환)
+    public boolean existsByEmail(String email) {
+        return memberRepository.existsByEmail(email);
     }
 
-    // 닉네임 중복 확인 (중복 시 예외 발생)
-    public void checkNicknameAvailable(String nickname) {
-        if (memberRepository.existsByNickname(nickname)) {
-            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
-        }
+    // 닉네임 사용 중 여부 확인 (예외 없이 boolean만 반환)
+    public boolean existsByNickname(String nickname) {
+        return memberRepository.existsByNickname(nickname);
     }
 
     // 닉네임 변경
@@ -88,7 +88,9 @@ public class MemberService {
         }
 
         // 3. 다른 사람이 사용 중인 닉네임이면 예외 발생
-        checkNicknameAvailable(newNickname);
+        if (existsByNickname(newNickname)) {
+            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
+        }
 
         // 4. 닉네임 변경
         member.updateNickname(newNickname);
@@ -118,6 +120,27 @@ public class MemberService {
         // 4. 새 비밀번호 암호화 후 변경
         String encryptedPassword = passwordEncoder.encode(newPassword);
         member.updatePassword(encryptedPassword);
+    }
+
+    // 비밀번호 찾기(재설정) — 로그인 없이, 이메일 인증만으로 새 비밀번호를 설정
+    @Transactional
+    public void resetPassword(PasswordResetRequest request) {
+        // 1. 이메일 인증 완료 확인 (본인 이메일 소유 증명 없이는 재설정 불가)
+        if (!emailVerificationService.isRecentlyVerified(request.email())) {
+            throw new IllegalArgumentException("이메일 인증을 먼저 완료해주세요.");
+        }
+
+        // 2. 회원 조회 (가입되지 않은 이메일이면 에러 — 인증코드 확인을 통과한 뒤라 본인 소유 이메일이 증명된 상태이므로,
+        //    여기서 계정 존재 여부를 알려줘도 제3자에게 정보가 새는 enumeration 문제로 이어지지 않는다)
+        Member member = memberRepository.findByEmail(request.email()).orElseThrow(
+                () -> new IllegalArgumentException("가입된 계정이 없습니다.")
+        );
+
+        // 3. 새 비밀번호 암호화 후 변경
+        member.updatePassword(passwordEncoder.encode(request.newPassword()));
+
+        // 4. 인증 상태 소진 — 같은 인증으로 유예시간(10분) 안에 반복 재설정되는 것 방지
+        emailVerificationService.invalidateVerification(request.email());
     }
 
     // FCM 토큰 등록/갱신

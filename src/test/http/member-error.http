@@ -289,3 +289,43 @@ Authorization: Bearer {{accessToken}}
 {
   "fcm_token": ""
 }
+
+
+### ================================================================
+### 비밀번호 재설정 에러
+### ================================================================
+
+### E-16. 인증 없이 비밀번호 재설정 시도 → 400 "이메일 인증을 먼저 완료해주세요."
+PATCH {{baseUrl}}/api/members/password-reset
+Content-Type: application/json
+
+{
+  "email": "hero@cau.ac.kr",
+  "new_password": "resetPassword123!"
+}
+
+### E-17-0-1. 이메일 인증코드 발송 (E-17용 nobody-registered@cau.ac.kr — 가입 안 된 이메일)
+POST {{baseUrl}}/api/members/email-verification
+Content-Type: application/json
+
+{
+  "email": "nobody-registered@cau.ac.kr"
+}
+
+### E-17-0-2. 이메일 인증코드 확인 → 서버 로그의 실제 code로 바꿔서 실행할 것
+POST {{baseUrl}}/api/members/email-verification/confirm
+Content-Type: application/json
+
+{
+  "email": "nobody-registered@cau.ac.kr",
+  "code": "000000"
+}
+
+### E-17. 인증은 됐지만 가입되지 않은 이메일로 재설정 시도 → 400 "가입된 계정이 없습니다."
+PATCH {{baseUrl}}/api/members/password-reset
+Content-Type: application/json
+
+{
+  "email": "nobody-registered@cau.ac.kr",
+  "new_password": "resetPassword123!"
+}

@@ -41,7 +41,7 @@ public class SecurityConfig {
                                 "/swagger-ui/**",               // Swagger UI 리다이렉트 경로
                                 "/v3/api-docs/**",              // OpenAPI 스펙 JSON
                                 "/api/auth/login",              // 로그인 (POST)
-                                "/api/members/check",           // 이메일/닉네임 중복 확인 (GET)
+                                "/api/members/check",           // 이메일/닉네임 사용 중 여부 확인 (GET, 회원가입 중복확인 + 비밀번호 찾기 계정 존재확인 공용)
                                 "/error",                       // 에러 핸들링 ANY
                                 "/.well-known/**",              // 안드로이드 App Links 검증용 assetlinks.json (정적 리소스)
                                 "/join",                        // 카톡 등 인앱 브라우저용 intent:// 리다이렉트 페이지 (InviteRedirectController)
@@ -51,6 +51,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/members",
                                 "/api/members/email-verification",
                                 "/api/members/email-verification/confirm").permitAll() // 회원가입 + 이메일 인증코드 발송/확인 (POST, 전부 비로그인 상태 호출)
+                        .requestMatchers(HttpMethod.PATCH, "/api/members/password-reset").permitAll() // 비밀번호 찾기(재설정) — 로그인 전 상태 호출
                         .anyRequest().authenticated() // 그 외 모든 요청은 반드시 우리 서비스의 JWT 토큰이 있어야 함
                 )
                 // 기존 로그인 필터가 실행되기 전에 우리 JWT 필터를 먼저 실행!

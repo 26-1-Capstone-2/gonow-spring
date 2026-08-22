@@ -145,9 +145,10 @@ com.timemate.gonow/
 | POST | `/api/auth/logout` | 필요 | 로그아웃 (서버가 FCM 토큰을 null로 처리, 클라이언트 토큰 삭제는 앱 담당) |
 | POST | `/api/members` | 불필요 | 회원가입 (이메일 인증 완료 필요 — `EmailVerificationService.isRecentlyVerified()` 가드, MemberSetting 기본값 동시 생성) |
 | POST | `/api/members/email-verification` | 불필요 | 이메일 인증코드 발송 (AWS SES, 6자리 숫자, TTL 5분. 재발송 시 기존 코드 갱신, 동일 이메일 60초 재발송 쿨다운) |
-| POST | `/api/members/email-verification/confirm` | 불필요 | 이메일 인증코드 확인 (인증 성공 후 10분 이내에만 회원가입에 재사용 가능) |
-| GET | `/api/members/check?email=` | 불필요 | 이메일 중복 확인 |
-| GET | `/api/members/check?nickname=` | 불필요 | 닉네임 중복 확인 |
+| POST | `/api/members/email-verification/confirm` | 불필요 | 이메일 인증코드 확인 (인증 성공 후 10분 이내에만 회원가입/비밀번호 재설정에 재사용 가능) |
+| PATCH | `/api/members/password-reset` | 불필요 | 비밀번호 찾기(재설정) — 위 이메일 인증 발송/확인 재사용, `isRecentlyVerified()` 가드 통과 후 새 비밀번호로 변경. 재설정 성공 시 인증 상태를 즉시 소진(`invalidateVerification()`)해 같은 인증으로 유예시간 안에 반복 재설정되는 것을 막음 |
+| GET | `/api/members/check?email=` | 불필요 | 이메일 가입 여부 확인 (`{exists: true/false}`, 항상 200 — 에러로 취급 안 함). 회원가입 실시간 중복확인과 비밀번호 찾기(코드 확인 직후 계정 존재 여부 확인) 공용 |
+| GET | `/api/members/check?nickname=` | 불필요 | 닉네임 사용 중 여부 확인 (`{exists: true/false}`, 항상 200) — 회원가입 실시간 중복확인용 |
 | GET | `/api/members/me` | 필요 | 내 프로필 조회 (Member + MemberSetting 통합) |
 | PATCH | `/api/members/me/nickname` | 필요 | 닉네임 변경 |
 | PATCH | `/api/members/me/password` | 필요 | 비밀번호 변경 |
@@ -301,7 +302,8 @@ NEARDEST가 지오펜싱 기반으로 바뀐 뒤로는(위 "알람 메커니즘"
   - MySQL이 아니라 Redis를 쓴 이유: 만료 판정을 직접 짠 타임스탬프 비교 대신 Redis의 TTL 자동 삭제에 맡길 수 있고(별도 정리 스케줄러 불필요), 인증코드/재설정 토큰/Refresh Token을 오늘 한 번에 도입하기로 하면서 굳이 MySQL로 먼저 갔다가 나중에 다시 옮기는 이중 작업을 피함(`docs/planning/redis-adoption-backlog.md`의 "Refresh Token 단계에서 최초 도입" 방침을 이 시점에 앞당김).
   - 트레이드오프: Redis 키가 사라지면 "요청한 적 없음"과 "만료됨"을 서버가 구분 못 한다(MySQL 레코드처럼 남아있지 않으므로) — `confirmCode()`가 두 경우를 하나의 메시지("인증코드가 만료되었거나 요청 내역이 없습니다")로 안내.
 - 회원가입 정보(주소/이동수단 등)를 통째로 스테이징하지 않고 이메일+코드만 별도 관리 — 기존 `POST /api/members`/`SignupRequest`는 그대로 재사용.
-- 인증 성공(`confirm`) 후 **10분 이내에만** `isRecentlyVerified()`가 true를 반환 — 이 유예 시간 안에 회원가입을 완료해야 하며, 비밀번호 찾기(예정)도 동일한 가드를 재사용할 수 있도록 이메일 인증 목적(가입/비번재설정)을 구분하는 필드를 두지 않았다.
+- 인증 성공(`confirm`) 후 **10분 이내에만** `isRecentlyVerified()`가 true를 반환 — 이 유예 시간 안에 회원가입 또는 비밀번호 찾기(`PATCH /api/members/password-reset`, `MemberService.resetPassword()`)를 완료해야 하며, 둘이 동일한 가드를 재사용할 수 있도록 이메일 인증 목적(가입/비번재설정)을 구분하는 필드를 두지 않았다.
+- 비밀번호 재설정은 로그인 없이 이메일 인증만으로 실행되는 민감 작업이라, 회원가입과 달리 성공 직후 `invalidateVerification()`으로 `verified` 키를 즉시 삭제해 인증 상태를 소진시킨다 — 같은 인증으로 10분 유예시간 안에 비밀번호를 여러 번 재설정할 수 있는 창을 없앰. 회원가입은 이메일 유니크 제약으로 애초에 1회성이 보장돼서 이 소진 처리를 하지 않는다.
 - 메일 발송은 AWS SES SMTP 인터페이스(`spring.mail.*`, `EmailVerificationService`가 `JavaMailSender` 사용) — Gmail SMTP 대비 스팸함 분류 위험이 낮고, `gonow-api.uk` 도메인의 DKIM/SPF/DMARC 인증을 마쳤다(2026-08-21). SES 프로덕션 액세스도 승인 완료(2026-08-22)되어, 샌드박스 제약(사전 인증된 수신자에게만 발송 가능) 없이 임의 수신자에게 발송 가능.
 - 발신자 주소(`EmailVerificationService.FROM_ADDRESS`, `noreply@gonow-api.uk`)는 코드에 명시적으로 지정돼 있어야 한다 — `SimpleMailMessage`에 `setFrom()`을 생략하면 JavaMail이 로컬 OS 계정 정보로 자동 채워서 SES가 "발신자 미인증"으로 거부한다(실제로 겪은 버그, 도메인 인증된 주소만 발신 가능).
 - `sendCode()`는 Redis에 코드를 저장한 다음에 메일을 발송한다(순서 중요) — 메일 발송이 어떤 이유로든 실패해도 코드는 이미 Redis에 저장돼 있고 서버 로그(`이메일 인증코드 발송 시도 - email: ..., code: ...`)로 확인 가능해, 실제 메일 수신 없이도 확인(`confirm`) 단계까지 테스트할 수 있다.
@@ -457,7 +459,7 @@ GoNow는 **UTC를 쓰지 않고 KST(Asia/Seoul) 벽시계 시각을 오프셋 �
 ### 완료
 - 인증: JWT (JwtTokenProvider, JwtTokenFilter), Spring Security (STATELESS)
 - 글로벌 예외 처리 (GlobalExceptionHandler), 표준 응답 포맷 (ApiResult + SNAKE_CASE)
-- 회원: 회원가입(이메일 인증 필수, AWS SES)/로그인/프로필/닉네임·비밀번호 변경/FCM 토큰/귀가지/설정/탈퇴(스켈레톤)
+- 회원: 회원가입(이메일 인증 필수, AWS SES)/로그인/프로필/닉네임·비밀번호 변경/비밀번호 찾기(이메일 인증 재사용)/FCM 토큰/귀가지/설정/탈퇴(스켈레톤)
 - 장소: 목록 조회(타입 필터링), Upsert 저장, 삭제
 - 개인/귀가 여정: 생성·수정·삭제·상세 조회·알람 스위치
 - 그룹 알람: 생성(초대코드 자동)·참여·수정·삭제·상세 조회·대시보드

@@ -64,6 +64,12 @@ public class EmailVerificationService {
         return Boolean.TRUE.equals(redisTemplate.hasKey(verifiedKey(email)));
     }
 
+    // 인증 완료 상태 소진 (비밀번호 재설정처럼 반복 가능한 민감 작업 완료 직후 호출 — 유예시간 안에 같은 인증으로 재차 실행되는 것 방지)
+    // 회원가입은 이메일 유니크 제약으로 자연히 1회성이 보장돼서 호출하지 않는다.
+    public void invalidateVerification(String email) {
+        redisTemplate.delete(verifiedKey(email));
+    }
+
     // 이메일별 인증코드 Redis 키 생성
     private String codeKey(String email) {
         return CODE_KEY_PREFIX + email;
